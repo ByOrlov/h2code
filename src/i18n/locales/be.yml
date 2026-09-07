@@ -118,6 +118,7 @@ be:
     tips: "Toggle startup tips"
     volume: "Set sound volume"
     cleanup: "Выдаліць старыя сесіі і галасавыя паведамленні"
+    bash: "Статус абалонкі і bash"
   help:
     title: "даведка"
     subtitle: "· Esc / Enter / q — закрыць · ↑↓ — пракрутка"

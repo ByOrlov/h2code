@@ -301,6 +301,86 @@ module H2code
         @on_sudo_mode_change.try(&.call(mode.to_s.downcase))
       end
 
+      # /bash — inspect and control the shell setup: which interpreter
+      # executes commands, where bash lives (Windows), deep detection and a
+      # manual path override. On Windows cmd.exe always executes commands;
+      # the bash location is only advertised to the model so it can invoke
+      # bash explicitly for POSIX-only tasks.
+      private def cmd_bash(args : String) : Nil
+        parts = args.split(' ', 2)
+        sub = parts[0]? || ""
+        rest = parts[1]?.try(&.strip) || ""
+
+        case sub
+        when "", "status"
+          port = Tools::Tool::SHELL_PORT
+          line = "Shell: #{port.name} (`#{port.program}`)"
+          {% if flag?(:win32) %}
+            win = port.as(Win32ShellPort)
+            if (b = win.bash_reference)
+              src = ShellPort.bash_path ? " (configured)" : " (auto-detected)"
+              line += "\nbash: #{b}#{src}"
+            else
+              line += "\nbash: not found (use /bash detect or /bash patch <path>)"
+            end
+          {% end %}
+          emit_to_log(Message.new("system", line))
+        when "detect"
+          {% if flag?(:win32) %}
+            emit_to_log(Message.new("system", "Detecting bash (probing candidates, may take a few seconds)…"))
+            spawn do
+              path = Win32ShellPort.detect_bash
+              if path
+                ShellPort.bash_path = path
+                @app_config.try do |cfg|
+                  cfg.bash_available = path
+                  cfg.save
+                end
+                emit_to_log(Message.new("system", "bash found and verified: #{path} (saved to config)"))
+              else
+                emit_to_log(Message.new("system",
+                  "No working bash found. Commands run through cmd.exe; PowerShell is invocable " \
+                  "via `powershell -NoProfile -Command \"...\"`. A path can be set manually: /bash patch <path-to-bash.exe>"))
+              end
+            end
+          {% else %}
+            emit_to_log(Message.new("system", "bash detection is Windows-only; on Unix bash resolves via PATH."))
+          {% end %}
+        when "patch"
+          {% if flag?(:win32) %}
+            if rest.empty?
+              emit_to_log(Message.new("error", "Usage: /bash patch <path-to-bash.exe>"))
+              return
+            end
+            unless File.file?(rest)
+              emit_to_log(Message.new("error", "Not a file: #{rest}"))
+              return
+            end
+            ShellPort.bash_path = rest
+            if cfg = @app_config
+              cfg.bash_available = rest
+              cfg.save
+            end
+            emit_to_log(Message.new("system", "bash path set: #{rest} (saved to config)"))
+          {% else %}
+            emit_to_log(Message.new("system", "bash path override is Windows-only; on Unix bash resolves via PATH."))
+          {% end %}
+        when "clear"
+          {% if flag?(:win32) %}
+            ShellPort.bash_path = nil
+            if cfg = @app_config
+              cfg.bash_available = nil
+              cfg.save
+            end
+            emit_to_log(Message.new("system", "bash path override cleared"))
+          {% else %}
+            emit_to_log(Message.new("system", "bash path override is Windows-only; on Unix bash resolves via PATH."))
+          {% end %}
+        else
+          emit_to_log(Message.new("error", "Unknown subcommand: #{sub}. Use: status, detect, patch <path>, clear."))
+        end
+      end
+
       private def cmd_effort(args : String) : Nil
         if args.empty?
           open_effort_selector

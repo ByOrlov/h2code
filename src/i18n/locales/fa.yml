@@ -118,6 +118,7 @@ fa:
     tips: "Toggle startup tips"
     volume: "Set sound volume"
     cleanup: "حذف جلسات و پیام‌های صوتی قدیمی"
+    bash: "نمایش وضعیت پوسته و bash"
   help:
     title: "راهنما"
     subtitle: "· Esc / Enter / q برای بستن · ↑↓ برای پیمایش"

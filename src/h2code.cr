@@ -472,6 +472,10 @@ module H2code
       # subagents, ACP) share the same values without re-reading ENV.
       Tools::Bash.git_terminal_prompt = config.git_terminal_prompt
       Tools::Bash.shell = config.shell
+      # Windows: advertise the configured bash location to the model. cmd.exe
+      # always executes commands; this only tells the model where bash is so
+      # it can invoke it explicitly for POSIX-only tasks.
+      Tools::Tool::SHELL_PORT.bash_path = config.bash_available
       tools.register(bash_tool)
 
       goal_service = H2code::Tools::AgentGoalService.new

@@ -118,6 +118,7 @@ hi:
     tips: "Toggle startup tips"
     volume: "Set sound volume"
     cleanup: "पुराने सत्र और वॉइस संदेश हटाएं"
+    bash: "शेल और bash की स्थिति दिखाएँ"
   help:
     title: "सहायता"
     subtitle: "· Esc / Enter / q — बंद करें · ↑↓ स्क्रॉल"

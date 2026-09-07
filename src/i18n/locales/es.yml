@@ -118,6 +118,7 @@ es:
     tips: "Toggle startup tips"
     volume: "Set sound volume"
     cleanup: "Eliminar sesiones y mensajes de voz antiguos"
+    bash: "Mostrar el estado del shell y bash"
   help:
     title: "ayuda"
     subtitle: "· Esc / Enter / q para cancelar · ↑↓ desplazar"

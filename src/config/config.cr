@@ -136,6 +136,9 @@ module H2code
       property tmp_dir : String? = nil
       property git_terminal_prompt : String? = nil
       property shell : String? = nil
+      # Verified/explicit bash.exe location for the Windows shell port
+      # (set by /bash detect or /bash patch). nil = auto (existence scan).
+      property bash_available : String? = nil
       property notifications : Notify::Config = Notify::Config.default
       property sync : SyncConfig = SyncConfig.new
       property hooks : Array(Hooks::HookDef) = [] of Hooks::HookDef
@@ -403,6 +406,10 @@ module H2code
           config.temperature = agent["temperature"]?.try(&.as_f?)
         end
 
+        if shell_cfg = root["shell"]?.try(&.as_h?)
+          config.bash_available = shell_cfg["bash_available"]?.try(&.as_s?)
+        end
+
         if ui = root["ui"]?.try(&.as_h?)
           config.language = ui["language"]?.try(&.as_s?)
           config.debug_zones = ui["debug_zones"]?.try(&.as_bool?) || false
@@ -483,6 +490,12 @@ module H2code
               json.object do
                 json.field("mode", @permission_mode)
                 json.field("sudo_mode", @sudo_mode)
+              end
+            end
+
+            json.field("shell") do
+              json.object do
+                json.field("bash_available", @bash_available)
               end
             end
 

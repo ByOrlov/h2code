@@ -118,6 +118,7 @@ ja:
     tips: "Toggle startup tips"
     volume: "Set sound volume"
     cleanup: "古いセッションと音声メッセージを削除"
+    bash: "シェルとbashの状態を表示"
   help:
     title: "ヘルプ"
     subtitle: "· Esc / Enter / q でキャンセル · ↑↓ スクロール"

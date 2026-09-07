@@ -200,15 +200,23 @@ module H2code
         "#{name} (`#{shell}`)"
       end
 
-      # Windows-specific guidance built from the resolved shell: the old text
-      # unconditionally claimed Git Bash, which is wrong when Git for Windows
-      # is not installed and the port fell back to PowerShell.
+      # Windows-specific guidance built from the resolved shell: cmd.exe
+      # always executes commands, PowerShell and (when detected) bash are
+      # invocable from within any command.
       private def self.windows_note : String
-        if ::H2code::Tools::Tool::SHELL_PORT.name == "bash"
-          "IMPORTANT: You are on Windows. The Bash tool runs through Git Bash, so use Unix shell syntax inside Bash commands — `/dev/null` not `NUL`, and forward slashes in paths. For file operations, always prefer the built-in tools (Read, Write, Edit, Glob, Grep) over Bash commands — they work reliably across all platforms."
-        else
-          "IMPORTANT: You are on Windows and no bash is installed — the Bash tool runs through PowerShell. Use PowerShell syntax; `&&`/`||` chaining is unavailable in Windows PowerShell 5.1 (use `;` separators or separate tool calls). For file operations, always prefer the built-in tools (Read, Write, Edit, Glob, Grep) over Bash commands — they work reliably across all platforms."
-        end
+        base = "IMPORTANT: You are on Windows. Commands run through cmd.exe. PowerShell is directly invocable via `powershell -NoProfile -Command \"...\"`"
+        bash_suffix =
+          {% if flag?(:win32) %}
+            if ::H2code::Tools::Tool::SHELL_PORT.as?(Win32ShellPort).try(&.bash_reference)
+              ", and bash for POSIX-only tasks (see the Bash tool description for the exact path)"
+            else
+              ". No bash is installed — use PowerShell or cmd equivalents for POSIX-style tasks"
+            end
+          {% else %}
+            # win32-only check; this note is only rendered on Windows builds.
+            ""
+          {% end %}
+        base + bash_suffix + ". For file operations, always prefer the built-in tools (Read, Write, Edit, Glob, Grep) over shell commands — they work reliably across all platforms."
       end
 
       private def self.additional_dirs_info(additional_dirs : Array(String)) : String

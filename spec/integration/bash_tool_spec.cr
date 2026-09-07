@@ -16,11 +16,14 @@ def posix_shell? : Bool
   {"bash", "sh"}.includes?(integration_shell.name)
 end
 
-# Pick the command variant for the resolved interpreter. When no powershell
-# variant is given the posix one is assumed portable enough (e.g. `exit 3`).
+# Pick the command variant for the resolved interpreter. When the default
+# shell is cmd.exe, PowerShell variants are invoked explicitly via
+# `powershell -NoProfile -Command "..."` — exactly the pattern the tool's
+# guidance teaches the model.
 def cmd(posix : String, powershell : String = "") : String
   return posix if posix_shell?
-  powershell.empty? ? posix : powershell
+  return posix if powershell.empty?
+  integration_shell.name == "powershell" ? powershell : %(powershell -NoProfile -Command "#{powershell}")
 end
 
 # A headless Bash instance: default abort check, no sudo approval, no
@@ -66,9 +69,9 @@ describe "Bash tool, headless integration", tags: "integration" do
     end
   end
 
-  it "chains dependent commands with && (POSIX shells only)" do
+  it "chains dependent commands with && (cmd supports it natively)" do
     with_tmpdir do |dir|
-      if posix_shell?
+      if posix_shell? || integration_shell.name == "cmd"
         bash = headless_bash(dir)
         result = bash.execute(JSON.parse(%({"command":"true && echo chained"})))
         result.is_error?.should be_false
@@ -76,6 +79,17 @@ describe "Bash tool, headless integration", tags: "integration" do
       else
         # Windows PowerShell 5.1 has no &&; the tool description steers the
         # model away from it — nothing to verify on this shell.
+      end
+    end
+  end
+
+  it "runs native cmd syntax when cmd.exe is the interpreter" do
+    with_tmpdir do |dir|
+      if integration_shell.name == "cmd"
+        bash = headless_bash(dir)
+        result = bash.execute(JSON.parse(%({"command":"echo hello | find \"hello\""})))
+        result.is_error?.should be_false
+        result.content.should contain("hello")
       end
     end
   end
@@ -117,7 +131,8 @@ describe "Bash tool, headless integration", tags: "integration" do
       )
       result = bash.execute(JSON.parse(%({"command":"#{command}"})))
       result.is_error?.should be_false
-      lines = result.content.strip.split('\n')
+      # Windows shells emit CRLF; strip per-line before exact matching.
+      lines = result.content.strip.split('\n').map(&.strip)
       lines.should contain("1")    # NO_COLOR=1
       lines.should contain("dumb") # TERM=dumb
     end

@@ -118,6 +118,7 @@ uk:
     tips: "Toggle startup tips"
     volume: "Set sound volume"
     cleanup: "Видалити старі сесії та голосові повідомлення"
+    bash: "Статус оболонки та bash"
   help:
     title: "довідка"
     subtitle: "· Esc / Enter / q — закрити · ↑↓ — прокрутка"

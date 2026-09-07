@@ -4,8 +4,10 @@ describe H2code::ShellPort do
   port = H2code::ShellPort.default
 
   {% if flag?(:win32) %}
-    it "resolves to an interpreter with a name" do
-      {"bash", "powershell"}.should contain(port.name)
+    it "resolves to native cmd.exe without probing at startup" do
+      port.name.should eq("cmd")
+      port.program.should eq("cmd.exe")
+      port.shell_args("echo hi").should eq(["/d", "/c", "echo hi"])
     end
   {% else %}
     it "wraps the command in -c argv" do

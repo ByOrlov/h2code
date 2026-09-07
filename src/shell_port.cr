@@ -44,6 +44,13 @@ module H2code
         UnixShellPort.new
       {% end %}
     end
+
+    # Explicit bash location for the Windows adapter (set via `/bash patch`,
+    # persisted in config as `bash_available`). Inert on Unix. This never
+    # changes which interpreter *executes* commands — on Windows that is
+    # always cmd.exe — it only advertises the bash path to the model so it
+    # can invoke it explicitly for POSIX-only tasks.
+    class_property bash_path : String? = nil
   end
 end
 

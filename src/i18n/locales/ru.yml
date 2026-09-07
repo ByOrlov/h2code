@@ -118,6 +118,7 @@ ru:
     tips: "Toggle startup tips"
     volume: "Установить громкость звука"
     cleanup: "Удалить старые сессии и голосовые сообщения"
+    bash: "Статус оболочки и bash"
   help:
     title: "справка"
     subtitle: "· Esc / Enter / q — закрыть · ↑↓ — прокрутка"
