@@ -43,6 +43,7 @@ module H2code
       CRON_LIST         = "CronList"
       CRON_DELETE       = "CronDelete"
       CURRENT_TIME      = "CurrentTime"
+      GET_CONTEXT_REMAINING = "GetContextRemaining"
     end
   end
 end

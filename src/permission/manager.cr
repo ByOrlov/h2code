@@ -134,7 +134,7 @@ module H2code
 
       private def auto_approve?(tool_name : String) : Bool
         case tool_name
-        when Tools::Names::READ, Tools::Names::GLOB, Tools::Names::GREP, Tools::Names::TODO_LIST, Tools::Names::CURRENT_TIME
+        when Tools::Names::READ, Tools::Names::GLOB, Tools::Names::GREP, Tools::Names::TODO_LIST, Tools::Names::CURRENT_TIME, Tools::Names::GET_CONTEXT_REMAINING
           true
         else
           false

@@ -67,6 +67,7 @@ require "./tools/cron"
 require "./tools/read_media"
 require "./tools/select_tools"
 require "./tools/curr_time"
+require "./tools/get_context_remaining"
 require "./mcp/types"
 require "./mcp/tool_naming"
 require "./mcp/transport"
@@ -353,6 +354,7 @@ module H2code
       tools.register(Tools::ReadMediaFile.new)
       tools.register(Tools::SelectTools.new)
       tools.register(Tools::CurrentTime.new)
+      tools.register(Tools::GetContextRemaining.new(memory))
 
       permission = Permission::Manager.new(Permission::Mode.parse(config.permission_mode))
 

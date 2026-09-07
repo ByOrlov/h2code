@@ -513,7 +513,7 @@ module H2code
         memory.max_context_tokens = @config.max_context_tokens
 
         # Build tools
-        tools = build_tools(cwd)
+        tools = build_tools(cwd, memory)
 
         # Connect configured MCP servers (config + IDE-provided via ACP)
         all_mcp = @config.mcp_servers + mcp_servers
@@ -589,7 +589,7 @@ module H2code
         acp_session
       end
 
-      private def build_tools(work_dir : String) : Tools::Registry
+      private def build_tools(work_dir : String, memory : Context::Memory) : Tools::Registry
         tools = Tools::Registry.new
         # App-wide sudo mode from config (mirrors the TUI `/sudo` setting).
         Tools::Bash.default_sudo_mode = Tools::Bash::SudoMode.parse?(@config.sudo_mode) || Tools::Bash::SudoMode::Off
@@ -621,6 +621,7 @@ module H2code
         tools.register(Tools::ReadMediaFile.new)
         tools.register(Tools::SelectTools.new)
         tools.register(Tools::CurrentTime.new)
+        tools.register(Tools::GetContextRemaining.new(memory))
         tools
       end
 
