@@ -242,7 +242,7 @@ module H2code
       @session_id : String = ""
       @work_dir : String = ""
       @additional_dirs : Array(String) = [] of String
-      @home : String = ENV["HOME"]? || "/tmp"
+      @home : String = HomePort.home
       @git_branch : String = ""
 
       property model : String

@@ -20,7 +20,7 @@ module H2code
     end
 
     def self.exceptions_dir : String
-      base = @@home || ENV["H2CODE_HOME"]? || File.join(ENV["HOME"]? || "/tmp", ".h2code")
+      base = @@home || ENV["H2CODE_HOME"]? || File.join(HomePort.home, ".h2code")
       File.join(base, "exceptions")
     end
 

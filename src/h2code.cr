@@ -16,6 +16,8 @@ require "./version_compare"
 require "./upgrader"
 require "./exception_handler"
 require "./process_port"
+require "./home_port"
+require "./shell_port"
 require "./llm/types"
 require "./llm/token_counter"
 require "./llm/http_transport"
@@ -282,7 +284,7 @@ module H2code
       end
       config.ensure_h2code_home
 
-      home = ENV["HOME"]? || "/tmp"
+      home = HomePort.home
 
       oauth_path = File.join(home, ".kimi-code", "credentials", "kimi-code.json")
       oauth = LLM::OAuthCredentials.load(oauth_path)
@@ -377,7 +379,7 @@ module H2code
       mcp_manager.register_from_cache(merged_mcp, tools,
         active_provider: config.provider_name, blocking: prompt ? true : false)
 
-      home = ENV["HOME"]? || "/tmp"
+      home = HomePort.home
       lifecycle = H2code::Session::Lifecycle.new(home)
       store = begin
         if sid = session_id
@@ -843,7 +845,7 @@ module H2code
         exit(2)
       end
 
-      home = ENV["HOME"]? || "/tmp"
+      home = HomePort.home
       oauth_path = File.join(home, ".kimi-code", "credentials", "kimi-code.json")
       oauth = LLM::OAuthCredentials.load(oauth_path)
 

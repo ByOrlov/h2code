@@ -150,12 +150,7 @@ module H2code
       end
 
       private def self.expand_user(path : String) : String
-        home = {% if flag?(:win32) %}
-                 (ENV["HOME"]? || ENV["USERPROFILE"]?)
-               {% else %}
-                 ENV["HOME"]?
-               {% end %}
-        return path if home.nil? || home.empty?
+        home = HomePort.home
 
         return home if path == "~"
         tilde_sep = {% if flag?(:win32) %} path.starts_with?("~\\") {% else %} false {% end %}

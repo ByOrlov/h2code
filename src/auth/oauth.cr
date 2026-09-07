@@ -13,7 +13,7 @@ module H2code
     module OAuth
       DEFAULT_OAUTH_HOST       = "https://auth.kimi.com"
       DEFAULT_CLIENT_ID        = "17e5f671-d194-4dfb-9706-5516cb48c098"
-      DEFAULT_CREDENTIALS_PATH = File.join(ENV["HOME"]? || "/tmp", ".kimi-code", "credentials", "kimi-code.json")
+      DEFAULT_CREDENTIALS_PATH = File.join(HomePort.home, ".kimi-code", "credentials", "kimi-code.json")
 
       # Result of the device-authorization request.
       struct DeviceAuthorization

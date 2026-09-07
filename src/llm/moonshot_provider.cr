@@ -104,7 +104,7 @@ module H2code
       end
 
       private def credentials_path : String
-        home = ENV["HOME"]? || "/tmp"
+        home = HomePort.home
         File.join(home, ".kimi-code", "credentials", "kimi-code.json")
       end
     end

@@ -13,7 +13,7 @@ module H2code
       getter home : String
       getter index : Index
 
-      def initialize(@home : String = (ENV["HOME"]? || "/tmp"))
+      def initialize(@home : String = HomePort.home)
         @index = Index.new(@home)
       end
 

@@ -2,7 +2,7 @@ module H2code
   module Prompt
     class AgentsMd
       def self.discover(cwd : String) : String
-        home = ENV["HOME"]? || "/tmp"
+        home = HomePort.home
         h2code_home = ENV["H2CODE_HOME"]? || File.join(home, ".h2code")
 
         paths = [] of String

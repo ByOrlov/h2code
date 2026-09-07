@@ -298,7 +298,7 @@ module H2code
       end
 
       def self.default_config_path : String
-        home = ENV["HOME"]? || "/tmp"
+        home = HomePort.home
         h2code_home = ENV["H2CODE_HOME"]? || File.join(home, ".h2code")
         File.join(h2code_home, "config.json")
       end
@@ -457,7 +457,7 @@ module H2code
 
         # MCP servers: load from mcp.json sources (user-global, project-root,
         # project-local) and merge by name.
-        home = ENV["HOME"]? || "/tmp"
+        home = HomePort.home
         config.mcp_servers = Mcp::ConfigLoader.load(home, cwd: Dir.current)
 
         config
@@ -691,7 +691,7 @@ module H2code
       end
 
       def ensure_h2code_home : Nil
-        home = ENV["HOME"]? || "/tmp"
+        home = HomePort.home
         h2code_home = ENV["H2CODE_HOME"]? || File.join(home, ".h2code")
         Dir.mkdir_p(h2code_home) unless Dir.exists?(h2code_home)
         sessions_dir = File.join(h2code_home, "sessions")
@@ -733,7 +733,7 @@ module H2code
       # entry point and stored on the provider, not the config. The config
       # only knows whether an api_key is set, so this is a best-effort check.
       private def oauth_credentials_present? : Bool
-        home = ENV["HOME"]? || "/tmp"
+        home = HomePort.home
         path = File.join(home, ".kimi-code", "credentials", "kimi-code.json")
         File.exists?(path)
       end

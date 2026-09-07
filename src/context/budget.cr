@@ -3,7 +3,7 @@ module H2code
     class Budget
       MAX_RESULT_CHARS = 50_000
       PREVIEW_CHARS    =  2_000
-      OUTPUT_DIR       = File.join(ENV["HOME"]? || "/tmp", ".h2code", "tool-results")
+      OUTPUT_DIR       = File.join(HomePort.home, ".h2code", "tool-results")
 
       def self.budget(tool_name : String, tool_call_id : String, content : String) : {String, Bool}
         return {content, false} if content.size <= MAX_RESULT_CHARS

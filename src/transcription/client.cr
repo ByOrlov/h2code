@@ -66,7 +66,7 @@ module H2code
             break
           end
         end
-        home = ENV["HOME"]? || "/tmp"
+        home = HomePort.home
         path = path.sub(/^~(?=\/|$)/, home)
         new(path)
       end

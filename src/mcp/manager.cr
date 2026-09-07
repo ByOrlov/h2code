@@ -75,7 +75,7 @@ module H2code
       @active_provider : String? = nil
       @global_attempt_counter = Atomic(Int32).new(0)
 
-      def initialize(@home_dir : String = (ENV["HOME"]? || "/tmp"))
+      def initialize(@home_dir : String = HomePort.home)
       end
 
       # Connect every configured server. By default this is non-blocking —

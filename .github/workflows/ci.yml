@@ -24,6 +24,34 @@ jobs:
         run: shards install
 
       - name: Spec
-        run: |
-          LINK_FLAGS="$(./scripts/build_miniaudio.sh)"
-          crystal spec --warnings none --no-color --link-flags "$LINK_FLAGS"
+        run: rake spec
+
+  # Integration: the tools run headlessly (no TTY, no user approval) against
+  # the real system of each runner, exercising the platform ShellPort/HomePort
+  # adapters. Windows runners have Git for Windows on PATH, so the win32
+  # adapter's bash branch is covered; PowerShell fallback is covered by the
+  # unit-level shell_port specs.
+  integration:
+    name: Integration (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Crystal
+        uses: crystal-lang/install-crystal@v1
+        with:
+          crystal: 1.21.0
+
+      - name: Set up MSVC (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Install shards
+        run: shards install
+
+      - name: Integration specs (headless tool execution)
+        run: rake spec:integration

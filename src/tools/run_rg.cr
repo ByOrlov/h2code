@@ -64,7 +64,7 @@ module H2code
           end
         end
         fallbacks.each do |candidate|
-          expanded = candidate.starts_with?('~') ? File.expand_path(candidate, home: ENV["HOME"]) : candidate
+          expanded = candidate.starts_with?('~') ? File.expand_path(candidate, home: HomePort.home) : candidate
           return expanded if File.file?(expanded) && File.executable?(expanded)
         end
         "rg"

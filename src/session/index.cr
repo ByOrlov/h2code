@@ -71,7 +71,7 @@ module H2code
     class Index
       getter home : String
 
-      def initialize(@home : String = (ENV["HOME"]? || "/tmp"))
+      def initialize(@home : String = HomePort.home)
       end
 
       # The sessions root: `<home>/.h2code/sessions`.
