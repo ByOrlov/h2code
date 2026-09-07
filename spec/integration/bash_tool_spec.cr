@@ -98,7 +98,11 @@ describe "Bash tool, headless integration", tags: "integration" do
       target = File.join(dir, "nested")
       Dir.mkdir_p(target)
       bash = headless_bash(dir)
-      result = bash.execute(JSON.parse(%({"command":"#{cmd("pwd", "Get-Location")}","cwd":"#{target}"})))
+      # Build the payload via Hash#to_json: a Windows cwd contains backslashes
+      # (D:\a\...), which are invalid escape sequences when interpolated into
+      # a raw JSON literal.
+      input = {"command" => cmd("pwd", "Get-Location"), "cwd" => target}.to_json
+      result = bash.execute(JSON.parse(input))
       result.is_error?.should be_false
       result.content.should contain("nested")
     end
