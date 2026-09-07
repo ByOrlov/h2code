@@ -19,13 +19,14 @@ module H2code
       # Hardcoded fallback locations checked when `rg` is not on PATH —
       # common on macOS when the parent process has a minimal environment
       # (IDE plugin, launchd) that misses the Homebrew/cargo dirs the user's
-      # interactive shell sets up.
-      FALLBACK_RG_PATHS = [
-        "/opt/homebrew/bin/rg", # Homebrew on Apple Silicon
-        "/usr/local/bin/rg",    # Homebrew on Intel
-        "~/.cargo/bin/rg",      # cargo install ripgrep
-        "~/.local/bin/rg",      # cargo/user install (newer layouts)
-      ]
+      # interactive shell sets up. Windows lists its own package-manager
+      # layouts; `~` expands via HomePort (USERPROFILE on Windows).
+      FALLBACK_RG_PATHS = {% if flag?(:win32) %}
+                             ["~/.cargo/bin/rg.exe", "~/scoop/shims/rg.exe"]
+                           {% else %}
+                             ["/opt/homebrew/bin/rg", "/usr/local/bin/rg",
+                              "~/.cargo/bin/rg", "~/.local/bin/rg"]
+                           {% end %}
 
       # VCS metadata directories excluded from search. Mirrors
       # `VCS_DIRECTORIES_TO_EXCLUDE` in `support/run-rg.ts`.
@@ -55,12 +56,18 @@ module H2code
       # the recognizable "install ripgrep" message.
       def self.resolve_rg_binary(path_env : String?,
                                  fallbacks : Array(String) = FALLBACK_RG_PATHS) : String
+        # On Windows the binary is rg.exe — a bare "rg" never matches
+        # File.file?, so ripgrep installed via winget/scoop/choco went
+        # undetected and the tool silently degraded to a bare "rg" program.
+        names = {% if flag?(:win32) %} ["rg.exe", "rg"] {% else %} ["rg"] {% end %}
         unless path_env.nil? || path_env.empty?
           sep = {{ flag?(:win32) ? ";" : ":" }}
           path_env.split(sep).each do |dir|
             next if dir.empty?
-            candidate = File.join(dir, "rg")
-            return candidate if File.file?(candidate) && File.executable?(candidate)
+            names.each do |name|
+              candidate = File.join(dir, name)
+              return candidate if File.file?(candidate) && File.executable?(candidate)
+            end
           end
         end
         fallbacks.each do |candidate|

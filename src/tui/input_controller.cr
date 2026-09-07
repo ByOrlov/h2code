@@ -371,7 +371,7 @@ module H2code
       private def handle_external_editor : Nil
         cfg = @app_config
         editor_cmd = cfg.try(&.editor) || "vim"
-        tmp_dir = cfg.try(&.tmp_dir) || "/tmp"
+        tmp_dir = cfg.try(&.tmp_dir) || Dir.tempdir
         tmp_file = File.join(tmp_dir, "h2code-edit-#{Random::Secure.hex(4)}.md")
         File.write(tmp_file, @editor.expanded_text)
 
@@ -428,7 +428,7 @@ module H2code
         return nil unless session_dir = @on_session_dir.try(&.call)
         return nil unless Process.find_executable("tar")
 
-        tmp_dir = @app_config.try(&.tmp_dir) || "/tmp"
+        tmp_dir = @app_config.try(&.tmp_dir) || Dir.tempdir
         bundle_dir = File.join(tmp_dir, "h2code-debug-#{Random::Secure.hex(4)}")
         Dir.mkdir_p(bundle_dir)
 

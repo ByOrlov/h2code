@@ -60,9 +60,7 @@ module H2code
     end
 
     private def self.os_name : String
-      `uname -s 2>/dev/null`.strip
-    rescue
-      "unknown"
+      OS_NAME
     end
 
     private def self.build_report(ex : Exception, context : String) : String
