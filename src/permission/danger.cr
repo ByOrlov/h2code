@@ -21,11 +21,28 @@ module H2code
       # patterns are listed first.
       PATTERNS = [
         Pattern.new(Regex.new("\\brm\\s+(-[a-zA-Z]*[rRfF][a-zA-Z]*|--recursive|--force)", Regex::Options::IGNORE_CASE), "recursive delete"),
+        # cmd/PowerShell recursive deletes: `rd /s /q`, `Remove-Item -Recurse`.
+        Pattern.new(Regex.new("\\b(rd|rmdir|Remove-Item)\\b[^|]*(-Recurse|/[sS]\\b)", Regex::Options::IGNORE_CASE), "recursive delete"),
         Pattern.new(Regex.new("\\bsudo\\b", Regex::Options::IGNORE_CASE), "elevated privileges"),
+        # Windows elevation vectors: runas, PowerShell Start-Process -Verb RunAs.
+        Pattern.new(Regex.new("(\\brunas\\b|-Verb\\s+RunAs)", Regex::Options::IGNORE_CASE), "elevated privileges"),
         Pattern.new(Regex.new("\\b(curl|wget)\\b[^|]*\\|\\s*(sh|bash|zsh)\\b", Regex::Options::IGNORE_CASE), "pipe to shell"),
+        # PowerShell download cradles — iex wrapping a download, or a
+        # downloaded script piped into iex.
+        Pattern.new(Regex.new("\\b(iex|Invoke-Expression)\\b[^|]*\\b(irm|iwr|Invoke-RestMethod|Invoke-WebRequest)\\b|\\b(irm|iwr)\\b[^|]*\\|\\s*(iex|Invoke-Expression)\\b", Regex::Options::IGNORE_CASE), "pipe to shell"),
         Pattern.new(Regex.new("\\bdd\\b[^|]*\\bof=", Regex::Options::IGNORE_CASE), "raw device write"),
         Pattern.new(Regex.new("\\bmkfs\\b", Regex::Options::IGNORE_CASE), "filesystem format"),
+        # Windows format: `format C:`, `format /FS:NTFS D:` (flags optional).
+        Pattern.new(Regex.new("\\bformat\\s+(/[a-zA-Z]+[a-zA-Z:]*\\s+)*[a-zA-Z]:", Regex::Options::IGNORE_CASE), "filesystem format"),
+        # diskpart can `clean` (erase) whole disks.
+        Pattern.new(Regex.new("\\bdiskpart\\b", Regex::Options::IGNORE_CASE), "disk partitioning tool"),
         Pattern.new(Regex.new(">\\s*/dev/(sd|nvme|disk|hd)", Regex::Options::IGNORE_CASE), "write to raw device"),
+        # Windows device-namespace access: \\.\PhysicalDrive0, \\.\C:,
+        # \\.\Volume{...} — direct raw-device I/O. %r literal: the
+        # backslash-heavy regex is unreadable as an escaped string.
+        Pattern.new(%r{\\\\\.\\(PhysicalDrive|CdRom|Tape|Volume|[a-zA-Z]:)}i, "write to raw device"),
+        # Deleting Volume Shadow Copies wipes restore points (ransomware staple).
+        Pattern.new(Regex.new("\\bvssadmin\\b[^|]*\\bdelete\\b[^|]*\\bshadows\\b", Regex::Options::IGNORE_CASE), "delete shadow copies"),
         Pattern.new(Regex.new("\\bchmod\\s+-R?\\s*777\\b", Regex::Options::IGNORE_CASE), "world-writable"),
         Pattern.new(Regex.new(":\\(\\)\\s*\\{\\s*:\\|:&\\s*\\}", Regex::Options::IGNORE_CASE), "fork bomb"),
       ] of Pattern
