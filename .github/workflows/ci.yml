@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [master]
+    branches: [master, windows_shell]
   pull_request:
     branches: [master]
 
