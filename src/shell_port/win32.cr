@@ -56,12 +56,13 @@ module H2code
     # The bash location advertised to the model: explicit override first,
     # then a fast existence scan. Execution-free by design (see class doc).
     def bash_reference : String?
-      ShellPort.bash_path || scan_bash_candidates.first?
+      ShellPort.bash_path || self.class.scan_bash_candidates.first?
     end
 
     # Collect existing bash.exe candidates in resolution order. Fast:
-    # filesystem checks only, no process execution.
-    private def scan_bash_candidates : Array(String)
+    # filesystem checks only, no process execution. Class-level — used both
+    # by the instance guidance and by the deep `/bash detect` probe.
+    def self.scan_bash_candidates : Array(String)
       candidates = [] of String
       (ENV["PATH"]? || "").split(';').each do |dir|
         next if dir.empty?
@@ -87,7 +88,7 @@ module H2code
     #     not the user's Windows system).
     #   - `...\WindowsApps\bash.exe` is a Microsoft Store app-execution alias;
     #     executing it with the app absent opens the Store page.
-    private def stub?(path : String) : Bool
+    def self.stub?(path : String) : Bool
       down = path.downcase
       down.includes?("\\windows\\") || down.includes?("\\windowsapps\\")
     end
@@ -99,8 +100,7 @@ module H2code
     # Probe every existing candidate by actually running it; returns the
     # first working bash path, or nil. Not called from the startup path.
     def self.detect_bash : String?
-      port = default.as(Win32ShellPort)
-      port.scan_bash_candidates.each do |candidate|
+      scan_bash_candidates.each do |candidate|
         return candidate if bash_works?(candidate)
       end
       nil
