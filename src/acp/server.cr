@@ -620,6 +620,7 @@ module H2code
         tools.register(Tools::CronDelete.new)
         tools.register(Tools::ReadMediaFile.new)
         tools.register(Tools::SelectTools.new)
+        tools.register(Tools::CurrentTime.new)
         tools
       end
 

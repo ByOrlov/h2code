@@ -66,6 +66,7 @@ require "./remote/sync"
 require "./tools/cron"
 require "./tools/read_media"
 require "./tools/select_tools"
+require "./tools/curr_time"
 require "./mcp/types"
 require "./mcp/tool_naming"
 require "./mcp/transport"
@@ -351,6 +352,7 @@ module H2code
       tools.register(Tools::CronDelete.new)
       tools.register(Tools::ReadMediaFile.new)
       tools.register(Tools::SelectTools.new)
+      tools.register(Tools::CurrentTime.new)
 
       permission = Permission::Manager.new(Permission::Mode.parse(config.permission_mode))
 
