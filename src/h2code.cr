@@ -820,7 +820,7 @@ module H2code
 
     # Start the ACP (Agent Client Protocol) server for IDE integration.
     # Communicates with ACP clients (Zed, JetBrains, Neovim, etc.) over
-    # JSON-RPC on stdin/stdout. See `src/acp/` and `ACP-Plan.md`.
+    # JSON-RPC on stdin/stdout. See `src/acp/` and `plans/ACP-Plan.md`.
     private def self.run_acp(rest_argv : Array(String)) : Nil
       # Handle --login flag (terminal-auth pivot)
       if rest_argv.includes?("--login")

@@ -67,7 +67,7 @@ module H2code
     # the legacy flat layout (`<sessions>/<session>/{wire.jsonl,meta.json}`)
     # so sessions created by older h2code.cr builds stay resumable.
     #
-    # Ref: PLAN.md "Session Persistence" + "Local session management".
+    # Ref: plans/PLAN.md "Session Persistence" + "Local session management".
     class Index
       getter home : String
 

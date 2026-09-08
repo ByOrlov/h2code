@@ -9,6 +9,7 @@
 
 kimi-code/
 *.swp
+.rake_tasks~
 
 tmp/
 VOICE-INTEGRATION.md

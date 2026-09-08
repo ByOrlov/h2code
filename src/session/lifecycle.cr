@@ -8,7 +8,7 @@ module H2code
     # rename. CLI- and TUI-only: there is no HTTP server, so every action
     # acts directly on the filesystem via `Session::Store` + `Session::Index`.
     #
-    # Ref: PLAN.md "Local session management (console-only)".
+    # Ref: plans/PLAN.md "Local session management (console-only)".
     class Lifecycle
       getter home : String
       getter index : Index

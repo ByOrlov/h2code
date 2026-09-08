@@ -1,7 +1,7 @@
 module H2code
   module Notify
     # Configuration for the notification subsystem, mirroring the `[notifications]`
-    # TOML block. See PLAN.md §Config for the schema.
+    # TOML block. See plans/PLAN.md §Config for the schema.
     class Config
       property? enabled : Bool = true
       property condition : String = "unfocused" # "unfocused" | "always" (terminal channel only)
