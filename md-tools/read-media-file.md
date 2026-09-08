@@ -362,37 +362,47 @@ MVP Crystal — shell-out в `convert`/`magick` из ImageMagick.
 
 ## 10. План реализации (чек-лист)
 
-- [ ] Прочитать JS: `tools/read-media.ts` + `.md`,
+- [x] Прочитать JS: `tools/read-media.ts` + `.md`,
       `file-type.ts`, `image-compress.ts`, `image-format-policy.ts`,
       `image-originals.ts`, `imageConfigBridge.ts`,
       `mediaToolsRegistrar.ts`, `registerMediaTools.ts`,
       `configSection.ts`, `webp-decode.ts`.
 - [x] Описать контракт в `md-tools/read-media-file.md`.
-- [ ] Реализовать `detect_file_type` (magic-byte sniffing для PNG/JPEG/
+- [x] Реализовать `detect_file_type` (magic-byte sniffing для PNG/JPEG/
       GIF/WebP/MP4/WebM).
-- [ ] Реализовать `sniff_image_dimensions` (header-only).
-- [ ] Реализовать `compress_image_for_model` (через ImageMagick shell-out
-      или pure-Crystal library).
-- [ ] Реализовать `crop_image_for_model`.
-- [ ] Реализовать `format_byte_size`, error message templates,
+- [x] Реализовать `sniff_image_dimensions` (header-only).
+- [x] Реализовать `compress_image_for_model` — `ImageMagickImageProcessor`
+      (shell-out `magick`/`convert`, downscale-ladder до byte budget;
+      pass-through fallback когда ImageMagick нет).
+- [x] Реализовать `crop_image_for_model` (включая budget-fit ladder).
+- [x] Реализовать `format_byte_size`, error message templates,
       `build_media_note`.
-- [ ] Реализовать `Tools::ReadMediaFile` (§1–§7).
-- [ ] Реализовать `MediaToolsRegistrar` (capability-gated).
-- [ ] Добавить `ContentPart` тип `image_url` / `video_url` в Crystal message protocol.
+- [x] Реализовать `Tools::ReadMediaFile` (§1–§7).
+- [ ] Реализовать `MediaToolsRegistrar` (capability-gated). Частично:
+      capabilities вайрятся статически (image_in=true, video_in=false) в
+      `h2code.cr` / `acp/server.cr`; динамический per-model gating не
+      портирован (в Crystal нет таблицы model capabilities).
+- [x] Добавить `ContentPart` тип `image_url` / `video_url` в Crystal message protocol.
 - [ ] Подключить `video_uploader` для провайдеров, требующих upload-to-URL
-      (например Moonshot video API).
-- [ ] Тесты в `spec/tools/read_media_spec.cr`:
-  - [ ] text-file reject; unknown-binary reject; empty-file reject;
+      (например Moonshot video API) — отложено (не требуется для текущих
+      провайдеров; inline data-URL fallback работает).
+- [x] Тесты в `spec/tools/read_media_spec.cr`:
+  - [x] text-file reject; unknown-binary reject; empty-file reject;
         oversize-file reject; image-without-capability reject;
         video-without-capability reject.
-  - [ ] image default read (downsampled / untouched).
-  - [ ] image with `region` (crop).
-  - [ ] image with `full_resolution` (success + over-budget reject).
-  - [ ] decode-limit reject (huge file + region/full_resolution).
-  - [ ] delivery-limit reject (huge default read).
-  - [ ] unsupported-mime guidance.
-  - [ ] `<system>` note content checks.
-- [ ] Обновить `FIX-TOOLS.md`: отметить строку #19 выполненной.
+  - [x] image default read (downsampled / untouched).
+  - [x] image with `region` (crop).
+  - [x] image with `full_resolution` (success + over-budget reject).
+  - [x] decode-limit reject (huge file + region/full_resolution).
+  - [x] delivery-limit reject (huge default read).
+  - [x] unsupported-mime guidance.
+  - [x] `<system>` note content checks.
+- [x] Обновить `FIX-TOOLS.md`: отметить строку #19 выполненной.
+- [x] Рантайм-вайринг: `Media.fs` / `Media.capabilities` / `Media.image_processor`
+      назначаются в `h2code.cr` и `acp/server.cr` (раньше тул всегда отвечал
+      "not initialized").
+- [ ] Конвертация data-URL в tool result → `ImageContent` part в loop
+      (сейчас текстовый protocol; провайдеры сами парсят) — отложено.
 
 ---
 

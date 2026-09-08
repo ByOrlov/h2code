@@ -210,6 +210,20 @@ describe H2code::Tools::Glob do
       result.content.should contain("b.tsx")
       result.content.should_not contain("c.cr")
     end
+
+    it "matches character class [abc]" do
+      dir = glob_fresh_dir("charclass")
+      glob_write("#{dir}/a.cr")
+      glob_write("#{dir}/b.cr")
+      glob_write("#{dir}/x.cr")
+
+      glob = H2code::Tools::Glob.new(dir)
+      result = glob.execute(JSON.parse(%({"pattern": "[ab].cr"})))
+      result.is_error?.should be_false
+      result.content.should contain("a.cr")
+      result.content.should contain("b.cr")
+      result.content.should_not contain("x.cr")
+    end
   end
 
   context "recursive patterns" do
@@ -238,6 +252,57 @@ describe H2code::Tools::Glob do
       result.is_error?.should be_false
       result.content.should contain("Truncated at 100 matches")
       result.content.should contain("Only the first 100 matches are returned")
+    end
+  end
+
+  context "pagination" do
+    it "applies limit to cap the page size" do
+      dir = glob_fresh_dir("limit")
+      (1..5).each { |i| glob_write("#{dir}/f#{i}.cr") }
+
+      glob = H2code::Tools::Glob.new(dir)
+      result = glob.execute(JSON.parse(%({"pattern": "*.cr","limit":2})))
+      result.is_error?.should be_false
+      result.content.should contain("Truncated at 2 matches")
+      result.content.should contain("offset=2 to page")
+    end
+
+    it "offset skips the first N matches" do
+      dir = glob_fresh_dir("offset")
+      # Deterministic mtime order: a newest, c oldest.
+      glob_write("#{dir}/a.cr", mtime: Time.utc(2024, 1, 3))
+      glob_write("#{dir}/b.cr", mtime: Time.utc(2024, 1, 2))
+      glob_write("#{dir}/c.cr", mtime: Time.utc(2024, 1, 1))
+
+      glob = H2code::Tools::Glob.new(dir)
+      result = glob.execute(JSON.parse(%({"pattern": "*.cr","offset":1})))
+      result.is_error?.should be_false
+      result.content.should_not contain("a.cr\n")
+      result.content.should contain("b.cr")
+      result.content.should contain("c.cr")
+    end
+
+    it "reports a clean message when offset is past the end" do
+      dir = glob_fresh_dir("offset-end")
+      glob_write("#{dir}/a.cr")
+
+      glob = H2code::Tools::Glob.new(dir)
+      result = glob.execute(JSON.parse(%({"pattern": "*.cr","offset":5})))
+      result.is_error?.should be_false
+      result.content.should contain("No more matches")
+    end
+
+    it "limit=0 returns unlimited results" do
+      dir = glob_fresh_dir("unlimited")
+      (1..3).each { |i| glob_write("#{dir}/f#{i}.cr") }
+
+      glob = H2code::Tools::Glob.new(dir)
+      result = glob.execute(JSON.parse(%({"pattern": "*.cr","limit":0})))
+      result.is_error?.should be_false
+      result.content.should contain("f1.cr")
+      result.content.should contain("f2.cr")
+      result.content.should contain("f3.cr")
+      result.content.should_not contain("Truncated")
     end
   end
 

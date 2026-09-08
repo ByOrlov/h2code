@@ -296,10 +296,17 @@ module H2code
         # models with a strong baked-in brand identity answer "who are you"
         # with their vendor's name instead of H2Code. Built per step so a
         # runtime /provider or /model switch is reflected immediately.
-        sys_prompt = system_prompt
-        if sys_prompt && !sys_prompt.empty?
-          sys_prompt += Prompt::SystemPrompt.identity_block(@provider.name, @provider.model_name)
+        sys_prompt_base = system_prompt
+        if sys_prompt_base && !sys_prompt_base.empty?
+          sys_prompt_base += Prompt::SystemPrompt.identity_block(@provider.name, @provider.model_name)
         end
+
+        # Progressive tool disclosure: drop unloaded MCP tool schemas from
+        # the provider-visible tools[] and append the loadable-tools
+        # announcement to the system prompt. No-op unless the experimental
+        # tool-select flag is on. Re-derived per attempt (the loaded set may
+        # change between retries), never appended twice.
+        select_service = Tools::ToolSelect.service
 
         retry_policy = RetryPolicy.new
         retry_count = 0
@@ -311,8 +318,15 @@ module H2code
           # may have shrunk the context between attempts.
           @provider.used_context_tokens = @context.token_count
 
+          sys_prompt = sys_prompt_base
           messages = @context.messages
           tool_defs = @tools.definitions
+          if svc = select_service
+            tool_defs = svc.shape_tools(tool_defs)
+            if ann = svc.announcement(tool_defs)
+              sys_prompt = sys_prompt.nil? || sys_prompt.empty? ? ann : "#{sys_prompt}\n\n#{ann}"
+            end
+          end
 
           if @debug
             STDERR.puts "[debug] Last 3 messages:"

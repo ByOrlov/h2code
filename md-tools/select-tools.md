@@ -206,38 +206,46 @@ register_flag_definition(FlagDefinition.new(
 
 ## 7. План реализации (чек-лист)
 
-- [ ] Прочитать JS: `tools/select-tools.ts`, `toolSelect.ts`,
+- [x] Прочитать JS: `tools/select-tools.ts`, `toolSelect.ts`,
       `toolSelectService.ts`, `toolSelectAnnouncements.ts`,
       `toolSelectAnnouncementsService.ts`, `dynamicTools.ts`,
       `flag.ts`.
 - [x] Описать контракт в `md-tools/select-tools.md`.
-- [ ] Добавить experimental flag `toolSelect` в
-      `packages/agent-core/src/flags/registry.ts` (Crystal — в
-      соответствующий flags module).
-- [ ] Реализовать `ToolSelectService` (abstract) + простую impl:
-  - [ ] `enabled?` (flag + capability check).
-  - [ ] `shape_tools(entries)` с `deferred: true` для MCP.
-  - [ ] `shape_history(messages)` с stripping deferred tool args.
-  - [ ] `load(names)` с трёхсторонней классификацией.
-  - [ ] `loadable_tools_announcement` — генерация XML-блока.
-- [ ] Реализовать `Tools::SelectTools` (§1–§3).
-- [ ] Реализовать announcements service — генерация `<tools_loadable>` /
-      `<tools_added>` / `<tools_removed>` блоков, injection через
-      `Context::Memory#add_injection`.
-- [ ] Реализовать динамический MCP-tool loading (подгрузка schema из
-      MCP-server при `load`).
-- [ ] Регистрация `select_tools` в `src/h2code.cr:166` — всегда (т.к.
-      сам тул не deferred).
-- [ ] В Loop-runner'е: применять `shape_tools` перед сериализацией в
-      provider request, `shape_history` — к message history.
-- [ ] Тесты в `spec/tools/select_tools_spec.cr`:
-  - [ ] disabled → `"select_tools is not available for the current model."`.
-  - [ ] success — `Loaded: a, b`.
-  - [ ] already available — `Already available: c`.
-  - [ ] unknown — `Unknown tool: x. Pick from the latest announced tools list.`.
-  - [ ] partial — mixed case, lines order.
-  - [ ] isError — `to_load.empty? && already_available.empty?`.
-- [ ] Обновить `FIX-TOOLS.md`: отметить строку #20 выполненной.
+- [x] Добавить experimental flag `toolSelect` — Crystal:
+      `Tools.tool_select_enabled_from_env?` (env
+      `H2CODE_EXPERIMENTAL_TOOL_SELECT` + master `H2CODE_EXPERIMENTAL_FLAG`).
+- [x] Реализовать `ToolSelectService` (abstract) + impl:
+  - [x] `enabled?` (flag).
+  - [x] `shape_tools(defs)` — вырезает незагруженные MCP-defs из tools[]
+      (вместо `deferred: true` — schema просто не отправляется, загруженные
+      возвращаются в tools[] на следующем запросе).
+  - [x] `shape_history(messages)` — не требуется: в Crystal-порту нет
+      schema-инъекций в историю (загрузка = возврат в tools[]).
+  - [x] `load(names)` с трёхсторонней классификацией.
+  - [x] `announcement(defs)` — `<tools_loadable>` блок.
+- [x] Реализовать `Tools::SelectTools` (§1–§3).
+- [x] Реализовать announcements — `<tools_loadable>` блок добавляется в
+      system prompt на каждом шаге (stateless, без history-folding).
+- [x] Реализовать загрузку MCP-tools: `AgentToolSelectService` держит
+      registry; `load` валидирует по mcp__-именам registry. Schema
+      подгружать отдельно не нужно — registry уже содержит все defs.
+- [x] Регистрация `select_tools` — только когда флаг включён (иначе тул
+      неадвертайзится вовсе; продакшн-сервис ставится в
+      `h2code.cr` / `acp/server.cr`).
+- [x] В Loop-runner'е: `shape_tools` + `announcement` применяются в
+      `Loop::Agent#execute_step` перед отправкой запроса.
+- [x] Тесты в `spec/tools/select_tools_spec.cr`:
+  - [x] disabled → `"select_tools is not available for the current model."`.
+  - [x] success — `Loaded: a, b`.
+  - [x] already available — `Already available: c`.
+  - [x] unknown — `Unknown tool: x. Pick from the latest announced tools list.`.
+  - [x] partial — mixed case, lines order.
+  - [x] isError — `to_load.empty? && already_available.empty?`.
+  - [x] `AgentToolSelectService`: shape/announcement/load против registry.
+- [x] Обновить `FIX-TOOLS.md`: отметить строку #20 выполненной.
+- [ ] (Опционально) capability-гейт `dynamically_loaded_tools` из JS —
+      отложено: в Crystal нет model-capability каталога, гейт только по
+      experimental-флагу.
 
 ---
 

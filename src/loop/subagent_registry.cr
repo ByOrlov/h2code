@@ -147,7 +147,7 @@ module H2code
         registry.register(Tools::CronList.new) if allowed.includes?(Tools::Names::CRON_LIST)
         registry.register(Tools::CronDelete.new) if allowed.includes?(Tools::Names::CRON_DELETE)
         registry.register(Tools::ReadMediaFile.new) if allowed.includes?(Tools::Names::READ_MEDIA_FILE)
-        registry.register(Tools::SelectTools.new) if allowed.includes?("SelectTools")
+        registry.register(Tools::SelectTools.new) if allowed.includes?("SelectTools") && Tools::ToolSelect.service.try(&.enabled?)
 
         registry
       end

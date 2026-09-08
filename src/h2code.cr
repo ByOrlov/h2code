@@ -351,8 +351,20 @@ module H2code
       tools.register(Tools::CronList.new)
       tools.register(Tools::CronDelete.new)
       tools.register(Tools::WaitForCI.new(work_dir))
+      # Media runtime wiring: local FS, default capabilities (image input
+      # on, video off until a provider needs it), and the ImageMagick
+      # processor when available (pass-through fallback otherwise).
+      Tools::Media.fs ||= Tools::LocalMediaFileSystem.new
+      Tools::Media.capabilities ||= Tools::ModelCapabilities.new(image_in: true, video_in: false)
+      Tools::Media.image_processor ||= Tools::ImageMagickImageProcessor.resolve
       tools.register(Tools::ReadMediaFile.new)
-      tools.register(Tools::SelectTools.new)
+      # Progressive tool disclosure (experimental, off by default):
+      # H2CODE_EXPERIMENTAL_TOOL_SELECT=1 or the master flag enable it. The
+      # select_tools tool is only advertised when the service is active.
+      if Tools.tool_select_enabled_from_env?
+        Tools::ToolSelect.service ||= Tools::AgentToolSelectService.new(tools)
+      end
+      tools.register(Tools::SelectTools.new) if Tools::ToolSelect.service.try(&.enabled?)
 
       # Shared CI observer service for all run modes (TUI attaches delivery +
       # session store later; headless/ACP keep the bare observer loop). The
@@ -433,6 +445,13 @@ module H2code
         STDERR.puts H2code.t("errors.session_busy", id: session_id || File.basename(e.session_dir))
         STDERR.puts e.message
         exit(1)
+      end
+
+      # TodoList persistence: todos survive restarts via
+      # <session_dir>/todo.json (in-memory only for subagents / ACP).
+      if todo_tool = tools.get(Tools::Names::TODO_LIST).as?(Tools::TodoList)
+        todo_tool.session_dir = store.session_dir
+        todo_tool.load_persisted
       end
 
       if continue_session || session_id

@@ -48,6 +48,54 @@ describe H2code::Tools::Grep do
     result.content.should contain("occurrence")
   end
 
+  it "-C takes precedence over -A and -B" do
+    File.write(File.join(test_dir, "prec.txt"), "line1\nMATCH\nline3\nline4\nMATCH2\nline6\n")
+    grep = H2code::Tools::Grep.new(test_dir)
+    result = grep.execute(JSON.parse(%({"pattern": "MATCH", "output_mode": "content", "-A": 3, "-B": 3, "-C": 1})))
+    result.is_error?.should be_false
+    # With -C=1 winning over -A/-B=3, only one line of context shows per
+    # side; the second match's context stops at line6, not beyond.
+    lines = result.content.split('\n')
+    lines.should contain("prec.txt:2:MATCH")
+    lines.should contain("prec.txt-3-line3")
+    idx = lines.index!("prec.txt:2:MATCH")
+    (lines[idx + 1]?).should eq("prec.txt-3-line3")
+    # If -A=3 had won, two extra context lines would follow the match.
+    result.content.should_not contain("line beyond")
+  end
+
+  it "filters sensitive files even with include_ignored=true" do
+    File.write(File.join(test_dir, ".env"), "dup\n")
+    File.write(File.join(test_dir, "plain_ignored.log"), "dup\n")
+    File.write(File.join(test_dir, ".gitignore"), "*.log\n")
+    grep = H2code::Tools::Grep.new(test_dir)
+    result = grep.execute(JSON.parse(%({"pattern": "dup", "output_mode": "files_with_matches", "include_ignored": true})))
+    result.is_error?.should be_false
+    # The ignored log shows up (--no-ignore), the sensitive file never does
+    # (excluded by the rg-side sensitive globs and/or the Crystal filter).
+    result.content.should contain("plain_ignored.log")
+    result.content.should_not contain(".env")
+  end
+
+  it "sorts count_matches by modification time (newest first)" do
+    File.write(File.join(test_dir, "old_cnt.txt"), "dup\n")
+    File.write(File.join(test_dir, "mid_cnt.txt"), "dup\n")
+    File.write(File.join(test_dir, "new_cnt.txt"), "dup\n")
+    File.utime(Time.utc(2024, 1, 1), Time.utc(2024, 1, 1), File.join(test_dir, "old_cnt.txt"))
+    File.utime(Time.utc(2024, 1, 2), Time.utc(2024, 1, 2), File.join(test_dir, "mid_cnt.txt"))
+    File.utime(Time.utc(2024, 1, 3), Time.utc(2024, 1, 3), File.join(test_dir, "new_cnt.txt"))
+
+    grep = H2code::Tools::Grep.new(test_dir)
+    result = grep.execute(JSON.parse(%({"pattern": "dup", "output_mode": "count_matches"})))
+    result.is_error?.should be_false
+    content = result.content
+    new_idx = content.index("new_cnt.txt") || raise "new_cnt.txt missing"
+    mid_idx = content.index("mid_cnt.txt") || raise "mid_cnt.txt missing"
+    old_idx = content.index("old_cnt.txt") || raise "old_cnt.txt missing"
+    (new_idx < mid_idx).should be_true
+    (mid_idx < old_idx).should be_true
+  end
+
   it "supports case-insensitive search with -i" do
     File.write(File.join(test_dir, "d.txt"), "Hello World\n")
     grep = H2code::Tools::Grep.new(test_dir)

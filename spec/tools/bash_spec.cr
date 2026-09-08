@@ -132,6 +132,74 @@ describe H2code::Tools::Bash do
     result.content.should contain("Background execution is not available")
   end
 
+  it "rejects run_in_background=true without a description" do
+    task_svc = H2code::Tools::InMemoryTaskService.new
+    bash = H2code::Tools::Bash.new("/tmp", task_svc, "/tmp")
+    result = bash.execute(JSON.parse(%({"command":"sleep 10","run_in_background":true})))
+    result.is_error?.should be_true
+    result.content.should contain("description is required when run_in_background is true.")
+  end
+
+  it "rejects run_in_background=true with a blank description" do
+    task_svc = H2code::Tools::InMemoryTaskService.new
+    bash = H2code::Tools::Bash.new("/tmp", task_svc, "/tmp")
+    result = bash.execute(JSON.parse(%({"command":"sleep 10","run_in_background":true,"description":"   "})))
+    result.is_error?.should be_true
+    result.content.should contain("description is required when run_in_background is true.")
+  end
+
+  it "moves a timed-out foreground command to the background" do
+    Dir.tempdir.tap do |tmp|
+      session_dir = File.join(tmp, "bg-detach-#{Random::Secure.hex(4)}")
+      Dir.mkdir_p(session_dir)
+      task_svc = H2code::Tools::InMemoryTaskService.new
+      bash = H2code::Tools::Bash.new("/tmp", task_svc, session_dir)
+
+      result = bash.execute(JSON.parse(%({"command":"sleep 2 && echo detached-done","timeout":1})))
+      result.is_error?.should be_false
+      result.content.should contain("timed out after 1s and was moved to the background")
+      result.content.should contain("task_id:")
+      task_id = result.content.match(/task_id: (\S+)/).try(&.[1]) || raise "task_id not found"
+
+      # The task is registered and running.
+      info = task_svc.get_task(task_id) || raise "task not found"
+      info.status.running?.should be_true
+
+      # The process finishes on its own (~2s); poll for the terminal state.
+      40.times do
+        info = task_svc.get_task(task_id).not_nil!
+        break if info.status.terminal?
+        sleep 0.1.seconds
+      end
+      info = task_svc.get_task(task_id).not_nil!
+      info.status.completed?.should be_true
+
+      # Post-detach output landed in the task's log file.
+      output_path = File.join(session_dir, "tasks", "#{task_id}.log")
+      File.exists?(output_path).should be_true
+      File.read(output_path).should contain("detached-done")
+    end
+  end
+
+  it "still kills a timed-out command when auto-background is disabled" do
+    session_dir = File.join(Dir.tempdir, "bg-nodetach-#{Random::Secure.hex(4)}")
+    Dir.mkdir_p(session_dir)
+    task_svc = H2code::Tools::InMemoryTaskService.new
+    bash = H2code::Tools::Bash.new("/tmp", task_svc, session_dir, nil, false)
+
+    result = bash.execute(JSON.parse(%({"command":"sleep 30","timeout":1})))
+    result.is_error?.should be_true
+    result.content.should contain("timed out after 1s and was killed")
+  end
+
+  it "runs a quick foreground command normally when a task service is wired" do
+    task_svc = H2code::Tools::InMemoryTaskService.new
+    bash = H2code::Tools::Bash.new("/tmp", task_svc, "/tmp")
+    result = bash.execute(JSON.parse(%({"command":"printf detach-ok"})))
+    result.is_error?.should be_false
+    result.content.should contain("detach-ok")
+  end
+
   it "truncates runaway output with a [...truncated] sentinel" do
     bash = H2code::Tools::Bash.new("/tmp")
     # Generate well over the 10 MB in-tool cap.
@@ -149,7 +217,7 @@ describe H2code::Tools::Bash do
       task_svc = H2code::Tools::InMemoryTaskService.new
       bash = H2code::Tools::Bash.new("/tmp", task_svc, session_dir)
 
-      result = bash.execute(JSON.parse(%({"command":"echo hello-bg","run_in_background":true})))
+      result = bash.execute(JSON.parse(%({"command":"echo hello-bg","run_in_background":true,"description":"test bg"})))
       result.is_error?.should be_false
       result.content.should contain("Background task started.")
       result.content.should contain("task_id:")
@@ -178,7 +246,7 @@ describe H2code::Tools::Bash do
       delivery = ->(xml : String) { delivered << xml; nil }
       bash = H2code::Tools::Bash.new("/tmp", task_svc, session_dir, delivery)
 
-      result = bash.execute(JSON.parse(%({"command":"echo done","run_in_background":true})))
+      result = bash.execute(JSON.parse(%({"command":"echo done","run_in_background":true,"description":"test bg"})))
       task_id = result.content.match(/task_id: (\S+)/).try(&.[1]) || raise "task_id not found"
 
       # Wait for the monitor fiber to finish.
@@ -204,7 +272,7 @@ describe H2code::Tools::Bash do
       task_svc = H2code::Tools::InMemoryTaskService.new
       bash = H2code::Tools::Bash.new("/tmp", task_svc, session_dir)
 
-      result = bash.execute(JSON.parse(%({"command":"sleep 100","run_in_background":true})))
+      result = bash.execute(JSON.parse(%({"command":"sleep 100","run_in_background":true,"description":"test bg"})))
       task_id = result.content.match(/task_id: (\S+)/).try(&.[1]) || raise "task_id not found"
 
       # The process should be running.

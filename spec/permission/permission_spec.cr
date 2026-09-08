@@ -334,4 +334,90 @@ describe H2code::Permission::Manager do
       manager.check(H2code::Tools::Names::WRITE, %({"path":"/tmp/x","content":"y"}), ->(e : H2code::Loop::Event) { events << e }).should be_true
     end
   end
+
+  # Auto-mode AskUserQuestion deny — mirrors JS
+  # `auto-mode-ask-user-question-deny.ts`.
+  describe "auto-mode AskUserQuestion deny" do
+    it "denies AskUserQuestion in auto mode with the deny message" do
+      manager = H2code::Permission::Manager.new(H2code::Permission::Mode::Auto)
+      events = [] of H2code::Loop::Event
+      approved = manager.check(H2code::Tools::Names::ASK_USER_QUESTION,
+        %({"questions":[]}), ->(e : H2code::Loop::Event) { events << e })
+      approved.should be_false
+      deny_msg = manager.last_deny_message
+      deny_msg.should_not be_nil
+      deny_msg.not_nil!.should contain("disabled while auto permission mode is active")
+    end
+
+    it "does not deny other tools or other modes" do
+      events = [] of H2code::Loop::Event
+      auto = H2code::Permission::Manager.new(H2code::Permission::Mode::Auto)
+      auto.check(H2code::Tools::Names::READ, %({"path":"/tmp/x"}), ->(e : H2code::Loop::Event) { events << e }).should be_true
+
+      %w(manual yolo).each do |mode_name|
+        mode = H2code::Permission::Mode.parse(mode_name)
+        manager = H2code::Permission::Manager.new(mode)
+        manager.approval_callback = ->(_t : String, _a : String, _d : String?) { H2code::Permission::ApprovalChoice::ApproveOnce }
+        manager.check(H2code::Tools::Names::ASK_USER_QUESTION,
+          %({"questions":[]}), ->(e : H2code::Loop::Event) { events << e }).should be_true
+      end
+    end
+  end
+
+  # Always-approve branches — EnterPlanMode in every mode, and Write/Edit
+  # to the current plan file (md-tools/plan-mode.md §5.4).
+  describe "always-approve branches" do
+    it "approves EnterPlanMode without a prompt in manual mode" do
+      manager = H2code::Permission::Manager.new(H2code::Permission::Mode::Manual)
+      prompted = false
+      manager.approval_callback = ->(_t : String, _a : String, _d : String?) do
+        prompted = true
+        H2code::Permission::ApprovalChoice::ApproveOnce
+      end
+      events = [] of H2code::Loop::Event
+      manager.check(H2code::Tools::Names::ENTER_PLAN_MODE, "{}",
+        ->(e : H2code::Loop::Event) { events << e }).should be_true
+      prompted.should be_false
+    end
+
+    it "approves Write to the plan file without a prompt in manual mode" do
+      dir = File.join(Dir.tempdir, "approve-spec-#{Random::Secure.hex(8)}")
+      Dir.mkdir_p(dir)
+      plan_path = File.join(dir, "plan.md")
+      service = H2code::Tools::AgentPlanService.new(dir, "main", plan_path)
+      H2code::Tools::PlanMode.plan_service = service
+      service.enter
+
+      begin
+        manager = H2code::Permission::Manager.new(H2code::Permission::Mode::Manual)
+        prompted = false
+        manager.approval_callback = ->(_t : String, _a : String, _d : String?) do
+          prompted = true
+          H2code::Permission::ApprovalChoice::ApproveOnce
+        end
+        events = [] of H2code::Loop::Event
+        args = %({"path":#{plan_path.inspect},"content":"plan body"})
+        manager.check(H2code::Tools::Names::WRITE, args,
+          ->(e : H2code::Loop::Event) { events << e }).should be_true
+        prompted.should be_false
+      ensure
+        H2code::Tools::PlanMode.plan_service = nil
+        FileUtils.rm_rf(dir)
+      end
+    end
+
+    it "still prompts for a normal Write in manual mode" do
+      H2code::Tools::PlanMode.plan_service = nil
+      manager = H2code::Permission::Manager.new(H2code::Permission::Mode::Manual)
+      prompted = false
+      manager.approval_callback = ->(_t : String, _a : String, _d : String?) do
+        prompted = true
+        H2code::Permission::ApprovalChoice::ApproveOnce
+      end
+      events = [] of H2code::Loop::Event
+      manager.check(H2code::Tools::Names::WRITE, %({"path":"/tmp/x","content":"y"}),
+        ->(e : H2code::Loop::Event) { events << e }).should be_true
+      prompted.should be_true
+    end
+  end
 end

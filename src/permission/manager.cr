@@ -41,6 +41,11 @@ module H2code
       # an allow rule short-circuits to true (skipping the prompt), and an
       # ask rule forces the prompt even in auto mode.
       property rules : Policies::RuleSet = Policies::RuleSet.new
+      # Deny reason from the last check() that returned false (plan-mode
+      # guard, auto-mode AskUserQuestion deny, rule deny). The loop surfaces
+      # it to the model instead of a generic "Permission denied" — mirrors
+      # the JS deny policies carrying their message.
+      property last_deny_message : String? = nil
 
       @session_approvals : Set(String) = Set(String).new
 
@@ -59,12 +64,26 @@ module H2code
       end
 
       def check(tool_name : String, args : String, on_event : Loop::Event ->) : Bool
+        @last_deny_message = nil
+
         # Plan-mode read-only guard: while plan mode is active, mutating tools
         # are blocked (except writes to the current plan file). Evaluated first,
         # before user rules and permission modes — mirrors JS
         # `plan-mode-guard-deny.ts`.
         if plan_block = Tools::PlanMode.guard_check(tool_name, args)
+          @last_deny_message = plan_block
           on_event.call(Loop::Event.info(plan_block))
+          return false
+        end
+
+        # Auto-mode AskUserQuestion deny — mirrors JS
+        # `auto-mode-ask-user-question-deny.ts`: the tool is disabled while
+        # auto permission mode is active so the model decides on its own
+        # instead of blocking on the user.
+        if @mode.auto? && tool_name == Tools::Names::ASK_USER_QUESTION
+          msg = Tools::AskUserQuestion::AUTO_MODE_DENY_MESSAGE
+          @last_deny_message = msg
+          on_event.call(Loop::Event.info(msg))
           return false
         end
 
@@ -74,6 +93,7 @@ module H2code
         if rule = @rules.evaluate(tool_name, args)
           case rule.decision
           in Policies::Decision::Deny
+            @last_deny_message = "Denied by rule: #{rule.pattern}"
             on_event.call(Loop::Event.info("Denied by rule: #{rule.pattern}"))
             return false
           in Policies::Decision::Allow
@@ -82,6 +102,13 @@ module H2code
             # fall through to the prompt below
           end
         end
+
+        # EnterPlanMode enters plan mode without an approval prompt in all
+        # permission modes (matches the shipped tool description). Writes to
+        # the current plan file are likewise always approved — the plan-mode
+        # guard above already narrowed Write/Edit down to that file.
+        return true if tool_name == Tools::Names::ENTER_PLAN_MODE
+        return true if Tools::PlanMode.plan_file_write?(tool_name, args)
 
         return true if @mode.yolo?
 

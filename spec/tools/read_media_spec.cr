@@ -303,3 +303,77 @@ describe H2code::Tools::ReadMediaFile do
     tool.description.should contain("Video files are not supported")
   end
 end
+
+describe H2code::Tools::ImageMagickImageProcessor do
+  # Fixtures are generated with ImageMagick itself; skip when it is not
+  # installed (the processor then resolves to nil and the tool falls back
+  # to pass-through).
+  magick = H2code::Tools::ImageMagickImageProcessor.find_binary
+
+  describe "resolve" do
+    it "returns a processor when ImageMagick is available, nil otherwise" do
+      processor = H2code::Tools::ImageMagickImageProcessor.resolve
+      if magick
+        processor.should be_a(H2code::Tools::ImageMagickImageProcessor)
+      else
+        processor.should be_nil
+      end
+    end
+  end
+
+  if magick
+    processor = H2code::Tools::ImageMagickImageProcessor.new(magick)
+
+    it "returns small images untouched in compress" do
+      png = Files::Fixture.png("32x32")
+      outcome = processor.compress(png, "image/png",
+        H2code::Tools::Media::IMAGE_BYTE_BUDGET, H2code::Tools::Media::MAX_IMAGE_EDGE_PX)
+      outcome.data.same?(png).should be_true
+      outcome.resized?.should be_false
+    end
+
+    it "downscales an oversized image to fit the edge cap" do
+      png = Files::Fixture.png("3000x3000")
+      outcome = processor.compress(png, "image/png",
+        H2code::Tools::Media::IMAGE_BYTE_BUDGET, H2code::Tools::Media::MAX_IMAGE_EDGE_PX)
+      outcome.resized?.should be_true
+      outcome.width.should be <= H2code::Tools::Media::MAX_IMAGE_EDGE_PX
+      outcome.height.should be <= H2code::Tools::Media::MAX_IMAGE_EDGE_PX
+      outcome.original_width.should eq(3000)
+      outcome.original_height.should eq(3000)
+      outcome.final_byte_length.should be <= H2code::Tools::Media::IMAGE_BYTE_BUDGET
+      outcome.data.size.should be < png.size
+    end
+
+    it "crops to the requested region" do
+      png = Files::Fixture.png("100x60")
+      region = H2code::Tools::ImageRegion.new(x: 10, y: 5, width: 40, height: 30)
+      outcome = processor.crop(png, "image/png", region, skip_resize: true)
+      outcome.width.should eq(40)
+      outcome.height.should eq(30)
+      outcome.original_width.should eq(100)
+      outcome.original_height.should eq(60)
+      outcome.data.size.should be < png.size
+    end
+  end
+end
+
+# Minimal fixture helper: generate PNGs through the ImageMagick binary.
+module Files
+  module Fixture
+    def self.png(size : String) : Bytes
+      token = Random::Secure.hex(6)
+      path = File.join(Dir.tempdir, "h2spec-#{token}.png")
+      bin = H2code::Tools::ImageMagickImageProcessor.find_binary.not_nil!
+      status = Process.new(bin, ["-size", size, "xc:red", "png:#{path}"],
+        output: Process::Redirect::Pipe, error: Process::Redirect::Pipe).wait
+      raise "fixture generation failed" unless status.success?
+      size_bytes = File.size(path).to_i32
+      bytes = Bytes.new(size_bytes)
+      File.open(path) { |f| f.read(bytes) }
+      bytes
+    ensure
+      File.delete?(path) if path
+    end
+  end
+end

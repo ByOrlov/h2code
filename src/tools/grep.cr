@@ -124,7 +124,7 @@ module H2code
         filtered_sensitive = [] of String
         kept = filter_sensitive(raw_lines, mode, filtered_sensitive)
 
-        ordered = (mode == "files_with_matches" && !run_result.timed_out?) ? sort_by_mtime(kept) : kept
+        ordered = ((mode == "files_with_matches" || mode == "count_matches") && !run_result.timed_out?) ? sort_by_mtime(kept) : kept
 
         offset_val = (input["offset"]?.try(&.as_i?) || 0).to_i32
         head_limit = (input["head_limit"]?.try(&.as_i?) || DEFAULT_HEAD_LIMIT).to_i32

@@ -428,6 +428,17 @@ module H2code
 
       MUTATING_TOOLS = Set{Names::TASK_STOP, Names::CRON_CREATE, Names::CRON_DELETE}
 
+      # Whether this call is a Write/Edit targeting the current plan file —
+      # such calls are always approved without a prompt (the plan-mode guard
+      # allows only them through while plan mode is active).
+      def self.plan_file_write?(tool_name : String, args : String) : Bool
+        return false unless tool_name == Names::WRITE || tool_name == Names::EDIT
+        svc = plan_service
+        return false unless svc && (status = svc.status) && (plan_path = status.path)
+        target = extract_path(tool_name, args)
+        !target.nil? && File.expand_path(target) == File.expand_path(plan_path)
+      end
+
       private def self.extract_path(tool_name : String, args : String) : String?
         return nil if args.empty?
         parsed = JSON.parse(args)

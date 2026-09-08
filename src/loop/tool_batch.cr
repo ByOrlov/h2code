@@ -132,7 +132,9 @@ module H2code
 
           approved = @permission.check(tc.name, tc.arguments, on_event)
           unless approved
-            msg = "Permission denied for #{tc.name}"
+            # Surface the specific deny reason (plan-mode guard, auto-mode
+            # deny, rule deny) when one is available.
+            msg = @permission.last_deny_message || "Permission denied for #{tc.name}"
             on_event.call(Event.tool_result(tc.id, msg, true))
             planned << PlannedCall.new(idx, tc, PlannedCallStatus::Skipped, msg, true)
             next

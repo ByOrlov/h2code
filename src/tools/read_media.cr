@@ -314,8 +314,9 @@ module H2code
       end
     end
 
-    # Image processing — resize/crop. MVP: returns data unchanged.
-    # Реальная реализация — ImageMagick shell-out.
+    # Image processing outcome — resize/crop result fed back into the tool.
+    # Processors: `ImageMagickImageProcessor` (real resize/crop via
+    # shell-out), `PassThroughImageProcessor` (unchanged-data MVP fallback).
     struct ImageProcessOutcome
       getter data : Bytes
       getter mime_type : String
@@ -384,6 +385,174 @@ module H2code
           resized: false,
           final_byte_length: data.size.to_i32,
         )
+      end
+    end
+
+    # ImageMagick-backed processor — shells out to `magick` (IM7) or
+    # `convert` (IM6). `resolve` returns nil when neither binary is on
+    # PATH; the tool then falls back to the pass-through behavior.
+    class ImageMagickImageProcessor < ImageProcessor
+      RUN_TIMEOUT_S = 30
+
+      def self.resolve : ImageProcessor?
+        binary = find_binary
+        binary ? new(binary) : nil
+      end
+
+      def self.find_binary : String?
+        ["magick", "convert"].each do |candidate|
+          if path = Process.find_executable(candidate)
+            return path
+          end
+        end
+        nil
+      end
+
+      def initialize(@binary : String)
+      end
+
+      def compress(data : Bytes, mime_type : String,
+                   byte_budget : Int32, max_edge : Int32) : ImageProcessOutcome
+        dims = Tools.sniff_image_dimensions(data)
+        w = dims.try(&.width) || 0
+        h = dims.try(&.height) || 0
+
+        # Already within both limits — deliver untouched.
+        if data.size <= byte_budget && (w <= 0 || h <= 0 || Math.max(w, h) <= max_edge)
+          return outcome(data, mime_type, w, h, w, h, resized: false)
+        end
+
+        bytes, out_mime, ow, oh, _fitted = fit_byte_budget(data, mime_type,
+          byte_budget, max_edge, extra_pre_args: [] of String)
+        if bytes.same?(data)
+          # ImageMagick failed entirely — pass through; the tool's budget
+          # check reports the oversized delivery.
+          return outcome(data, mime_type, w, h, w, h, resized: false)
+        end
+        outcome(bytes, out_mime, ow, oh, w, h, resized: true)
+      end
+
+      def crop(data : Bytes, mime_type : String, region : ImageRegion,
+               skip_resize : Bool) : ImageProcessOutcome
+        dims = Tools.sniff_image_dimensions(data)
+        w = dims.try(&.width) || 0
+        h = dims.try(&.height) || 0
+        crop_args = ["-crop", "#{region.width}x#{region.height}+#{region.x}+#{region.y}", "+repage"]
+
+        if skip_resize
+          encoded = run_magick(data, ext_for(mime_type), ext_for(mime_type), crop_args)
+          if encoded && !encoded.empty?
+            od = Tools.sniff_image_dimensions(encoded)
+            ow = od.try(&.width) || region.width
+            oh = od.try(&.height) || region.height
+            return outcome(encoded, mime_type, ow, oh, w, h, resized: false)
+          end
+          # Fallback: uncropped pass-through (MVP behavior).
+          return outcome(data, mime_type, region.width, region.height, w, h, resized: false)
+        end
+
+        bytes, out_mime, ow, oh, _fitted = fit_byte_budget(data, mime_type,
+          Media::IMAGE_BYTE_BUDGET, Media::MAX_IMAGE_EDGE_PX, extra_pre_args: crop_args)
+        if bytes.same?(data)
+          return outcome(data, mime_type, region.width, region.height, w, h, resized: false)
+        end
+        outcome(bytes, out_mime, ow, oh, w, h, resized: true)
+      end
+
+      # ----------------------------------------------------------------
+      # Helpers
+      # ----------------------------------------------------------------
+
+      private def outcome(data : Bytes, mime : String, w : Int32, h : Int32,
+                          ow : Int32, oh : Int32, resized : Bool) : ImageProcessOutcome
+        ImageProcessOutcome.new(
+          data: data,
+          mime_type: mime,
+          width: w,
+          height: h,
+          original_width: ow,
+          original_height: oh,
+          resized: resized,
+          final_byte_length: data.size.to_i32,
+        )
+      end
+
+      # Downscale ladder: shrink the longest edge and re-encode, switching
+      # to JPEG on the last rung, until the output fits `byte_budget`.
+      # Returns the original `data` (same object) when ImageMagick could
+      # not produce any output at all.
+      private def fit_byte_budget(data : Bytes, mime : String, byte_budget : Int32,
+                                  max_edge : Int32, extra_pre_args : Array(String))
+        attempts = [
+          {max_edge, 85, mime},
+          {max_edge // 2, 70, mime},
+          {max_edge // 4, 55, mime},
+          {max_edge // 4, 40, "image/jpeg"},
+        ]
+        best : {Bytes, String, Int32, Int32}? = nil
+        attempts.each do |(edge, quality, out_mime)|
+          args = extra_pre_args.dup
+          args.concat(["-auto-orient", "-resize", "#{edge}x#{edge}>", "-quality", quality.to_s])
+          encoded = run_magick(data, ext_for(mime), ext_for(out_mime), args)
+          next if encoded.nil? || encoded.empty?
+          od = Tools.sniff_image_dimensions(encoded)
+          ow = od.try(&.width) || 0
+          oh = od.try(&.height) || 0
+          best = {encoded, out_mime, ow, oh}
+          return {encoded, out_mime, ow, oh, true} if encoded.size <= byte_budget
+        end
+        if b = best
+          {b[0], b[1], b[2], b[3], false}
+        else
+          {data, mime, 0, 0, false}
+        end
+      end
+
+      # Run the ImageMagick binary over a temp copy of `data`. Returns the
+      # output bytes, or nil on failure/timeout. Temp files are always
+      # cleaned up.
+      private def run_magick(input : Bytes, in_ext : String, out_ext : String,
+                             args : Array(String)) : Bytes?
+        token = Random::Secure.hex(6)
+        in_path = File.join(Dir.tempdir, "h2media-#{token}.#{in_ext}")
+        out_path = File.join(Dir.tempdir, "h2media-#{token}.out.#{out_ext}")
+        begin
+          File.write(in_path, input)
+          proc = Process.new(@binary, [in_path] + args + [out_path],
+            input: Process::Redirect::Close,
+            output: Process::Redirect::Pipe,
+            error: Process::Redirect::Pipe)
+          status_ch = Channel(Process::Status).new
+          spawn { status_ch.send(proc.wait) }
+          status = select
+          when s = status_ch.receive
+            s
+          when timeout(RUN_TIMEOUT_S.seconds)
+            proc.terminate rescue nil
+            status_ch.receive
+          end
+          return nil unless status.success?
+          return nil unless File.exists?(out_path)
+          size = File.size(out_path)
+          bytes = Bytes.new(size)
+          File.open(out_path) { |f| f.read(bytes) }
+          bytes
+        rescue
+          nil
+        ensure
+          File.delete?(in_path)
+          File.delete?(out_path)
+        end
+      end
+
+      private def ext_for(mime : String) : String
+        case mime
+        when "image/png"  then "png"
+        when "image/gif"  then "gif"
+        when "image/webp" then "webp"
+        when "image/bmp"  then "bmp"
+        else                   "jpg"
+        end
       end
     end
 

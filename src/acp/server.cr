@@ -619,8 +619,17 @@ module H2code
         tools.register(Tools::CronList.new)
         tools.register(Tools::CronDelete.new)
         tools.register(Tools::WaitForCI.new(work_dir))
+        # Media runtime wiring (same defaults as the main agent path).
+        Tools::Media.fs ||= Tools::LocalMediaFileSystem.new
+        Tools::Media.capabilities ||= Tools::ModelCapabilities.new(image_in: true, video_in: false)
+        Tools::Media.image_processor ||= Tools::ImageMagickImageProcessor.resolve
         tools.register(Tools::ReadMediaFile.new)
-        tools.register(Tools::SelectTools.new)
+        # Progressive tool disclosure (experimental) — same gate as the
+        # main agent path.
+        if Tools.tool_select_enabled_from_env?
+          Tools::ToolSelect.service ||= Tools::AgentToolSelectService.new(tools)
+        end
+        tools.register(Tools::SelectTools.new) if Tools::ToolSelect.service.try(&.enabled?)
         # Shared CI observer service (no TUI delivery here — the WaitForCI
         # tool still reads observer state directly). GitHub token enables
         # direct REST polling (no gh CLI).

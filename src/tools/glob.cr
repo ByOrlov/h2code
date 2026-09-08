@@ -29,7 +29,8 @@ module H2code
         "set `include_ignored` to also match ignored files (e.g. build outputs, node_modules). " \
         "Sensitive files (such as `.env`) are always filtered out. Results are files only — directories are never listed. " \
         "Good patterns: `*.ts` (recursive by extension), `src/*.ts` (one level), `src/**/*.ts` (recursive walk with anchor), " \
-        "`*.{ts,tsx}` (brace expansion). Results are capped at #{MAX_MATCHES} matches."
+        "`*.{ts,tsx}` (brace expansion). " \
+        "`limit` caps the number of results (default #{MAX_MATCHES}); `offset` skips the first N results for pagination."
       end
 
       def parameters : JSON::Any
@@ -51,6 +52,14 @@ module H2code
             "include_dirs": {
               "type": "boolean",
               "description": "Deprecated and ignored. Results are always files-only — directories are never listed."
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Caps the number of results. Defaults to #{MAX_MATCHES}."
+            },
+            "offset": {
+              "type": "integer",
+              "description": "Skips the first N results before applying limit — use for pagination. Defaults to 0."
             }
           },
           "required": ["pattern"]
@@ -120,16 +129,29 @@ module H2code
           end
         end
 
-        truncated = kept.size > MAX_MATCHES
-        limited = truncated ? kept.first(MAX_MATCHES) : kept
+        # Pagination: `offset` skips the first N matches, `limit` caps the
+        # page size (mirrors the Grep head_limit/offset semantics).
+        offset_val = (input["offset"]?.try(&.as_i?) || 0).to_i32
+        offset_val = 0 if offset_val < 0
+        limit = (input["limit"]?.try(&.as_i?) || MAX_MATCHES).to_i32
+        limit = MAX_MATCHES if limit < 0
+        total = kept.size
+        after_offset = offset_val > 0 ? kept[offset_val..]? || [] of String : kept
+        limit_active = limit > 0
+        limited = limit_active ? after_offset.first(limit) : after_offset
+        truncated = limit_active && after_offset.size > limit
 
-        if limited.empty? && !run_result.timed_out
+        if kept.empty? && !run_result.timed_out
           if filtered_sensitive > 0
             return ToolResult.success(
               "No non-sensitive matches found (#{filtered_sensitive} sensitive file(s) filtered)."
             )
           end
           return ToolResult.success("No matches found")
+        end
+
+        if limited.empty? && total > 0 && !run_result.timed_out
+          return ToolResult.success("No more matches (offset #{offset_val} >= #{total} total).")
         end
 
         # Relativize to the search base only when the base is inside the
@@ -151,14 +173,15 @@ module H2code
           lines << warning
         end
         if truncated
-          lines << "[Truncated at #{MAX_MATCHES} matches — use a more specific pattern]"
-          lines << "Only the first #{MAX_MATCHES} matches are returned."
+          next_offset = offset_val + limit
+          lines << "[Truncated at #{limit} matches — use a more specific pattern, or offset=#{next_offset} to page]"
+          lines << "Only the first #{limit} matches are returned."
         end
         lines.concat(display_lines)
         if filtered_sensitive > 0
           lines << "Filtered #{filtered_sensitive} sensitive file(s)."
         end
-        if !truncated && limited.size == MAX_MATCHES
+        if !truncated && limit_active && limited.size == limit
           lines << "Found #{limited.size} matches"
         end
         ToolResult.success(lines.join('\n'))
@@ -248,6 +271,28 @@ module H2code
               i = end_idx + 1
             else
               s << "\\{"
+              i += 1
+            end
+          elsif pattern[i] == '['
+            # Character class: [abc] / [a-z], [!...] negation.
+            end_idx = pattern.index(']', i + 1)
+            if end_idx && end_idx > i + 1
+              contents = pattern[(i + 1)...end_idx]
+              negated = contents.starts_with?('!')
+              contents = contents[1..] if negated
+              s << (negated ? "[^" : "[")
+              first = true
+              contents.each_char do |ch|
+                # Escape a leading `^` (would negate in regex) and
+                # backslashes; `-` stays literal so ranges keep working.
+                s << '\\' if ch == '\\' || (ch == '^' && first)
+                s << ch
+                first = false
+              end
+              s << "]"
+              i = end_idx + 1
+            else
+              s << "\\["
               i += 1
             end
           elsif regex_meta?(pattern[i])

@@ -85,10 +85,16 @@ module H2code
         @terminal_exec
       end
 
+      # When true (JS default: `bashAutoBackgroundOnTimeout ?? true`) and a
+      # TaskService is wired, a foreground command that hits its timeout is
+      # detached to a background task instead of being killed.
+      @auto_background_on_timeout : Bool
+
       def initialize(@work_dir : String = Dir.current,
                      @task_service : TaskService? = nil,
                      @session_dir : String? = nil,
-                     @delivery : (String -> Nil)? = nil)
+                     @delivery : (String -> Nil)? = nil,
+                     @auto_background_on_timeout : Bool = true)
         @sudo_approval = nil
         @terminal_exec = nil
       end
@@ -105,6 +111,13 @@ module H2code
       end
 
       def description : String
+        # With background capability (and the flag on), a timed-out
+        # foreground command is detached instead of killed.
+        timeout_clause = if @task_service && @auto_background_on_timeout
+                           "a command that hits its timeout is automatically moved to the background and you will be notified when it completes"
+                         else
+                           "a command that hits its timeout is killed"
+                         end
         %(Execute a `bash` command. Use this for shell semantics — pipes, env, processes, git, package managers, build/test runners, anything genuinely interactive or multi-step.
 
 Translate these to a dedicated tool instead:
@@ -121,7 +134,7 @@ The stdout and stderr will be combined and returned as a string. The output may 
 
 Guidelines for safety and security:
 - Each shell tool call will be executed in a fresh shell environment. The shell variables, current working directory changes, and the shell history is not preserved between calls. To run a command in a particular directory, pass the `cwd` argument (or use absolute paths) rather than relying on a `cd` from an earlier call.
-- The tool call will return after the command is finished. You shall not use this tool to execute an interactive command or a command that may run forever. For possibly long-running commands, set the `timeout` argument in seconds. The default is #{DEFAULT_TIMEOUT_S}s; the maximum is #{MAX_TIMEOUT_S}s; a command that hits its timeout is killed.
+- The tool call will return after the command is finished. You shall not use this tool to execute an interactive command or a command that may run forever. For possibly long-running commands, set the `timeout` argument in seconds. The default is #{DEFAULT_TIMEOUT_S}s; the maximum is #{MAX_TIMEOUT_S}s; #{timeout_clause}.
 - Avoid using `..` to access files or directories outside of the working directory.
 - Avoid modifying files outside of the working directory unless explicitly instructed to do so.
 - Never run commands that require superuser privileges unless explicitly instructed to do so.
@@ -176,7 +189,7 @@ For long-running commands, pass run_in_background: true. The tool returns immedi
             },
             "description": {
               "type": "string",
-              "description": "A short description of what this command does. Shown in the approval UI."
+              "description": "A short description of what this command does. Shown in the approval UI. Required when run_in_background is true."
             }#{bg_params.empty? ? "" : ", #{bg_params}"}
           },
           "required": ["command"]
@@ -196,6 +209,10 @@ For long-running commands, pass run_in_background: true. The tool returns immedi
               "Background execution is not available for this agent. " \
               "Do not set run_in_background=true.",
             )
+          end
+          description = input["description"]?.try(&.to_s) || ""
+          if description.strip.empty?
+            return ToolResult.error("description is required when run_in_background is true.")
           end
           return execute_background(input, command)
         end
@@ -239,6 +256,10 @@ For long-running commands, pass run_in_background: true. The tool returns immedi
         # `python -c 'input()'`) receive EOF instead of hanging the tool.
         process.input.close
 
+        if auto_background_capable?
+          return execute_piped_detachable(process, command, effective_cwd, timeout_s)
+        end
+
         stdout_ch = Channel(Capture).new
         stderr_ch = Channel(Capture).new
 
@@ -276,6 +297,213 @@ For long-running commands, pass run_in_background: true. The tool returns immedi
         ToolResult.error("Failed to execute command: #{ex.message}")
       rescue ex
         ToolResult.error("Unexpected error: #{ex.message}")
+      end
+
+      # Whether a timed-out foreground command can be detached to a
+      # background task instead of being killed. Mirrors the JS
+      # `allowBackground() && autoBackgroundOnTimeout()` gate.
+      private def auto_background_capable? : Bool
+        !@task_service.nil? && !@session_dir.nil? && @auto_background_on_timeout
+      end
+
+      # ------------------------------------------------------------------
+      # Foreground execution with timeout-detach
+      # ------------------------------------------------------------------
+
+      # Foreground piped path used when a timed-out command can be moved to
+      # the background (TaskService wired + flag on). Output is captured
+      # through switchable sinks so that, on detach, the running stream
+      # readers keep appending to the background task's log file without
+      # missing a byte. An abort still kills the process, matching plain
+      # foreground semantics.
+      private def execute_piped_detachable(process : Process, command : String,
+                                           cwd : String, timeout_s : Int32) : ToolResult
+        status_ch = Channel(Process::Status).new(1)
+        spawn { status_ch.send(process.wait) }
+
+        out_sink = OutputSink.new
+        err_sink = OutputSink.new
+        out_done = Channel(Nil).new
+        err_done = Channel(Nil).new
+        spawn { out_sink.copy_from(process.output); out_done.send(nil) }
+        spawn { err_sink.copy_from(process.error); err_done.send(nil) }
+
+        deadline = Time.monotonic + timeout_s.seconds
+        status : Process::Status? = nil
+        timed_out = false
+        aborted = false
+        loop do
+          select
+          when st = status_ch.receive
+            status = st
+            break
+          when timeout(100.milliseconds)
+            if abort_check.call
+              aborted = true
+              break
+            end
+            if Time.monotonic >= deadline
+              timed_out = true
+              break
+            end
+          end
+        end
+
+        if timed_out
+          return detach_to_background(process, command, cwd, timeout_s,
+            status_ch, out_sink, err_sink, out_done, err_done)
+        end
+
+        if aborted
+          # Kill (two-phase) and reap, mirroring Tool.wait_for_exit.
+          process.terminate rescue nil
+          select
+          when st = status_ch.receive
+            status = st
+          when timeout(2.seconds)
+            PROCESS_PORT.force_kill(process)
+            status = status_ch.receive
+          end
+        end
+
+        out_done.receive
+        err_done.receive
+
+        truncated = out_sink.truncated? || err_sink.truncated?
+        result = combine_output(out_sink.text, err_sink.text)
+        result += OUTPUT_TRUNCATION_SENTINEL if truncated
+
+        if aborted
+          ToolResult.error("#{result}\n[interrupted by user]")
+        elsif !status.try(&.normal_exit?)
+          ToolResult.error("#{result}\n[killed by signal]")
+        elsif (st = status) && st.exit_code != 0
+          ToolResult.error("#{result}\n[exit code: #{st.exit_code}]")
+        else
+          # Full CI integration: a successful `git push` to a GitHub repo with
+          # Actions workflows starts a CI observer for the pushed HEAD.
+          observe_ci_after_push(command, cwd)
+          ToolResult.success(result.strip)
+        end
+      end
+
+      # Move a timed-out foreground process to the background: the streams
+      # are re-routed to the task's log file, the task is registered with
+      # the TaskService (TaskList / TaskOutput / TaskStop work on it), and a
+      # monitor finalizes status + notification on exit. The tool returns
+      # immediately with the task metadata.
+      private def detach_to_background(process : Process, command : String,
+                                       cwd : String, timeout_s : Int32,
+                                       status_ch : Channel(Process::Status),
+                                       out_sink : OutputSink, err_sink : OutputSink,
+                                       out_done : Channel(Nil), err_done : Channel(Nil)) : ToolResult
+        svc = @task_service
+        session_dir = @session_dir
+        if svc.nil? || session_dir.nil?
+          return ToolResult.error("Background execution is not available.")
+        end
+
+        task_id = svc.next_task_id("bash")
+        output_path = File.join(session_dir, "tasks", "#{task_id}.log")
+        Dir.mkdir_p(File.dirname(output_path))
+        file = File.open(output_path, "w")
+        out_sink.attach(file)
+        err_sink.attach(file)
+
+        foreground_prefix = combine_output(out_sink.text, err_sink.text)
+
+        now_ms = Time.utc.to_unix_ms
+        info = AgentTaskInfo.new(
+          task_id: task_id,
+          description: foreground_task_description(command),
+          status: AgentTaskStatus::Running,
+          started_at: now_ms,
+          detached: true,
+          # Detach grace window mirrors the JS detachTimeoutMs: the
+          # DEFAULT_BACKGROUND_TIMEOUT_S, not the user's foreground timeout.
+          timeout_ms: DEFAULT_BG_TIMEOUT_S.to_i64 * 1000,
+          command: command,
+          pid: process.pid.to_i64,
+        )
+        svc.register(info)
+
+        # Buffered: senders never block. TaskStop / TaskOutput(block=true)
+        # may receive from it; the monitor below is the authoritative
+        # finalizer either way.
+        exit_ch = Channel(Process::Status).new(1)
+        svc.register_process(task_id, process, exit_ch)
+
+        spawn do
+          out_done.receive
+          err_done.receive
+          file.fsync
+          file.close
+          exit_status = status_ch.receive
+
+          info = svc.get_task(task_id) || raise "task not found: #{task_id}"
+          info.ended_at = Time.utc.to_unix_ms
+
+          if !exit_status.normal_exit?
+            info.status = AgentTaskStatus::Failed
+            info.stop_reason = "killed by signal"
+          elsif info.status.terminal?
+            # Already terminal (killed by TaskStop or the detach timeout) —
+            # leave it.
+          elsif exit_status.exit_code != 0
+            info.status = AgentTaskStatus::Failed
+            info.exit_code = exit_status.exit_code
+          else
+            info.status = AgentTaskStatus::Completed
+            info.exit_code = 0
+          end
+
+          preview = read_tail(output_path, Task::OUTPUT_PREVIEW_BYTES)
+          svc.set_output(task_id, preview,
+            output_path: output_path,
+            full_output_available: true,
+            truncated: preview.bytesize >= Task::OUTPUT_PREVIEW_BYTES)
+
+          svc.persist_task_meta(task_id) if svc.is_a?(InMemoryTaskService)
+
+          # Publish the exit status only after finalization so a
+          # TaskOutput(block=true) / TaskService#wait caller observes the
+          # terminal status, not the transitional one.
+          exit_ch.send(exit_status)
+
+          deliver_completion(svc, task_id, command, output_path) unless svc.notification_suppressed?(task_id)
+
+          observe_ci_after_push(command, cwd) if info.status.completed?
+        end
+
+        # Detach timeout: kill after the background grace window.
+        spawn do
+          select
+          when exit_ch.receive?
+            # Process exited before the grace window — nothing to do.
+          when timeout(DEFAULT_BG_TIMEOUT_S.seconds)
+            unless info.status.terminal?
+              kill_two_phase(process)
+            end
+          end
+        end
+
+        lines = [] of String
+        lines << "Command timed out after #{timeout_s}s and was moved to the background."
+        lines << "task_id: #{task_id}"
+        lines << "output_path: #{output_path}"
+        lines << "command: #{command}"
+        lines << "The completion arrives automatically in a later turn — do NOT wait, poll, or call TaskOutput on it; continue with your current work."
+        body = lines.join('\n')
+        unless foreground_prefix.empty?
+          body = "#{body}\n\nforeground_output:\n#{foreground_prefix}"
+        end
+        ToolResult.success(body)
+      end
+
+      # Mirrors the JS `foregroundDescription`: "Bash: <command preview>".
+      private def foreground_task_description(command : String) : String
+        preview = command.size > 60 ? "#{command[0, 60]}…" : command
+        "Bash: #{preview}"
       end
 
       # ------------------------------------------------------------------
@@ -682,6 +910,64 @@ For long-running commands, pass run_in_background: true. The tool returns immedi
         getter? truncated : Bool
 
         def initialize(@text : String, @truncated : Bool)
+        end
+      end
+
+      # Switchable output sink for the detach-capable foreground path.
+      # Phase 1 mirrors `capture`: in-memory with the MAX_OUTPUT_BYTES cap,
+      # then discard (keeps draining so the child never blocks on a full
+      # pipe). On detach, `attach` hands over the log file; the reader
+      # fiber (the only file writer) first flushes the collected prefix and
+      # then appends, so no byte is lost and ordering is preserved without
+      # locks — `attach` is a single assignment, and Crystal's cooperative
+      # scheduler only switches fibers at yield points.
+      private class OutputSink
+        @mem = IO::Memory.new
+        @total = 0
+        @truncated = false
+        @file : File?
+        @pending : {File, Bytes}?
+
+        def attach(file : File) : Nil
+          @pending = {file, @mem.to_slice}
+        end
+
+        def copy_from(io : IO) : Nil
+          buf = Bytes.new(8192)
+          loop do
+            read = io.read(buf)
+            break if read == 0
+            if pending = @pending
+              pending_file, prefix = pending
+              pending_file.write(prefix)
+              @file = pending_file
+              @pending = nil
+            end
+            if file = @file
+              file.write(buf[0, read])
+            elsif @truncated
+              # Past the in-memory cap — discard.
+            else
+              remaining = Bash::MAX_OUTPUT_BYTES - @total
+              if read > remaining
+                @mem.write(buf[0, remaining]) if remaining > 0
+                @truncated = true
+              else
+                @mem.write(buf[0, read])
+                @total += read
+              end
+            end
+          end
+        rescue IO::Error
+          # Process killed or stream closed — keep what was collected.
+        end
+
+        def text : String
+          @mem.to_s
+        end
+
+        def truncated? : Bool
+          @truncated
         end
       end
     end

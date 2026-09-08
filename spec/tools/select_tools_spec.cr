@@ -106,3 +106,95 @@ describe H2code::Tools::SelectTools do
     result.content.should_not contain("Loaded: a")
   end
 end
+
+describe H2code::Tools::AgentToolSelectService do
+  it "drops unloaded MCP tools from the provider-visible tools list when enabled" do
+    registry = H2code::Tools::Registry.new
+    registry.register(H2code::Tools::Read.new("/tmp"))
+    registry.register(FakeMcpTool.new("mcp__github__create_issue"))
+    svc = H2code::Tools::AgentToolSelectService.new(registry, true)
+
+    defs = [mcp_def("mcp__github__create_issue"), mcp_def("Read")]
+    shaped = svc.shape_tools(defs)
+    shaped.map(&.name).should eq(["Read"])
+
+    svc.load(["mcp__github__create_issue"])
+    shaped = svc.shape_tools(defs)
+    shaped.map(&.name).should contain("mcp__github__create_issue")
+  end
+
+  it "passes all definitions through when disabled" do
+    registry = H2code::Tools::Registry.new
+    svc = H2code::Tools::AgentToolSelectService.new(registry, false)
+    defs = [mcp_def("mcp__github__create_issue"), mcp_def("Read")]
+    svc.shape_tools(defs).map(&.name).should eq(["mcp__github__create_issue", "Read"])
+    svc.announcement(defs).should be_nil
+  end
+
+  it "announces loadable (not yet loaded) MCP tools" do
+    registry = H2code::Tools::Registry.new
+    registry.register(FakeMcpTool.new("mcp__a__tool"))
+    registry.register(FakeMcpTool.new("mcp__b__tool"))
+    svc = H2code::Tools::AgentToolSelectService.new(registry, true)
+
+    defs = [mcp_def("mcp__b__tool"), mcp_def("mcp__a__tool"), mcp_def("Read")]
+    ann = svc.announcement(defs).not_nil!
+    ann.should contain("<tools_loadable>")
+    ann.should contain("mcp__a__tool")
+    ann.should contain("mcp__b__tool")
+    # Sorted: a before b.
+    (ann.index!("mcp__a__tool") < ann.index!("mcp__b__tool")).should be_true
+
+    svc.load(["mcp__a__tool"])
+    ann2 = svc.announcement(defs).not_nil!
+    ann2.should contain("mcp__b__tool")
+    ann2.should_not contain("mcp__a__tool")
+  end
+
+  it "returns no announcement when everything is loaded" do
+    registry = H2code::Tools::Registry.new
+    svc = H2code::Tools::AgentToolSelectService.new(registry, true)
+    svc.announcement([mcp_def("Read")]).should be_nil
+    svc.announcement([] of H2code::LLM::ToolDefinition).should be_nil
+  end
+
+  it "classifies load against the registry's MCP tools" do
+    registry = H2code::Tools::Registry.new
+    registry.register(FakeMcpTool.new("mcp__srv__tool"))
+    svc = H2code::Tools::AgentToolSelectService.new(registry, true)
+
+    result = svc.load(["mcp__srv__tool", "Read"])
+    result.to_load.should eq(["mcp__srv__tool"])
+    result.unknown.should eq(["Read"])
+
+    result = svc.load(["mcp__srv__tool"])
+    result.already_available.should eq(["mcp__srv__tool"])
+  end
+end
+
+# Minimal registry entry with an MCP-style name for service tests.
+class FakeMcpTool < H2code::Tools::Tool
+  def initialize(@n : String)
+  end
+
+  def name : String
+    @n
+  end
+
+  def description : String
+    "fake"
+  end
+
+  def parameters : JSON::Any
+    JSON.parse(%({"type":"object"}))
+  end
+
+  def execute(input : JSON::Any) : H2code::Tools::ToolResult
+    H2code::Tools::ToolResult.success("ok")
+  end
+end
+
+def mcp_def(name : String) : H2code::LLM::ToolDefinition
+  H2code::LLM::ToolDefinition.new(
+    H2code::LLM::ToolFunction.new(name, "test", JSON.parse(%({"type":"object"}))))
+end

@@ -368,9 +368,9 @@ describe H2code::Loop::Agent do
 
       tool_results = events.select(&.type.tool_result?).map(&.text)
       # The second tool call (Write to a non-plan path) must be blocked by the
-      # plan-mode guard — the guard emits an Info event with its message and
-      # the tool batch reports "Permission denied".
-      blocked_result = tool_results.select(&.includes?("Permission denied for Write"))
+      # plan-mode guard — the deny reason (the guard message itself) is
+      # surfaced to the model in the tool result.
+      blocked_result = tool_results.select(&.includes?("Plan mode is active"))
       blocked_result.should_not be_empty
       guard_infos = events.select(&.type.info?).map(&.text)
       guard_infos.any?(&.includes?("Plan mode is active")).should be_true

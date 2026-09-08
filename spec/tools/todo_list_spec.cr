@@ -84,4 +84,62 @@ describe H2code::Tools::TodoList do
     result.is_error?.should be_false
     result.content.should contain("[pending]")
   end
+
+  describe "persistence" do
+    it "saves todos to <session_dir>/todo.json and reloads them" do
+      Dir.tempdir.tap do |tmp|
+        session_dir = File.join(tmp, "todo-persist-#{Random::Secure.hex(4)}")
+        Dir.mkdir_p(session_dir)
+
+        todo = H2code::Tools::TodoList.new(session_dir)
+        todo.execute(JSON.parse(%({"todos":[{"title":"first","status":"done"},{"title":"second","status":"in_progress"}]})))
+
+        path = File.join(session_dir, "todo.json")
+        File.exists?(path).should be_true
+        File.read(path).should contain("second")
+
+        # A fresh instance (simulated restart) restores the list.
+        restored = H2code::Tools::TodoList.new(session_dir)
+        restored.todos.size.should eq(2)
+        restored.todos[0].title.should eq("first")
+        restored.todos[0].status.should eq(H2code::Tools::TodoStatus::Done)
+        restored.todos[1].status.should eq(H2code::Tools::TodoStatus::InProgress)
+
+        result = restored.execute(JSON.parse(%({})))
+        result.content.should contain("[done] first")
+        result.content.should contain("[in_progress] second")
+      end
+    end
+
+    it "persists a clear as an empty list" do
+      Dir.tempdir.tap do |tmp|
+        session_dir = File.join(tmp, "todo-clear-#{Random::Secure.hex(4)}")
+        Dir.mkdir_p(session_dir)
+
+        todo = H2code::Tools::TodoList.new(session_dir)
+        todo.execute(JSON.parse(%({"todos":[{"title":"x","status":"pending"}]})))
+        todo.execute(JSON.parse(%({"todos":[]})))
+
+        restored = H2code::Tools::TodoList.new(session_dir)
+        restored.todos.empty?.should be_true
+      end
+    end
+
+    it "ignores a corrupt todo.json" do
+      Dir.tempdir.tap do |tmp|
+        session_dir = File.join(tmp, "todo-corrupt-#{Random::Secure.hex(4)}")
+        Dir.mkdir_p(session_dir)
+        File.write(File.join(session_dir, "todo.json"), "{not json")
+
+        todo = H2code::Tools::TodoList.new(session_dir)
+        todo.todos.empty?.should be_true
+      end
+    end
+
+    it "stays in-memory without a session_dir" do
+      todo = H2code::Tools::TodoList.new
+      todo.execute(JSON.parse(%({"todos":[{"title":"a","status":"pending"}]})))
+      todo.session_dir.should be_nil
+    end
+  end
 end
