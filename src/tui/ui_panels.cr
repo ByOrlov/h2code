@@ -114,6 +114,8 @@ module H2code
           prompt = "#{pc}#{ANSI.bold}>#{r} "
           placeholder_text = if @setup_mode && (w = @wizard) && !w.done?
                                w.placeholder
+                             elsif @github_token_mode
+                               H2code.t("ui.github_token_placeholder")
                              elsif @plan_mode
                                H2code.t("ui.send_a_message") + " (" + H2code.t("ui.plan_mode_placeholder") + ")"
                              else
@@ -457,7 +459,8 @@ module H2code
         # user confirms (second press) or cancels (Esc), preventing collisions
         # where a background render swapped the last line back to context info.
         if @exit_confirm
-          return "#{ANSI.color(@theme.colors.warning, nil)} #{H2code.t("ui.press_to_exit", btn: @exit_key)}#{ANSI.reset}"
+          key = @ci_active ? "ui.ci_exit_warning" : "ui.press_to_exit"
+          return "#{ANSI.color(@theme.colors.warning, nil)} #{H2code.t(key, btn: @exit_key)}#{ANSI.reset}"
         end
 
         parts = [

@@ -359,6 +359,41 @@ module H2code
         @swarm_active = active
       end
 
+      # CI observer state change, called cross-fiber from the LiveCiService
+      # poll fiber (same pattern as on_event). While any observer is pending,
+      # declares the `:ci` active-zone key so the per-commit animated wait
+      # lines keep the zone balance. When THIS observer reached a terminal
+      # state its outcome is emitted into the log zone first — even when
+      # other observers are still pending, so an intermediate commit's
+      # result is never silently dropped (each settled line also satisfies
+      # the release invariant). The `:ci` key is released only when no
+      # observer is pending anymore. The agent-facing notification / turn
+      # wake-up is handled by the service's delivery callback, not here.
+      def on_ci_update(obs : Tools::Ci::Observer) : Nil
+        if obs.terminal?
+          line = case obs.status
+                 when .success?
+                   H2code.t("ui.ci_passed", sha: obs.short_sha, detail: obs.detail)
+                 when .failure?
+                   H2code.t("ui.ci_failed", sha: obs.short_sha, detail: obs.detail)
+                 when .error?
+                   H2code.t("ui.ci_error", sha: obs.short_sha, detail: obs.detail)
+                 else
+                   H2code.t("ui.ci_timeout", sha: obs.short_sha, detail: obs.detail)
+                 end
+          emit_to_log(Message.new("system", line))
+          invalidate_log_cache!
+        end
+        if obs.pending? || Tools::Ci.service.try(&.pending?) || false
+          @ci_active = true
+          declare_active(:ci)
+        else
+          @ci_active = false
+          release_active(:ci)
+        end
+        @dirty = true
+      end
+
       private def handle_subagent_started(event : Loop::Event) : Nil
         idx = find_swarm_message(event.tool_call_id)
         return unless idx

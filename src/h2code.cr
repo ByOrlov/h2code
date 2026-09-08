@@ -62,6 +62,8 @@ require "./remote/control_socket"
 require "./remote/qr"
 require "./remote/sync"
 require "./tools/cron"
+require "./tools/ci"
+require "./tools/wait_for_ci"
 require "./tools/read_media"
 require "./tools/select_tools"
 require "./mcp/types"
@@ -347,8 +349,14 @@ module H2code
       tools.register(Tools::CronCreate.new)
       tools.register(Tools::CronList.new)
       tools.register(Tools::CronDelete.new)
+      tools.register(Tools::WaitForCI.new(work_dir))
       tools.register(Tools::ReadMediaFile.new)
       tools.register(Tools::SelectTools.new)
+
+      # Shared CI observer service for all run modes (TUI attaches delivery +
+      # session store later; headless/ACP keep the bare observer loop). The
+      # GitHub token enables direct REST polling (no gh CLI).
+      Tools::Ci.service ||= Tools::Ci::LiveCiService.new(github_token: config.github_token)
 
       permission = Permission::Manager.new(Permission::Mode.parse(config.permission_mode))
 
@@ -898,6 +906,13 @@ module H2code
       # Random startup tip (shown under the welcome box) — data-driven, read
       # from tips/*.json next to the config (see H2code::Tips).
       app.startup_tip = H2code::Tips.random_tip(I18n.resolve_locale(config.language)) if config.show_tips?
+      # GitHub-token hint: when the repo is CI-eligible (GitHub Actions
+      # workflows + github.com remote, per Ci#head_sha) but no token is
+      # configured, CI polling falls back to the gh CLI — show a
+      # warning-yellow tip with the token instructions instead.
+      if config.github_token.empty? && Tools::Ci.service.try(&.head_sha(work_dir))
+        app.startup_warning_tip = H2code.t("ui.ci_token_tip")
+      end
       app.model = agent.provider.model_name
       app.provider_name = config.provider_name.to_s
       app.permission_mode = config.permission_mode
@@ -1010,6 +1025,18 @@ module H2code
       H2code::Tools::Cron.service = cron_service
       ts.mark_lost_on_resume
       cron_service.start
+
+      # Attach TUI delivery + session store to the CI observer service
+      # created in the shared setup. `on_update` drives the active-zone
+      # "Waiting for CI" lines (one per pending commit) and the per-commit
+      # outcome log lines; the delivery callback wakes the agent on
+      # failures so it can fix the build.
+      ci_svc = H2code::Tools::Ci.service.as?(H2code::Tools::Ci::LiveCiService)
+      unless ci_svc.nil?
+        ci_svc.delivery = delivery
+        ci_svc.store = store
+        ci_svc.on_update = ->(obs : H2code::Tools::Ci::Observer) { app.on_ci_update(obs) }
+      end
 
       # Flush cron state + kill background processes on clean exit.
       # Control socket for h2code-remote: lets the remote daemon inject

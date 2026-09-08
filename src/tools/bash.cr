@@ -265,6 +265,9 @@ For long-running commands, pass run_in_background: true. The tool returns immedi
           # (h2code.cr render_tool_block) parses it to render a red footer.
           ToolResult.error("#{result}\n[exit code: #{status.exit_code}]")
         else
+          # Full CI integration: a successful `git push` to a GitHub repo with
+          # Actions workflows starts a CI observer for the pushed HEAD.
+          observe_ci_after_push(command, effective_cwd)
           ToolResult.success(result.strip)
         end
       rescue ex : File::NotFoundError
@@ -391,7 +394,7 @@ For long-running commands, pass run_in_background: true. The tool returns immedi
         # Monitor fiber: capture output to file, wait for exit, update status,
         # and deliver the completion notification.
         spawn do
-          monitor_background(svc, task_id, process, output_path, exit_ch, command)
+          monitor_background(svc, task_id, process, output_path, exit_ch, command, effective_cwd)
         end
 
         # Arm a timeout (if configured) on a separate fiber.
@@ -423,7 +426,7 @@ For long-running commands, pass run_in_background: true. The tool returns immedi
       private def monitor_background(svc : TaskService, task_id : String,
                                      process : Process, output_path : String,
                                      exit_ch : Channel(Process::Status),
-                                     command : String) : Nil
+                                     command : String, cwd : String) : Nil
         # Capture stdout + stderr to the output file in real time. Each stream
         # is copied in its own fiber; their completion is awaited before the
         # exit status is read so no output is lost.
@@ -501,6 +504,24 @@ For long-running commands, pass run_in_background: true. The tool returns immedi
 
         # Deliver the completion notification unless suppressed.
         deliver_completion(svc, task_id, command, output_path) unless svc.notification_suppressed?(task_id)
+
+        # Full CI integration: a successful background `git push` starts a CI
+        # observer for the pushed HEAD, same as the foreground path.
+        observe_ci_after_push(command, cwd) if info.status.completed?
+      end
+
+      # ------------------------------------------------------------------
+      # CI observation (full CI integration)
+      # ------------------------------------------------------------------
+
+      # After a successful `git push`, start a CI observer for the pushed
+      # HEAD when the repo has GitHub Actions workflows (sudo-detect style).
+      # Strictly best-effort: never fails the push result. See features.md.
+      private def observe_ci_after_push(command : String, cwd : String) : Nil
+        return unless Tools::Ci.push_command?(command)
+        Tools::Ci.service.try(&.try_observe_push(command, cwd))
+      rescue ex
+        # Observation is optional — swallow any detection failure.
       end
 
       # ------------------------------------------------------------------

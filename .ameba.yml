@@ -7,5 +7,11 @@ Naming/BlockParameterName:
 Naming/AccessorMethodName:
   Enabled: false
 
+Lint/NotNil:
+  # Specs use `.not_nil!` as the standard way to narrow nilable subjects
+  # after `should_not be_nil` (see tips_spec, cloud_providers_spec).
+  Excluded:
+    - spec/**/*
+
 Style/VerboseBlock:
   Enabled: false

@@ -86,6 +86,35 @@ module H2code
           return
         end
 
+        # GitHub token wizard (/github token): the editor collects the token.
+        # Enter saves it (non-empty input only), Esc cancels. Paste goes
+        # through the same marker path as the setup wizard so a long pasted
+        # token never floods the input box.
+        if @github_token_mode
+          case key.key
+          when .enter?
+            unless @editor.empty?
+              text = @editor.submit!
+              submit_github_token(text)
+            end
+          when .escape?, .ctrl_d?
+            cancel_github_token_wizard
+          when .paste?
+            if text = key.text
+              paste_lines = text.count('\n') + 1
+              if paste_lines > 10 || text.size > 1000
+                @editor.insert_paste_marker(text, paste_lines)
+              else
+                @editor.insert_text(text)
+              end
+            end
+          else
+            @editor.handle_input(key)
+          end
+          @dirty = true
+          return
+        end
+
         if @tasks_browser.visible?
           @tasks_browser.rows = @terminal.rows
           @tasks_browser.handle_input(key)
@@ -638,6 +667,8 @@ module H2code
           handle_language_command(args)
         when "/cleanup"
           cmd_cleanup(args)
+        when "/github"
+          cmd_github(args)
         else
           emit_to_log(Message.new("error", H2code.t("ui.unknown_command", cmd: cmd)))
         end

@@ -54,6 +54,11 @@ changes between frames. It contains:
 - **Spinner + status line** — animated (`⠋`→`⠙`→`⠹`), updates every 80 ms.
 - **Live thinking preview** — last 2 lines of the streaming thinking text.
 - **Streaming assistant text** — the in-progress assistant response.
+- **CI observer wait line** — animated pulsing circle (○→◐→◑→◉→●), shown
+  while a pushed commit's GitHub Actions build is pending. Bracketed by the
+  `:ci` active-zone key (`declare_active`/`release_active`); on completion
+  the outcome is appended to the log, satisfying the release invariant. See
+  features.md ("Full CI integration").
 - **Editor box** — the input field, cursor, command hints.
 
 The active zone is bounded: 5–15 lines depending on state. Because it is

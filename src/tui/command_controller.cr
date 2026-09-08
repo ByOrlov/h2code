@@ -726,6 +726,110 @@ module H2code
         end
         emit_to_log(Message.new("system", H2code.t("ui.volume_set", value: val)))
       end
+
+      # `/github [status|token [clear]]` — GitHub integration settings.
+      # `status` (the default) reports whether a token is configured;
+      # `token` starts a small wizard that collects a personal access token
+      # via the input box and saves it to config `github.token`;
+      # `token clear` removes it.
+      private def cmd_github(args : String) : Nil
+        sub = args.strip.split(/\s+/).reject(&.empty?)
+        case sub[0]?
+        when nil, "", "status"
+          emit_to_log(Message.new("system", github_status_message))
+        when "token"
+          case sub[1]?
+          when nil, ""
+            start_github_token_wizard
+          when "clear", "remove", "off"
+            clear_github_token
+          else
+            emit_to_log(Message.new("error", H2code.t("ui.usage_github")))
+          end
+        else
+          emit_to_log(Message.new("error", H2code.t("ui.usage_github")))
+        end
+      end
+
+      private def github_status_message : String
+        token = @app_config.try(&.github_token) || ""
+        body = token.empty? ? H2code.t("ui.github_token_not_set") : H2code.t("ui.github_token_set", masked: mask_secret(token))
+        unless ENV["GITHUB_TOKEN"]?.nil? && ENV["GH_TOKEN"]?.nil?
+          body += "\n#{H2code.t("ui.github_token_env_override")}"
+        end
+        body
+      end
+
+      # Short recognisable mask for status output: the token prefix (its
+      # type, e.g. ghp_/github_pat_) plus fixed dots — never the secret.
+      private def mask_secret(secret : String) : String
+        "#{secret[0, {4, secret.size}.min]}#{"•" * 8}"
+      end
+
+      # Open the token wizard: the editor collects the pasted token (Enter
+      # saves, Esc cancels). Mirrors the setup wizard's input-box flow.
+      private def start_github_token_wizard : Nil
+        unless @app_config
+          emit_to_log(Message.new("error", H2code.t("ui.github_token_no_config")))
+          return
+        end
+        @github_token_mode = true
+        @status = H2code.t("ui.github_token_entering")
+        @editor.clear
+        @show_command_hints = false
+        emit_to_log(Message.new("system", H2code.t("ui.github_wizard_intro")))
+        @dirty = true
+      end
+
+      # Save the token collected by the wizard: config `github.token` plus
+      # the live Ci service, so CI observers switch to direct api.github.com
+      # polling without a restart. Echo is masked like the setup wizard.
+      private def submit_github_token(text : String) : Nil
+        token = text.strip
+        emit_to_log(Message.new("user", "#{"•" * {token.size, 8}.min}"))
+        exit_github_token_wizard
+        if token.empty?
+          emit_to_log(Message.new("error", H2code.t("ui.github_token_empty")))
+          return
+        end
+        if cfg = @app_config
+          cfg.github_token = token
+          cfg.save
+        end
+        if service = Tools::Ci.service.as?(Tools::Ci::LiveCiService)
+          service.github_token = token
+        end
+        emit_to_log(Message.new("system", H2code.t("ui.github_token_saved")))
+      end
+
+      private def cancel_github_token_wizard : Nil
+        exit_github_token_wizard
+        emit_to_log(Message.new("system", H2code.t("ui.github_token_cancelled")))
+      end
+
+      private def exit_github_token_wizard : Nil
+        @github_token_mode = false
+        @status = ""
+        @editor.clear
+        @show_command_hints = false
+        @dirty = true
+      end
+
+      # Remove the token from config and the live Ci service. Env vars
+      # (GITHUB_TOKEN / GH_TOKEN) still apply on the next launch.
+      private def clear_github_token : Nil
+        cfg = @app_config
+        unless cfg
+          emit_to_log(Message.new("error", H2code.t("ui.github_token_no_config")))
+          return
+        end
+        cfg.github_token = ""
+        cfg.save
+        if service = Tools::Ci.service.as?(Tools::Ci::LiveCiService)
+          service.github_token = ""
+        end
+        emit_to_log(Message.new("system", H2code.t("ui.github_token_cleared")))
+      end
     end
   end
 end

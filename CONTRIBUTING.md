@@ -51,6 +51,7 @@ cd h2code
 shards install          # install dependencies
 rake build              # build the h2code binary
 rake spec               # run the test suite
+rake coverage           # run the suite under kcov and report total src/ coverage
 rake mock:default       # self-test with the mock provider (no API key needed)
 ```
 

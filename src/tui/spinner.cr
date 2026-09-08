@@ -7,6 +7,12 @@ module H2code
       # 4 frames, ~250ms each (3 ticks × ~80ms).
       BASH_BULLET_FRAMES = ["\u25cf", "\u2022", "\u22c5", "\u2022"]
 
+      # Animated circle for the CI observer wait line: grows and shrinks
+      # ○ → ◐ → ◑ → ◉ → ● → ◉ → ◑ → ◐ → … 8 frames, ~160ms each
+      # (2 ticks × ~80ms).
+      CI_BULLET_FRAMES = ["\u25cb", "\u25d0", "\u25d1", "\u25c9", "\u25cf",
+                          "\u25c9", "\u25d1", "\u25d0"]
+
       @frame : Int32 = 0
       @active : Bool = false
       @last_update : Time::Span = Time.monotonic

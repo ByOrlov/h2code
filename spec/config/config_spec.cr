@@ -247,6 +247,26 @@ describe H2code::Config::Config do
       config.ollama_model.should eq("qwen2.5")
     end
 
+    it "round-trips the github token" do
+      config = H2code::Config::Config.parse_json(%({"github": {"token": "ghp_abc123"}}))
+      config.github_token.should eq("ghp_abc123")
+
+      path = File.join(Dir.tempdir, "h2code-config-test-#{Random::Secure.hex(8)}.json")
+      begin
+        config.save(path)
+        reloaded = H2code::Config::Config.parse_json(File.read(path))
+        reloaded.github_token.should eq("ghp_abc123")
+
+        # Empty by default, and the section is not written when unset.
+        H2code::Config::Config.parse_json(%({})).github_token.should eq("")
+        File.delete(path)
+        H2code::Config::Config.new.save(path)
+        File.read(path).should_not contain("\"github\"")
+      ensure
+        File.delete(path) rescue nil
+      end
+    end
+
     it "leaves nil-able fields nil when absent" do
       json = %({"model": {"thinking_effort": "high"}})
       config = H2code::Config::Config.parse_json(json)

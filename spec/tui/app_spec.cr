@@ -618,6 +618,18 @@ describe H2code::TUI::HelpPanel do
       top.should_not be_nil
       H2code::TUI::CharWidth.visible_width(top || raise "top not found").should be >= 14
     end
+
+    # The GitHub-token hint renders under the welcome box in the tip layout,
+    # but warning-yellow (bar and text), unlike the gray-on-green tip.
+    it "startup warning tip renders under the welcome box" do
+      app = H2code::TUI::App.new
+      app.startup_warning_tip = "GitHub Actions detected but no GitHub token is set"
+      log_lines, _active, _editor = app.build_rendered_lines_split(80)
+      joined = log_lines.join('\n')
+      joined.should contain("GitHub Actions detected but no GitHub token is set")
+      # Tip rows are bar-delimited lines.
+      joined.should contain('│')
+    end
   end
 end
 

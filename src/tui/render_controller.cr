@@ -176,6 +176,15 @@ module H2code
                 @log_lines_cache << "#{bar}│#{ANSI.reset}#{gray} #{line}#{ANSI.reset}"
               end
             end
+            if warning = @startup_warning_tip
+              # Actionable startup warning: same tip layout, but warning
+              # yellow (bar + text) so it reads as a hint that matters.
+              @log_lines_cache << ""
+              bar = ANSI.color(@theme.colors.warning, nil)
+              wrap_text(warning, cols - 2).each do |line|
+                @log_lines_cache << "#{bar}│#{ANSI.reset}#{bar} #{line}#{ANSI.reset}"
+              end
+            end
             @log_lines_cache << ""
           end
           @messages.each do |msg|
@@ -209,6 +218,15 @@ module H2code
           else
             active_lines.concat(render_running_tool(m, cols))
           end
+        end
+
+        # CI observer wait lines — pulsing circle (Spinner::CI_BULLET_FRAMES)
+        # per watched commit, one line for each pending observer (every push
+        # gets its own observer). Rendered only while @ci_active is set by
+        # on_ci_update; returns empty otherwise so the active zone never
+        # shows stale rows.
+        if ci_lines = render_ci_wait_lines
+          active_lines.concat(ci_lines)
         end
 
         # AgentStatus line — always present (one row), never disappears.
@@ -590,6 +608,34 @@ module H2code
 
         editor_text_col = 5 + @editor.cursor_visual_col
         port.cursor_to_column(editor_text_col)
+      end
+
+      # CI observer wait lines: pulsing circle (Spinner::CI_BULLET_FRAMES)
+      # while a pushed commit's build is pending. One line per pending
+      # observer — multiple pushes are each watched in their own row, oldest
+      # commit first — each ending with a clickable `link: <url>` to the
+      # commit's Actions checks page when the owner/repo pair is known.
+      # Rendered only while @ci_active is set by on_ci_update;
+      # returns an empty Array otherwise so the active zone never shows
+      # stale rows.
+      private def render_ci_wait_lines : Array(String)
+        return [] of String unless @ci_active
+        svc = Tools::Ci.service
+        return [] of String if svc.nil? || !svc.pending?
+        obs_list = svc.pending_observers
+        return [] of String if obs_list.empty?
+        frame = Spinner::CI_BULLET_FRAMES[(@spin_phase // 2) % Spinner::CI_BULLET_FRAMES.size]
+        obs_list.map do |obs|
+          String.build do |s|
+            s << ANSI.color(@theme.colors.warning, nil)
+            s << ' ' << frame << ' '
+            s << H2code.t("ui.ci_waiting", sha: obs.short_sha, elapsed: obs.elapsed_s)
+            unless obs.actions_url.empty?
+              s << "  link: " << obs.actions_url
+            end
+            s << ANSI.reset
+          end
+        end
       end
 
       # Permanent one-line agent status indicator (always visible in the active

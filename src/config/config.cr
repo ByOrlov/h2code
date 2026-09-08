@@ -116,6 +116,10 @@ module H2code
       property together_api_key : String = ""
       property together_endpoint : String = "https://api.together.xyz/v1"
       property together_model : String = "meta-llama/Llama-3.3-70B-Instruct-Turbo"
+      # GitHub API token for CI observation: with it, observers poll
+      # api.github.com directly and skip the gh CLI entirely. Config
+      # `github.token`; GITHUB_TOKEN / GH_TOKEN env vars override.
+      property github_token : String = ""
       property max_steps : Int32 = 150
       property max_context_tokens : Int32 = 262144
       property temperature : Float64? = nil
@@ -261,6 +265,9 @@ module H2code
         if provider = ENV["H2CODE_PROVIDER"]?
           config.provider_name = provider
         end
+        if key = ENV["GITHUB_TOKEN"]? || ENV["GH_TOKEN"]?
+          config.github_token = key
+        end
         if lang = ENV["H2CODE_LANG"]?
           config.language = lang
         end
@@ -377,6 +384,10 @@ module H2code
             config.together_endpoint = together["endpoint"]?.try(&.as_s?) || config.together_endpoint
             config.together_model = together["model"]?.try(&.as_s?) || config.together_model
           end
+        end
+
+        if github = root["github"]?.try(&.as_h?)
+          config.github_token = github["token"]?.try(&.as_s?) || ""
         end
 
         if services = root["services"]?.try(&.as_h?)
@@ -617,6 +628,12 @@ module H2code
                 end
               end
             end
+
+            json.field("github") do
+              json.object do
+                json.field("token", @github_token)
+              end
+            end unless @github_token.empty?
 
             json.field("agent") do
               json.object do

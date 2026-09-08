@@ -618,8 +618,13 @@ module H2code
         tools.register(Tools::CronCreate.new)
         tools.register(Tools::CronList.new)
         tools.register(Tools::CronDelete.new)
+        tools.register(Tools::WaitForCI.new(work_dir))
         tools.register(Tools::ReadMediaFile.new)
         tools.register(Tools::SelectTools.new)
+        # Shared CI observer service (no TUI delivery here — the WaitForCI
+        # tool still reads observer state directly). GitHub token enables
+        # direct REST polling (no gh CLI).
+        Tools::Ci.service ||= Tools::Ci::LiveCiService.new(github_token: @config.github_token)
         tools
       end
 

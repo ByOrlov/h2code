@@ -118,6 +118,11 @@ module H2code
       # 80ms animation tick independently of @agent_busy so progress bars
       # keep moving even when the parent turn is in a tool-call gap.
       @swarm_active : Bool = false
+      # True while a CI observer is watching a pushed commit — drives the
+      # animated "Waiting for CI for commit <sha>" active-zone lines (one per
+      # pending observer), their 80ms animation
+      # tick, and the Ctrl+D exit warning. Mirrors @swarm_active's role.
+      @ci_active : Bool = false
       @exit_confirm : Bool = false
       @exit_key : String = "CTRL+C"
       @current_step : Int32 = 0
@@ -181,6 +186,11 @@ module H2code
       property wizard : Setup::Wizard? = nil
       property on_setup_complete : (Setup::Wizard -> Nil)? = nil
 
+      # GitHub token wizard (`/github token`). While true the editor input
+      # is intercepted: the user types/pastes the token, Enter saves it to
+      # config `github.token` (and the live Ci service), Esc cancels.
+      property? github_token_mode : Bool = false
+
       # Approval state
       @approval_pending : ApprovalRequest?
       @approval_channel = Channel(Permission::ApprovalChoice).new
@@ -237,6 +247,9 @@ module H2code
       # welcome box in the active-zone green with a `│` bar. nil = no tip
       # (disabled in config or no tips files found).
       property startup_tip : String? = nil
+      # Actionable startup warning (same tip layout, warning-yellow bar +
+      # text), e.g. the "GitHub Actions without a token" hint. nil = none.
+      property startup_warning_tip : String? = nil
       property? debug_zones : Bool = false
       property on_debug_zones_change : (Bool -> Nil)? = nil
       @session_id : String = ""
@@ -480,7 +493,7 @@ module H2code
           now = Time.monotonic
           elapsed = (now - @last_render).total_milliseconds
 
-          if (@agent_busy || @swarm_active || voice_active?) && elapsed >= 80
+          if (@agent_busy || @swarm_active || @ci_active || voice_active?) && elapsed >= 80
             @spin_phase += 1
             @dirty = true
           end

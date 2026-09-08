@@ -42,6 +42,7 @@ module H2code
       CRON_CREATE       = "CronCreate"
       CRON_LIST         = "CronList"
       CRON_DELETE       = "CronDelete"
+      WAIT_FOR_CI       = "WaitForCI"
     end
   end
 end
