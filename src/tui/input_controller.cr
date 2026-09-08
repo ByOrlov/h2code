@@ -202,14 +202,16 @@ module H2code
         # While a voice recording is in flight, Escape cancels it (audio
         # discarded, no transcription) while Space stops it with
         # transcription (same as Ctrl+R) — both instead of their normal
-        # editing behavior.
+        # editing behavior. Space stops the recording only when the editor
+        # is empty: mid-typing it must insert a space, otherwise input like
+        # "/tips off" loses the space and becomes an unknown command.
         if voice_recording? && key.key.escape?
           cancel_voice_recording
           @dirty = true
           return
         end
 
-        if voice_recording? && key.key.char? && key.char == ' '
+        if voice_recording? && @editor.empty? && key.key.char? && key.char == ' '
           toggle_voice_recording
           @dirty = true
           return
