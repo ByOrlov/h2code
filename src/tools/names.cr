@@ -45,6 +45,7 @@ module H2code
       CURRENT_TIME      = "CurrentTime"
       GET_CONTEXT_REMAINING = "GetContextRemaining"
       APPLY_PATCH       = "ApplyPatch"
+      INTERACTIVE_SHELL = "InteractiveShell"
     end
   end
 end

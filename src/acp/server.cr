@@ -512,6 +512,12 @@ module H2code
         memory = Context::Memory.new
         memory.max_context_tokens = @config.max_context_tokens
 
+        # Interactive shell sessions are process-global (one registry
+        # shared across ACP sessions, killed when the server stops).
+        unless H2code::Tools::InteractiveShell.service
+          H2code::Tools::InteractiveShell.service = H2code::Tools::InteractiveShellService.new
+        end
+
         # Build tools
         tools = build_tools(cwd, memory)
 
@@ -623,6 +629,7 @@ module H2code
         tools.register(Tools::CurrentTime.new)
         tools.register(Tools::GetContextRemaining.new(memory))
         tools.register(Tools::ApplyPatchTool.new)
+        tools.register(Tools::InteractiveShellTool.new)
         tools
       end
 

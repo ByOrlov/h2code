@@ -69,6 +69,7 @@ require "./tools/select_tools"
 require "./tools/curr_time"
 require "./tools/get_context_remaining"
 require "./tools/apply_patch"
+require "./tools/interactive_shell"
 require "./mcp/types"
 require "./mcp/tool_naming"
 require "./mcp/transport"
@@ -357,6 +358,7 @@ module H2code
       tools.register(Tools::CurrentTime.new)
       tools.register(Tools::GetContextRemaining.new(memory))
       tools.register(Tools::ApplyPatchTool.new)
+      tools.register(Tools::InteractiveShellTool.new)
 
       permission = Permission::Manager.new(Permission::Mode.parse(config.permission_mode))
 
@@ -635,6 +637,7 @@ module H2code
           agent.cancel
           # Kill any background processes spawned during this headless run.
           task_service.stop_all_on_exit("process interrupted")
+          H2code::Tools::InteractiveShell.service.try(&.stop_all)
           mcp_manager.shutdown
         end
       {% end %}
@@ -1016,6 +1019,7 @@ module H2code
         no_stale: config.cron_no_stale?,
       )
       H2code::Tools::Cron.service = cron_service
+      H2code::Tools::InteractiveShell.service = H2code::Tools::InteractiveShellService.new
       ts.mark_lost_on_resume
       cron_service.start
 
@@ -1031,6 +1035,7 @@ module H2code
       app.on_exit = -> {
         cron_service.stop
         ts.stop_all_on_exit("process exited")
+        H2code::Tools::InteractiveShell.service.try(&.stop_all)
         control_socket.close
         mcp_manager.shutdown
         nil
