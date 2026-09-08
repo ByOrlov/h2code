@@ -31,8 +31,8 @@ exactly like sudo detection piggybacks on every elevated command.
 
 `Tools::Ci` follows the `Cron.service` pattern: a module-level service seam
 (`Ci.service`) with a `LiveCiService` implementation. Each watched commit gets
-an `Observer` that polls on a **quadratic backoff** (`5·n²` seconds, capped at
-60s; gives up after 30 minutes). There are two polling backends:
+an `Observer` that polls on a **fixed 30 s interval** (no backoff; gives up
+after 30 minutes). There are two polling backends:
 
 - **Direct REST mode (priority)** — when a GitHub token is configured
   (config.json `github.token`, overridden by `GITHUB_TOKEN` / `GH_TOKEN` env),

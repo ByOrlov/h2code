@@ -135,6 +135,14 @@ module H2code
             lines << "#{ANSI.color(@theme.colors.dim, nil)}#{ANSI.italic}#{l}#{ANSI.reset}"
           end
           lines << ""
+        when "ci_success"
+          # CI success outcome — the only system line that is good news, so it
+          # is rendered bright green (bold success color) instead of the dim
+          # italic gray used for regular system messages.
+          msg.content.split('\n').each do |l|
+            lines << "#{ANSI.bold}#{ANSI.color(@theme.colors.success, nil)}#{l}#{ANSI.reset}"
+          end
+          lines << ""
         when "spacer"
           # A blank line flushed into the log to balance the active zone: when
           # the transient spinner-status line ("thinking N time, call M tools")

@@ -74,13 +74,9 @@ module H2code::Tools
       end
     end
 
-    describe "poll_interval" do
-      it "grows quadratically then caps" do
-        Ci.poll_interval(0).should eq(5)
-        Ci.poll_interval(1).should eq(20)
-        Ci.poll_interval(2).should eq(45)
-        Ci.poll_interval(3).should eq(60)
-        Ci.poll_interval(50).should eq(60)
+    describe "poll cadence" do
+      it "is a fixed 30 s interval" do
+        Ci::POLL_INTERVAL_S.should eq(30)
       end
     end
 

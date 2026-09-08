@@ -371,17 +371,19 @@ module H2code
       # wake-up is handled by the service's delivery callback, not here.
       def on_ci_update(obs : Tools::Ci::Observer) : Nil
         if obs.terminal?
-          line = case obs.status
-                 when .success?
-                   H2code.t("ui.ci_passed", sha: obs.short_sha, detail: obs.detail)
-                 when .failure?
-                   H2code.t("ui.ci_failed", sha: obs.short_sha, detail: obs.detail)
-                 when .error?
-                   H2code.t("ui.ci_error", sha: obs.short_sha, detail: obs.detail)
-                 else
-                   H2code.t("ui.ci_timeout", sha: obs.short_sha, detail: obs.detail)
-                 end
-          emit_to_log(Message.new("system", line))
+          # Success is emitted as "ci_success" so the log renders it bright
+          # green instead of the dim gray used for regular system lines.
+          line, role = case obs.status
+                       when .success?
+                         {H2code.t("ui.ci_passed", sha: obs.short_sha, detail: obs.detail), "ci_success"}
+                       when .failure?
+                         {H2code.t("ui.ci_failed", sha: obs.short_sha, detail: obs.detail), "system"}
+                       when .error?
+                         {H2code.t("ui.ci_error", sha: obs.short_sha, detail: obs.detail), "system"}
+                       else
+                         {H2code.t("ui.ci_timeout", sha: obs.short_sha, detail: obs.detail), "system"}
+                       end
+          emit_to_log(Message.new(role, line))
           invalidate_log_cache!
         end
         if obs.pending? || Tools::Ci.service.try(&.pending?) || false

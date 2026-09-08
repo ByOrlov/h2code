@@ -12,8 +12,8 @@ module H2code
     #   1. The Bash tool detects a successful `git push` (sudo-detect style)
     #      and calls `Ci.service.try_observe_push`.
     #   2. If the repo has GitHub Actions workflows and a github.com remote,
-    #      an `Observer` starts polling on a quadratic backoff (5·n² s,
-    #      capped at 60 s, gives up after 30 min). With a GitHub token
+    #      an `Observer` starts polling every 30 s (gives up after 30 min).
+    #      With a GitHub token
     #      configured (config `github.token` / GITHUB_TOKEN / GH_TOKEN)
     #      the observer polls api.github.com directly via `GithubApi` —
     #      no gh CLI, no browser login; without a token it falls back to
@@ -30,10 +30,8 @@ module H2code
     #
     # See features.md ("Full CI Integration") for the full description.
     module Ci
-      # Quadratic backoff base: poll n-th time after 5·n² seconds (5, 20, 45…).
-      BASE_INTERVAL_S = 5
-      # Cap for a single poll interval.
-      MAX_INTERVAL_S = 60
+      # Fixed poll cadence: poll GitHub Actions every 30 s, no backoff.
+      POLL_INTERVAL_S = 30
       # Give up observing after this many seconds and report "timeout".
       MAX_WAIT_S = 1800
       # Consecutive failed `gh` polls tolerated before the observer gives up
@@ -267,13 +265,6 @@ module H2code
         default
       end
 
-      # Quadratic poll cadence: attempt 0 waits 5 s, 1 → 20 s, 2 → 45 s, then
-      # capped at MAX_INTERVAL_S.
-      def self.poll_interval(attempt : Int32) : Int32
-        n = attempt <= 0 ? 1 : attempt + 1
-        {BASE_INTERVAL_S * n * n, MAX_INTERVAL_S}.min
-      end
-
       # Aggregate `gh run list --json` rows into an observer status.
       # Pending while any run is in progress or none is registered yet.
       def self.aggregate_runs(runs : Array(JSON::Any)) : {Status, String}
@@ -439,10 +430,8 @@ module H2code
         end
 
         def poll_loop(obs : Observer, cwd : String) : Nil
-          attempt = 0
           while obs.pending?
-            sleep Ci.poll_interval(attempt).seconds
-            attempt += 1
+            sleep POLL_INTERVAL_S.seconds
             if obs.elapsed_s >= MAX_WAIT_S
               obs.status = Status::Timeout
               obs.detail = "gave up after #{MAX_WAIT_S}s"
