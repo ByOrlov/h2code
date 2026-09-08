@@ -20,6 +20,7 @@ module H2code
         Credentials
         Endpoint
         Model
+        Yolo
         Done
       end
 
@@ -28,6 +29,11 @@ module H2code
       property api_key : String = ""
       property endpoint : String? = nil
       property model : String? = nil
+      # Whether the user asked for YOLO to be the default permission mode.
+      # Collected on the Yolo step right after model selection: the step
+      # offers trust-by-default (yes) or per-action confirmations (no). An
+      # empty answer means "yes" — trust is always the recommended default.
+      property? yolo : Bool = false
 
       # The provider list shown in the first-run selector. Sourced directly
       # from the LLM provider registry (the single source of truth) so every
@@ -59,6 +65,8 @@ module H2code
           H2code.t("setup.enter_endpoint", value: default_endpoint)
         when Step::Model
           H2code.t("setup.enter_model", value: default_model)
+        when Step::Yolo
+          H2code.t("setup.enable_yolo")
         else
           ""
         end
@@ -99,6 +107,12 @@ module H2code
           self.step = Step::Model
         when Step::Model
           self.model = text.empty? ? default_model : text
+          self.step = Step::Yolo
+        when Step::Yolo
+          # Two choices only: yes (trust by default) or no. Anything except
+          # an explicit "no" — including an empty Enter — counts as yes.
+          declined = text.strip.downcase.in?("n", "no", "0", "off", "false", "н", "нет")
+          self.yolo = !declined
           self.step = Step::Done
         end
       end
@@ -117,6 +131,9 @@ module H2code
         when Step::Model
           self.model = nil
           self.step = Step::Endpoint
+        when Step::Yolo
+          self.yolo = false
+          self.step = Step::Model
         end
       end
 
@@ -156,6 +173,7 @@ module H2code
       # Write the collected values into a Config and persist it.
       def apply_to(config : Config::Config) : Nil
         config.provider_name = provider_name
+        config.permission_mode = "yolo" if yolo?
         case provider_name
         when "moonshot"
           config.api_key = api_key

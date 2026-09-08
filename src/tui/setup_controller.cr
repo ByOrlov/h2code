@@ -82,6 +82,11 @@ module H2code
         if wizard.step == Setup::Wizard::Step::Model
           fetch_setup_models
         end
+
+        # On the Yolo step, explain what is being asked before the y/N input.
+        if wizard.step == Setup::Wizard::Step::Yolo
+          emit_to_log(Message.new("system", H2code.t("setup.yolo_note")))
+        end
       end
 
       # Fetch the model list for the provider being configured and open the
@@ -134,7 +139,7 @@ module H2code
           @dirty = true
           emit_to_log(Message.new("user", model))
           wizard.model = model
-          wizard.step = Setup::Wizard::Step::Done
+          wizard.step = Setup::Wizard::Step::Yolo
           advance_setup_step
         when .escape?, .ctrl_d?
           # Clear the search query first; only step back once it is empty.
@@ -179,6 +184,12 @@ module H2code
           @editor.clear
           @status = "Setup: #{wizard.step.to_s.downcase}"
           @dirty = true
+        when .yolo?
+          wizard.back
+          @editor.clear
+          # Re-entering the Model step re-runs fetch_setup_models via
+          # advance_setup_step, which reopens the model selector.
+          advance_setup_step
         end
       end
 
@@ -192,10 +203,12 @@ module H2code
         wizard.back if wizard.step.credentials?
         wizard.back if wizard.step.endpoint?
         wizard.back if wizard.step.model?
+        wizard.back if wizard.step.yolo?
         wizard.api_key = ""
         wizard.endpoint = nil
         wizard.model = nil
         wizard.provider_name = nil
+        wizard.yolo = false
         wizard.step = Setup::Wizard::Step::Welcome
         @status = "Setup: select provider"
         open_setup_provider_selector
@@ -208,6 +221,7 @@ module H2code
 
         config_msg = "Provider: #{wizard.provider_name}"
         config_msg += " | Model: #{wizard.model}" if wizard.model
+        config_msg += " | YOLO: on" if wizard.yolo?
         emit_to_log(Message.new("system", "Configuration saved. #{config_msg}"))
         emit_to_log(Message.new("system", "Starting H2Code..."))
         @status = ""
@@ -227,6 +241,8 @@ module H2code
         if wizard.step == Setup::Wizard::Step::Credentials
           masked = text.empty? ? "(skipped)" : "#{"•" * {text.size, 8}.min}"
           emit_to_log(Message.new("user", masked))
+        elsif wizard.step == Setup::Wizard::Step::Yolo
+          emit_to_log(Message.new("user", text.empty? ? "(yes)" : text.strip))
         else
           display = text.empty? ? "(default)" : text
           emit_to_log(Message.new("user", display))

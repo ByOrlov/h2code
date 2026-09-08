@@ -144,19 +144,33 @@ module H2code
         end
       end
 
-      private def cmd_yolo : Nil
-        @permission_mode = "yolo"
-        emit_to_log(Message.new("system", "Permission mode: yolo (auto-approve all)"))
+      # /yolo on|off — toggle the persistent YOLO default. Beyond the current
+      # session this flips several things at once via apply_permission_mode /
+      # on_permission_mode_change: the live Permission::Manager, the plan-mode
+      # permission reference, and the `permission.mode` default in config.json
+      # (so h2code starts in yolo on every launch, no CLI flags needed).
+      private def cmd_yolo(args : String) : Nil
+        case args.strip.downcase
+        when "on"
+          apply_permission_mode("yolo")
+          emit_to_log(Message.new("system", "YOLO default saved: tool calls are auto-approved."))
+        when "off"
+          apply_permission_mode("manual")
+          emit_to_log(Message.new("system", "YOLO default off: permission mode reset to manual."))
+        when ""
+          state = @permission_mode == "yolo" ? "on" : "off"
+          emit_to_log(Message.new("system", "YOLO is #{state}. Usage: /yolo on|off"))
+        else
+          emit_to_log(Message.new("error", "Unknown argument: #{args}. Use: /yolo on|off"))
+        end
       end
 
       private def cmd_auto : Nil
-        @permission_mode = "auto"
-        emit_to_log(Message.new("system", "Permission mode: auto (safe operations)"))
+        apply_permission_mode("auto")
       end
 
       private def cmd_manual : Nil
-        @permission_mode = "manual"
-        emit_to_log(Message.new("system", "Permission mode: manual (approve each)"))
+        apply_permission_mode("manual")
       end
 
       private def cmd_export_md(args : String) : Nil

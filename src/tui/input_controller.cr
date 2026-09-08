@@ -55,8 +55,10 @@ module H2code
             wizard = @wizard
             step = wizard.try(&.step)
             # On endpoint/model an empty Enter keeps the default. Credentials
-            # requires a non-empty key, so the submit gate stays there.
-            if step == Setup::Wizard::Step::Endpoint || step == Setup::Wizard::Step::Model
+            # requires a non-empty key, so the submit gate stays there. Yolo
+            # counts an empty Enter as "yes" (trust by default).
+            if step == Setup::Wizard::Step::Endpoint || step == Setup::Wizard::Step::Model ||
+               step == Setup::Wizard::Step::Yolo
               text = @editor.empty? ? "" : @editor.submit!
               submit_setup_text(text)
             elsif !@editor.empty?
@@ -551,7 +553,7 @@ module H2code
         when "/queue"
           cmd_queue(args)
         when "/yolo"
-          cmd_yolo
+          cmd_yolo(args)
         when "/auto"
           cmd_auto
         when "/manual"
@@ -1008,6 +1010,9 @@ module H2code
       private def apply_permission_mode(mode : String) : Nil
         @permission_mode = mode
         emit_to_log(Message.new("system", "Permission mode: #{mode}"))
+        # Propagate to the live Permission::Manager + plan-mode reference and
+        # persist the default to config.json (wired in run_interactive).
+        @on_permission_mode_change.try(&.call(mode))
         @dirty = true
       end
 

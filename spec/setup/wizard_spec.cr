@@ -55,13 +55,13 @@ describe H2code::Setup::Wizard do
       wizard.step.should eq(H2code::Setup::Wizard::Step::Model)
     end
 
-    it "accepts default model with empty submit and completes" do
+    it "accepts default model with empty submit and moves to the yolo step" do
       wizard = H2code::Setup::Wizard.new
       wizard.select_provider("ollama")
       wizard.submit_text("") # endpoint
       wizard.submit_text("") # model
       wizard.model.should eq("llama3.2")
-      wizard.done?.should be_true
+      wizard.step.should eq(H2code::Setup::Wizard::Step::Yolo)
     end
 
     it "honours overridden endpoint and model" do
@@ -69,9 +69,29 @@ describe H2code::Setup::Wizard do
       wizard.select_provider("ollama")
       wizard.submit_text("http://gpu:11434/v1")
       wizard.submit_text("qwen2.5")
+      wizard.submit_text("n")
       wizard.endpoint.should eq("http://gpu:11434/v1")
       wizard.model.should eq("qwen2.5")
       wizard.done?.should be_true
+    end
+
+    it "parses the yolo answer (empty Enter always means yes)" do
+      wizard = H2code::Setup::Wizard.new
+      wizard.select_provider("ollama")
+      wizard.submit_text("") # endpoint
+      wizard.submit_text("") # model
+
+      wizard.submit_text("")
+      wizard.yolo?.should be_true
+      wizard.done?.should be_true
+
+      wizard2 = H2code::Setup::Wizard.new
+      wizard2.select_provider("ollama")
+      wizard2.submit_text("") # endpoint
+      wizard2.submit_text("") # model
+      wizard2.submit_text("y")
+      wizard2.yolo?.should be_true
+      wizard2.done?.should be_true
     end
   end
 
@@ -91,6 +111,9 @@ describe H2code::Setup::Wizard do
 
       wizard.submit_text("")
       wizard.model.should eq("kimi-for-coding")
+      wizard.step.should eq(H2code::Setup::Wizard::Step::Yolo)
+
+      wizard.submit_text("n")
       wizard.done?.should be_true
     end
   end
@@ -146,6 +169,18 @@ describe H2code::Setup::Wizard do
       wizard.model.should be_nil
     end
 
+    it "steps yolo back to model and clears the flag" do
+      wizard = H2code::Setup::Wizard.new
+      wizard.select_provider("moonshot")
+      wizard.submit_text("sk-test")
+      wizard.submit_text("")
+      wizard.submit_text("")
+      wizard.step.should eq(H2code::Setup::Wizard::Step::Yolo)
+      wizard.back # Yolo → Model, clears yolo
+      wizard.step.should eq(H2code::Setup::Wizard::Step::Model)
+      wizard.yolo?.should be_false
+    end
+
     it "is a no-op on welcome" do
       wizard = H2code::Setup::Wizard.new
       wizard.back
@@ -192,6 +227,30 @@ describe H2code::Setup::Wizard do
       wizard.apply_to(config)
       config.provider_name.should eq("lmstudio")
       config.lmstudio_endpoint.should eq("http://localhost:1234/v1")
+    end
+
+    it "writes permission_mode=yolo when yolo was accepted" do
+      wizard = H2code::Setup::Wizard.new
+      wizard.select_provider("ollama")
+      wizard.submit_text("")
+      wizard.submit_text("")
+      wizard.submit_text("y")
+
+      config = H2code::Config::Config.new
+      wizard.apply_to(config)
+      config.permission_mode.should eq("yolo")
+    end
+
+    it "keeps the manual permission default when yolo was declined" do
+      wizard = H2code::Setup::Wizard.new
+      wizard.select_provider("ollama")
+      wizard.submit_text("")
+      wizard.submit_text("")
+      wizard.submit_text("n")
+
+      config = H2code::Config::Config.new
+      wizard.apply_to(config)
+      config.permission_mode.should eq("manual")
     end
   end
 end

@@ -52,6 +52,8 @@ zh:
     enter_api_key: "输入 API 密钥..."
     enter_endpoint: "Endpoint [%{value}] — 按 Enter 使用默认值"
     enter_model: "模型 [%{value}] — 按 Enter 使用默认值"
+    enable_yolo: "默认开启信任，无需逐条确认 agent 的操作并加快工作速度？[Y/n]"
+    yolo_note: "信任模式会自动批准 agent 的所有操作，无需确认提示，让工作更快。拒绝规则仍然生效。之后可用 /yolo on|off 切换。"
   providers:
     moonshot: "Moonshot (Kimi)"
     moonshot_hint: "在 https://www.kimi.com/code/console 获取密钥"
@@ -78,7 +80,7 @@ zh:
     provider: "切换 LLM 提供商"
     status: "显示会话状态"
     undo: "撤销上一轮次"
-    yolo: "将权限模式设为 yolo"
+    yolo: "切换持久的 YOLO 自动批准模式"
     auto: "将权限模式设为 auto"
     manual: "将权限模式设为 manual"
     export_md: "将会话导出为 markdown 文件"

@@ -40,7 +40,7 @@ module H2code
         CommandInfo.new("/provider", "Switch LLM provider", description_key: "provider"),
         CommandInfo.new("/status", "Show session status", description_key: "status"),
         CommandInfo.new("/undo", "Undo last turn", description_key: "undo"),
-        CommandInfo.new("/yolo", "Set permission mode to yolo", description_key: "yolo"),
+        CommandInfo.new("/yolo", "Toggle persistent YOLO auto-approve mode", "on|off", "yolo"),
         CommandInfo.new("/auto", "Set permission mode to auto", description_key: "auto"),
         CommandInfo.new("/manual", "Set permission mode to manual", description_key: "manual"),
         CommandInfo.new("/export-md", "Export session to markdown file", "[<path>]", "export_md"),

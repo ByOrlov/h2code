@@ -52,6 +52,8 @@ ja:
     enter_api_key: "API キーを入力..."
     enter_endpoint: "Endpoint [%{value}] — Enter でデフォルトを使用"
     enter_model: "モデル [%{value}] — Enter でデフォルトを使用"
+    enable_yolo: "デフォルトで信頼を有効にし、エージェントの操作を毎回確認せずに作業を速めますか？ [Y/n]"
+    yolo_note: "信頼モードは確認なしでエージェントのすべての操作を自動承認し、作業が速くなります。拒否ルールは引き続き有効です。後で /yolo on|off で切り替えられます。"
   providers:
     moonshot: "Moonshot (Kimi)"
     moonshot_hint: "キーを取得: https://www.kimi.com/code/console"
@@ -78,7 +80,7 @@ ja:
     provider: "LLM プロバイダーを切替"
     status: "セッションステータスを表示"
     undo: "最後のターンを取り消す"
-    yolo: "権限モードを yolo に設定"
+    yolo: "永続的なYOLO自動承認モードを切り替える"
     auto: "権限モードを auto に設定"
     manual: "権限モードを manual に設定"
     export_md: "セッションを markdown ファイルにエクスポート"

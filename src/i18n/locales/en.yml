@@ -52,6 +52,8 @@ en:
     enter_api_key: "Enter API key..."
     enter_endpoint: "Endpoint [%{value}] — press Enter to use default"
     enter_model: "Model [%{value}] — press Enter to use default"
+    enable_yolo: "Enable trust by default so agent actions are auto-approved and work is faster? [Y/n]"
+    yolo_note: "Trust mode auto-approves every agent action without confirmation prompts, so the agent works faster. Deny rules still apply. You can toggle it later with /yolo on|off."
   providers:
     moonshot: "Moonshot (Kimi)"
     moonshot_hint: "Get a key at https://www.kimi.com/code/console"
@@ -78,7 +80,7 @@ en:
     provider: "Switch LLM provider"
     status: "Show session status"
     undo: "Undo last turn"
-    yolo: "Set permission mode to yolo"
+    yolo: "Toggle persistent YOLO auto-approve mode"
     auto: "Set permission mode to auto"
     manual: "Set permission mode to manual"
     export_md: "Export session to markdown file"

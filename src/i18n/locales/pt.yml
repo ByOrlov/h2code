@@ -52,6 +52,8 @@ pt:
     enter_api_key: "Digite a chave de API..."
     enter_endpoint: "Endpoint [%{value}] — pressione Enter para usar o padrão"
     enter_model: "Modelo [%{value}] — pressione Enter para usar o padrão"
+    enable_yolo: "Ativar confiança por padrão para não confirmar cada ação do agente e acelerar o trabalho? [Y/n]"
+    yolo_note: "O modo de confiança aprova automaticamente todas as ações do agente sem pedidos de confirmação, tornando o trabalho mais rápido. Regras de negação continuam valendo. Você pode alterar isso depois com /yolo on|off."
   providers:
     moonshot: "Moonshot (Kimi)"
     moonshot_hint: "Obtenha uma chave em https://www.kimi.com/code/console"
@@ -78,7 +80,7 @@ pt:
     provider: "Trocar de provedor LLM"
     status: "Mostrar status da sessão"
     undo: "Desfazer o último turno"
-    yolo: "Definir modo de permissão para yolo"
+    yolo: "Alternar o modo YOLO persistente (auto-aprovação)"
     auto: "Definir modo de permissão para auto"
     manual: "Definir modo de permissão para manual"
     export_md: "Exportar a sessão para arquivo markdown"

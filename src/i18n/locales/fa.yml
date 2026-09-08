@@ -52,6 +52,8 @@ fa:
     enter_api_key: "کلید API را وارد کنید..."
     enter_endpoint: "Endpoint [%{value}] — برای استفاده از پیش‌فرض Enter بزنید"
     enter_model: "مدل [%{value}] — برای استفاده از پیش‌فرض Enter بزنید"
+    enable_yolo: "اعتماد به‌طور پیش‌فرض فعال شود تا هر عمل عامل را تأیید نکنید و کار سریع‌تر شود؟ [Y/n]"
+    yolo_note: "حالت اعتماد همه عمل‌های عامل را بدون درخواست تأیید، خودکار تأیید می‌کند و کار سریع‌تر می‌رود. قواعد رد (deny) همچنان اعمال می‌شوند. بعداً با /yolo on|off می‌توانید تغییر دهید."
   providers:
     moonshot: "Moonshot (Kimi)"
     moonshot_hint: "دریافت کلید از https://www.kimi.com/code/console"
@@ -78,7 +80,7 @@ fa:
     provider: "تغییر تأمین‌کننده LLM"
     status: "نمایش وضعیت نشست"
     undo: "برگرداندن آخرین نوبت"
-    yolo: "تنظیم حالت مجوز به yolo"
+    yolo: "تغییر حالت دائمی YOLO (تأیید خودکار)"
     auto: "تنظیم حالت مجوز به auto"
     manual: "تنظیم حالت مجوز به manual"
     export_md: "صدور نشست به فایل markdown"

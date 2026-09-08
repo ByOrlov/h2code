@@ -1245,6 +1245,13 @@ module H2code
       app.on_setup_complete = ->(wizard : Setup::Wizard) do
         wizard.apply_to(config)
         config.save
+        # A yolo answer in the wizard also flips the live manager + TUI state
+        # so the running session picks it up without a restart.
+        if wizard.yolo?
+          permission.mode = Permission::Mode::Yolo
+          H2code::Tools::PlanMode.permission_mode.try(&.auto = false)
+          app.permission_mode = "yolo"
+        end
         begin
           provider = build_named_provider(wizard.provider_name, config, oauth)
           configure_provider(provider, config, store.meta_id?)
@@ -1361,6 +1368,19 @@ module H2code
       app.on_sudo_mode_change = ->(mode : String) do
         config.sudo_mode = mode if mode.in?("off", "request", "always")
         config.save
+        nil
+      end
+      # Permission-mode switches (/yolo on|off, /permission, /auto, /manual):
+      # flip the live manager and the plan-mode reference, and persist the
+      # default so every future launch starts in the chosen mode (e.g. yolo
+      # with no CLI flags).
+      app.on_permission_mode_change = ->(mode : String) do
+        if mode.in?("manual", "auto", "yolo")
+          permission.mode = Permission::Mode.parse(mode)
+          H2code::Tools::PlanMode.permission_mode.try(&.auto = permission.mode.auto?)
+          config.permission_mode = mode
+          config.save
+        end
         nil
       end
       app.on_debug_zones_change = ->(on : Bool) do

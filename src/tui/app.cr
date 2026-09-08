@@ -345,6 +345,10 @@ module H2code
       # `/sudo`: persists the app-wide sudo mode ("off"/"request"/"always")
       # to config.json so it applies to every chat and survives restarts.
       property on_sudo_mode_change : (String -> Nil)? = nil
+      # Permission-mode switches (/yolo on|off, /permission, /auto, /manual):
+      # updates the live Permission::Manager + plan-mode reference and
+      # persists the `permission.mode` default to config.json.
+      property on_permission_mode_change : (String -> Nil)? = nil
       property on_get_language : (-> String)? = nil
       # `/mcp`: returns the live MCP server status text, or nil when no client
       # is wired (e.g. headless path).
