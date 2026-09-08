@@ -3,6 +3,7 @@ require "json"
 require "http/client"
 
 require "../src/version"
+require "../src/duration_format"
 require "../src/llm/types"
 require "../src/llm/token_counter"
 require "../src/llm/http_transport"

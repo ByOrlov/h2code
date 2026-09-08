@@ -169,7 +169,7 @@ ja:
     send_help: "/help でヘルプを表示します。"
     send_a_message: "メッセージを送信..."
     press_to_exit: "%{btn} を押して終了"
-    ci_waiting: "コミット %{sha} のCIを待機中 (%{elapsed}秒)"
+    ci_waiting: "コミット %{sha} のCIを待機中 (%{elapsed})"
     ci_passed: "%{sha} の CI ビルドが成功しました (%{detail})"
     ci_failed: "%{sha} の CI ビルドが失敗しました (%{detail})"
     ci_error: "%{sha} の CI オブザーバーエラー: %{detail}"

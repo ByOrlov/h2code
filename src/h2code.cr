@@ -13,6 +13,7 @@ require "colorize"
 
 require "./version"
 require "./version_compare"
+require "./duration_format"
 require "./upgrader"
 require "./exception_handler"
 require "./process_port"

@@ -169,7 +169,7 @@ es:
     send_help: "Escriba /help para obtener ayuda."
     send_a_message: "Envíe un mensaje..."
     press_to_exit: "Pulse %{btn} para salir"
-    ci_waiting: "Esperando el CI del commit %{sha} (%{elapsed}s)"
+    ci_waiting: "Esperando el CI del commit %{sha} (%{elapsed})"
     ci_passed: "La compilación de CI pasó para %{sha} (%{detail})"
     ci_failed: "La compilación de CI FALLÓ para %{sha} (%{detail})"
     ci_error: "Error del observador de CI para %{sha}: %{detail}"

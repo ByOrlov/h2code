@@ -169,7 +169,7 @@ hi:
     send_help: "सहायता जानकारी के लिए /help भेजें।"
     send_a_message: "एक संदेश भेजें..."
     press_to_exit: "बाहर निकलने के लिए %{btn} दबाएँ"
-    ci_waiting: "कमिट %{sha} के CI की प्रतीक्षा (%{elapsed}s)"
+    ci_waiting: "कमिट %{sha} के CI की प्रतीक्षा (%{elapsed})"
     ci_passed: "%{sha} के लिए CI बिल्ड सफल रहा (%{detail})"
     ci_failed: "%{sha} के लिए CI बिल्ड असफल रहा (%{detail})"
     ci_error: "%{sha} के लिए CI पर्यवेक्षक त्रुटि: %{detail}"

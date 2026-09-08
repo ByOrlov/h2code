@@ -629,7 +629,7 @@ module H2code
           String.build do |s|
             s << ANSI.color(@theme.colors.warning, nil)
             s << ' ' << frame << ' '
-            s << H2code.t("ui.ci_waiting", sha: obs.short_sha, elapsed: obs.elapsed_s)
+            s << H2code.t("ui.ci_waiting", sha: obs.short_sha, elapsed: DurationFormat.hms(obs.elapsed_s))
             unless obs.actions_url.empty?
               s << "  link: " << obs.actions_url
             end

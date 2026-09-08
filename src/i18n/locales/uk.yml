@@ -169,7 +169,7 @@ uk:
     send_help: "Введіть /help для довідки."
     send_a_message: "Надішліть повідомлення..."
     press_to_exit: "Натисніть %{btn} для виходу"
-    ci_waiting: "Очікування CI для коміта %{sha} (%{elapsed} с)"
+    ci_waiting: "Очікування CI для коміта %{sha} (%{elapsed})"
     ci_passed: "Збірка CI успішно пройдена для %{sha} (%{detail})"
     ci_failed: "Збірка CI НЕ пройдена для %{sha} (%{detail})"
     ci_error: "Помилка спостереження CI для %{sha}: %{detail}"

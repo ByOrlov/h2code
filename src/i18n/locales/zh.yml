@@ -169,7 +169,7 @@ zh:
     send_help: "发送 /help 获取帮助信息。"
     send_a_message: "发送消息..."
     press_to_exit: "按 %{btn} 退出"
-    ci_waiting: "等待提交 %{sha} 的 CI (%{elapsed}秒)"
+    ci_waiting: "等待提交 %{sha} 的 CI (%{elapsed})"
     ci_passed: "%{sha} 的 CI 构建已通过 (%{detail})"
     ci_failed: "%{sha} 的 CI 构建失败 (%{detail})"
     ci_error: "%{sha} 的 CI 观察器错误: %{detail}"

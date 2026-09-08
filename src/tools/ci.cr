@@ -61,8 +61,9 @@ module H2code
       end
 
       # One GitHub REST API response: HTTP status code, body and the
-      # redirect target (the run-logs endpoint answers 302 with a signed
-      # URL). status_code 0 marks a network-level failure (DNS, TLS, …).
+      # redirect target, if the response still carries one (get follows
+      # 3xx redirects transparently). status_code 0 marks a network-level
+      # failure (DNS, TLS, too many redirects).
       record ApiResponse, status_code : Int32, body : String, location : String? = nil
 
       # Direct GitHub REST client — the "own Crystal analog" of `gh run
@@ -73,21 +74,44 @@ module H2code
       # included in observer details or logs.
       class GithubApi
         API_BASE = "https://api.github.com"
+        # Redirect hops followed per request — renamed repositories answer
+        # 301 with the canonical `repositories/{id}` path, run logs answer
+        # 302 with a signed URL.
+        MAX_REDIRECTS = 3
 
         def initialize(@token : String? = nil)
         end
 
         def get(path : String) : ApiResponse
           url = path.starts_with?("http") ? path : "#{API_BASE}#{path}"
-          uri = URI.parse(url)
-          HTTP::Client.new(uri) do |client|
-            client.connect_timeout = 10.seconds
-            client.read_timeout = 15.seconds
-            resp = client.get(uri.request_target, self.class.headers(@token))
-            ApiResponse.new(resp.status_code, resp.body, resp.headers["Location"]?)
+          MAX_REDIRECTS.times do
+            uri = URI.parse(url)
+            resp = HTTP::Client.new(uri) do |client|
+              client.connect_timeout = 10.seconds
+              client.read_timeout = 15.seconds
+              client.get(uri.request_target, self.class.headers(@token))
+            end
+            target = self.class.redirect_target(resp)
+            if target
+              url = target.starts_with?("http") ? target : "#{uri.scheme}://#{uri.host}#{target}"
+              next
+            end
+            return ApiResponse.new(resp.status_code, resp.body, resp.headers["Location"]?)
           end
+          ApiResponse.new(0, "too many redirects: #{url}")
         rescue ex
           ApiResponse.new(0, ex.message.to_s)
+        end
+
+        # Redirect target of a 3xx GitHub API response: the Location
+        # header, or the `url` field of the JSON body (GitHub's
+        # moved-repository notices carry the canonical URL in the body).
+        # Nil for non-redirect responses without a usable target.
+        def self.redirect_target(resp : HTTP::Client::Response) : String?
+          return nil unless resp.status.redirection?
+          location = resp.headers["Location"]?
+          return location if location && !location.empty?
+          resp.body.match(/"url":\s*"(https?:[^"]+)"/).try(&.[1].gsub("\\/", "/"))
         end
 
         def self.headers(token : String?) : HTTP::Headers

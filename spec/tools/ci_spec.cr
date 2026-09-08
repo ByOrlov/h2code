@@ -162,6 +162,25 @@ module H2code::Tools
       end
     end
 
+    describe Ci::GithubApi do
+      it "extracts the redirect target from the Location header" do
+        resp = HTTP::Client::Response.new(301, "",
+          HTTP::Headers{"Location" => "https://api.github.com/repositories/1/actions/runs"})
+        Ci::GithubApi.redirect_target(resp).should eq("https://api.github.com/repositories/1/actions/runs")
+      end
+
+      it "falls back to the url field of a moved-repository notice" do
+        body = %({"message":"Moved Permanently","url":"https://api.github.com/repositories/1304806254/actions/runs","documentation_url":"https://docs.github.com/rest"})
+        resp = HTTP::Client::Response.new(301, body)
+        Ci::GithubApi.redirect_target(resp).should eq("https://api.github.com/repositories/1304806254/actions/runs")
+      end
+
+      it "returns nil for non-redirect responses" do
+        resp = HTTP::Client::Response.new(200, %({"workflow_runs":[]}))
+        Ci::GithubApi.redirect_target(resp).should be_nil
+      end
+    end
+
     describe "render_notification" do
       it "returns nil for success (log-only)" do
         obs = Ci::Observer.new("a" * 40)

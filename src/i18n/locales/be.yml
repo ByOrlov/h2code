@@ -169,7 +169,7 @@ be:
     send_help: "Увядзіце /help для даведкі."
     send_a_message: "Адпраўце паведамленне..."
     press_to_exit: "Націсніце %{btn} для выхаду"
-    ci_waiting: "Чаканне CI для каміта %{sha} (%{elapsed} с)"
+    ci_waiting: "Чаканне CI для каміта %{sha} (%{elapsed})"
     ci_passed: "Зборка CI паспяхова пройдзена для %{sha} (%{detail})"
     ci_failed: "Зборка CI НЕ пройдзена для %{sha} (%{detail})"
     ci_error: "Памылка назірання CI для %{sha}: %{detail}"

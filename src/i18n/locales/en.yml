@@ -169,7 +169,7 @@ en:
     send_help: "Send /help for help information."
     send_a_message: "Send a message..."
     press_to_exit: "Press %{btn} to exit"
-    ci_waiting: "Waiting for CI for commit %{sha} (%{elapsed}s)"
+    ci_waiting: "Waiting for CI for commit %{sha} (%{elapsed})"
     ci_passed: "CI build passed for %{sha} (%{detail})"
     ci_failed: "CI build FAILED for %{sha} (%{detail})"
     ci_error: "CI observer error for %{sha}: %{detail}"

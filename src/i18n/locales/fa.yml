@@ -169,7 +169,7 @@ fa:
     send_help: "برای اطلاعات راهنما /help را بفرستید."
     send_a_message: "پیامی بفرستید..."
     press_to_exit: "برای خروج %{btn} را بزنید"
-    ci_waiting: "در انتظار CI برای کامیت %{sha} (%{elapsed} ثانیه)"
+    ci_waiting: "در انتظار CI برای کامیت %{sha} (%{elapsed})"
     ci_passed: "بیلد CI برای %{sha} با موفقیت گذشت (%{detail})"
     ci_failed: "بیلد CI برای %{sha} ناموفق بود (%{detail})"
     ci_error: "خطای ناظر CI برای %{sha}: %{detail}"
