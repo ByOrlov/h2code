@@ -1442,13 +1442,13 @@ implementation.
 | CurrentTime | Ported from codex `curr_time` (clock namespace). Read-only, auto-approved. |
 | GetContextRemaining | Context-window budget introspection (codex `get_context_remaining`). Read-only, auto-approved. |
 | ApplyPatch | Multi-file V4A diff editing: add/update/move/delete hunks, atomic validation (codex `apply_patch` format). |
+| InteractiveShell | Persistent sessions with writable stdin: REPLs, debuggers, dev servers (codex `unified_exec` + `write_stdin`). |
 
 ### Next (highest value first)
 
 | Tool | What it does | Reference |
 |------|--------------|-----------|
 | LSP tool | goToDefinition, findReferences, hover, documentSymbol, workspaceSymbol, call hierarchy | opencode `tool/lsp.ts`, grok-cli `src/lsp` |
-| Interactive shell (write_stdin) | Persistent shell session: write to stdin of long-running processes (REPL, dev servers, debuggers) | codex `unified_exec` + `write_stdin` |
 | MCP resources | `resources/list` + `resources/read` in `src/mcp/client.cr` | codex `mcp_resource` handlers |
 | code-mode execute | Execute code in sandbox with structured return | opencode `tool/code-mode.ts` |
 | external-directory | Grant model access to paths outside cwd on request | opencode `tool/external-directory.ts` |
