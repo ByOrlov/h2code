@@ -1440,6 +1440,8 @@ implementation.
 | Tool | Notes |
 |------|-------|
 | CurrentTime | Ported from codex `curr_time` (clock namespace). Read-only, auto-approved. |
+| GetContextRemaining | Context-window budget introspection (codex `get_context_remaining`). Read-only, auto-approved. |
+| ApplyPatch | Multi-file V4A diff editing: add/update/move/delete hunks, atomic validation (codex `apply_patch` format). |
 
 ### Next (highest value first)
 
@@ -1447,8 +1449,6 @@ implementation.
 |------|--------------|-----------|
 | LSP tool | goToDefinition, findReferences, hover, documentSymbol, workspaceSymbol, call hierarchy | opencode `tool/lsp.ts`, grok-cli `src/lsp` |
 | Interactive shell (write_stdin) | Persistent shell session: write to stdin of long-running processes (REPL, dev servers, debuggers) | codex `unified_exec` + `write_stdin` |
-| apply_patch | Multi-file diff editing in one call (single tool result, atomic move/rename support) | codex `apply_patch`, opencode `tool/apply_patch.ts` |
-| get_context_remaining | Model sees its token budget and decides when to compact | codex `get_context_remaining` |
 | MCP resources | `resources/list` + `resources/read` in `src/mcp/client.cr` | codex `mcp_resource` handlers |
 | code-mode execute | Execute code in sandbox with structured return | opencode `tool/code-mode.ts` |
 | external-directory | Grant model access to paths outside cwd on request | opencode `tool/external-directory.ts` |
