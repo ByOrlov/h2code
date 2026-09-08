@@ -426,7 +426,7 @@ module H2code
         nil
       end
 
-      MUTATING_TOOLS = Set{Names::TASK_STOP, Names::CRON_CREATE, Names::CRON_DELETE}
+      MUTATING_TOOLS = Set{Names::TASK_STOP, Names::CRON_CREATE, Names::CRON_DELETE, Names::APPLY_PATCH}
 
       private def self.extract_path(tool_name : String, args : String) : String?
         return nil if args.empty?

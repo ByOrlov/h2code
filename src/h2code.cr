@@ -68,6 +68,7 @@ require "./tools/read_media"
 require "./tools/select_tools"
 require "./tools/curr_time"
 require "./tools/get_context_remaining"
+require "./tools/apply_patch"
 require "./mcp/types"
 require "./mcp/tool_naming"
 require "./mcp/transport"
@@ -355,6 +356,7 @@ module H2code
       tools.register(Tools::SelectTools.new)
       tools.register(Tools::CurrentTime.new)
       tools.register(Tools::GetContextRemaining.new(memory))
+      tools.register(Tools::ApplyPatchTool.new)
 
       permission = Permission::Manager.new(Permission::Mode.parse(config.permission_mode))
 

@@ -44,6 +44,7 @@ module H2code
       CRON_DELETE       = "CronDelete"
       CURRENT_TIME      = "CurrentTime"
       GET_CONTEXT_REMAINING = "GetContextRemaining"
+      APPLY_PATCH       = "ApplyPatch"
     end
   end
 end

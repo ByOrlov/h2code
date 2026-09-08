@@ -149,6 +149,8 @@ module H2code
           parsed["path"]?.try(&.to_s) || parsed["filePath"]?.try(&.to_s) || args
         when Tools::Names::WRITE, Tools::Names::EDIT
           parsed["filePath"]?.try(&.to_s) || args
+        when Tools::Names::APPLY_PATCH
+          patch_paths(parsed["input"]?.try(&.to_s) || parsed["patch"]?.try(&.to_s)) || args
         when Tools::Names::GLOB, Tools::Names::GREP
           parsed["pattern"]?.try(&.to_s) || parsed["path"]?.try(&.to_s) || args
         else
@@ -156,6 +158,21 @@ module H2code
         end
       rescue JSON::ParseException
         args
+      end
+
+      # Extract every file path mentioned in an ApplyPatch payload
+      # (`*** Add/Update/Delete File: <path>`) so permission rules like
+      # `ApplyPatch(src/*)` match per-path instead of against the raw blob.
+      private def self.patch_paths(patch : String?) : String?
+        return nil if patch.nil? || patch.empty?
+        paths = [] of String
+        patch.each_line do |line|
+          if line.starts_with?("*** Add File: ") || line.starts_with?("*** Delete File: ") ||
+             line.starts_with?("*** Update File: ") || line.starts_with?("*** Move to: ")
+            paths << line.split(':', 2)[1].strip
+          end
+        end
+        paths.empty? ? nil : paths.join(' ')
       end
 
       # Match an arg pattern against a subject string. Supports a leading
