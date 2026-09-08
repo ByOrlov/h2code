@@ -2,6 +2,16 @@
 
 **English** · [Русский](./README.ru.md) · [Español](./README.es.md) · [中文](./README.zh.md) · [日本語](./README.ja.md) · [Português](./README.pt.md) · [हिन्दी](./README.hi.md) · [فارسی](./README.fa.md) · [Українська](./README.uk.md) · [Беларуская](./README.be.md)
 
+[![CI](https://github.com/ByOrlov/H2Code/actions/workflows/ci.yml/badge.svg?style=flat-square)](https://github.com/ByOrlov/H2Code/actions/workflows/ci.yml)
+[![Release](https://github.com/ByOrlov/H2Code/actions/workflows/release.yml/badge.svg?style=flat-square)](https://github.com/ByOrlov/H2Code/actions/workflows/release.yml)
+[![Tag](https://img.shields.io/github/v/release/ByOrlov/H2Code?display_name=tag&sort=semver&style=flat-square)](https://github.com/ByOrlov/H2Code/releases/latest)
+[![License](https://img.shields.io/github/license/ByOrlov/H2Code?style=flat-square)](./LICENSE)
+[![Crystal](https://img.shields.io/badge/crystal-1.21-000000?logo=crystal&style=flat-square)](https://crystal-lang.org)
+[![RAM](https://img.shields.io/badge/RAM-%7E3%20MB%20per%20agent-brightgreen?style=flat-square)](#memory-sorted)
+[![Platforms](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey?style=flat-square)](#h2code--vibe-code-even-on-a-potato)
+[![Repo size](https://img.shields.io/github/repo-size/ByOrlov/H2Code?style=flat-square&label=repo)](https://github.com/ByOrlov/H2Code)
+[![Static binary](https://img.shields.io/badge/binary-static-blue?style=flat-square)](#h2code--vibe-code-even-on-a-potato)
+
 > **~3 MB of RAM per agent at idle. One static binary. Zero runtime. GPL forever.**
 > A lighter-than-air AI agent by Orlov — Hydrogen-light: **H** for the lightest element, **Code** for what you ship.
 
