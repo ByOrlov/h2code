@@ -247,6 +247,27 @@ describe H2code::Config::Config do
       config.ollama_model.should eq("qwen2.5")
     end
 
+    it "round-trips the gitlab token and endpoint" do
+      config = H2code::Config::Config.parse_json(%({"gitlab": {"token": "glpat_xyz", "endpoint": "https://gitlab.corp.io"}}))
+      config.gitlab_token.should eq("glpat_xyz")
+      config.gitlab_endpoint.should eq("https://gitlab.corp.io")
+
+      path = File.join(Dir.tempdir, "h2code-config-test-#{Random::Secure.hex(8)}.json")
+      begin
+        config.save(path)
+        reloaded = H2code::Config::Config.parse_json(File.read(path))
+        reloaded.gitlab_token.should eq("glpat_xyz")
+        reloaded.gitlab_endpoint.should eq("https://gitlab.corp.io")
+
+        # Empty by default, and the section is not written when unset.
+        H2code::Config::Config.parse_json(%({})).gitlab_token.should eq("")
+        H2code::Config::Config.new.save(path)
+        File.read(path).should_not contain("\"gitlab\"")
+      ensure
+        File.delete(path) rescue nil
+      end
+    end
+
     it "round-trips the github token" do
       config = H2code::Config::Config.parse_json(%({"github": {"token": "ghp_abc123"}}))
       config.github_token.should eq("ghp_abc123")

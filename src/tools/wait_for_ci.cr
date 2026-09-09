@@ -4,9 +4,11 @@ require "./ci"
 
 module H2code
   module Tools
-    # Wait for the GitHub Actions CI status of a commit and return the outcome.
+    # Wait for the CI status (GitHub Actions or GitLab CI) of a commit and
+    # return the outcome.
     #
-    # When the agent pushes to a GitHub repository with Actions workflows, a
+    # When the agent pushes to a repository with CI workflows (GitHub
+    # Actions, or GitLab CI via `.gitlab-ci.yml`), a
     # CI observer starts automatically and the completion notification wakes
     # the agent on its own. Use this tool when the turn should block until CI
     # finishes instead — e.g. right after `git push`, before declaring work
@@ -25,9 +27,9 @@ module H2code
       POLL_INTERVAL     = 500.milliseconds
 
       DESCRIPTION = <<-DESC
-        Wait for the GitHub Actions CI status of a commit and return the outcome.
+        Wait for the CI status (GitHub Actions or GitLab CI) of a commit and return the outcome.
 
-        After `git push` to a GitHub repository with Actions workflows, a CI observer starts automatically and reports the result as a notification. This tool instead blocks the current turn until CI finishes, returning the outcome directly: passed, or failed with an excerpt of the failure log.
+        After `git push` to a repository with CI workflows (GitHub Actions, or GitLab CI via `.gitlab-ci.yml`), a CI observer starts automatically and reports the result as a notification. This tool instead blocks the current turn until CI finishes, returning the outcome directly: passed, or failed with an excerpt of the failure log.
 
         When to use:
         - Right after pushing changes that affect the build, before declaring the task done.
@@ -94,7 +96,8 @@ module H2code
               end
         return ToolResult.error(
           "No CI observer running#{sha ? " for #{sha}" : ""} and the repository is not eligible " \
-          "(a GitHub remote with .github/workflows is required). Push first, or check manually with `gh run list`.",
+          "(a GitHub remote with .github/workflows, or a GitLab remote with .gitlab-ci.yml, is required). " \
+          "Push first, or check manually with `gh run list` / `glab ci status`.",
         ) if obs.nil?
 
         # The tool result replaces the automatic completion notification.

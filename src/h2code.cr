@@ -368,8 +368,13 @@ module H2code
 
       # Shared CI observer service for all run modes (TUI attaches delivery +
       # session store later; headless/ACP keep the bare observer loop). The
-      # GitHub token enables direct REST polling (no gh CLI).
-      Tools::Ci.service ||= Tools::Ci::LiveCiService.new(github_token: config.github_token)
+      # GitHub token enables direct REST polling (no gh CLI); the GitLab
+      # token (optional) covers private GitLab projects.
+      Tools::Ci.service ||= Tools::Ci::LiveCiService.new(
+        github_token: config.github_token,
+        gitlab_token: config.gitlab_token,
+        gitlab_endpoint: config.gitlab_endpoint,
+      )
 
       permission = Permission::Manager.new(Permission::Mode.parse(config.permission_mode))
 
@@ -926,12 +931,22 @@ module H2code
       # Random startup tip (shown under the welcome box) — data-driven, read
       # from tips/*.json next to the config (see H2code::Tips).
       app.startup_tip = H2code::Tips.random_tip(I18n.resolve_locale(config.language)) if config.show_tips?
-      # GitHub-token hint: when the repo is CI-eligible (GitHub Actions
-      # workflows + github.com remote, per Ci#head_sha) but no token is
-      # configured, CI polling falls back to the gh CLI — show a
+      # CI-token hint: when the repo is CI-eligible (GitHub Actions workflows
+      # + github.com remote, or .gitlab-ci.yml + a GitLab remote) but the
+      # matching token is not configured, CI polling runs in its fallback
+      # mode (gh CLI on GitHub; anonymous API on GitLab) — show a
       # warning-yellow tip with the token instructions instead.
-      if config.github_token.empty? && Tools::Ci.service.try(&.head_sha(work_dir))
-        app.startup_warning_tip = H2code.t("ui.ci_token_tip")
+      if ci_service = Tools::Ci.service.as?(Tools::Ci::LiveCiService)
+        case ci_service.repo_info(work_dir).try(&.provider)
+        when Tools::Ci::Provider::Gitlab
+          if config.gitlab_token.empty?
+            app.startup_warning_tip = H2code.t("ui.ci_token_tip_gitlab")
+          end
+        when Tools::Ci::Provider::Github
+          if config.github_token.empty?
+            app.startup_warning_tip = H2code.t("ui.ci_token_tip")
+          end
+        end
       end
       app.model = agent.provider.model_name
       app.provider_name = config.provider_name.to_s

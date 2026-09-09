@@ -633,7 +633,11 @@ module H2code
         # Shared CI observer service (no TUI delivery here — the WaitForCI
         # tool still reads observer state directly). GitHub token enables
         # direct REST polling (no gh CLI).
-        Tools::Ci.service ||= Tools::Ci::LiveCiService.new(github_token: @config.github_token)
+        Tools::Ci.service ||= Tools::Ci::LiveCiService.new(
+          github_token: @config.github_token,
+          gitlab_token: @config.gitlab_token,
+          gitlab_endpoint: @config.gitlab_endpoint,
+        )
         tools
       end
 

@@ -116,6 +116,8 @@ module H2code
                                w.placeholder
                              elsif @github_token_mode
                                H2code.t("ui.github_token_placeholder")
+                             elsif @gitlab_token_mode
+                               H2code.t("ui.gitlab_token_placeholder")
                              elsif @plan_mode
                                H2code.t("ui.send_a_message") + " (" + H2code.t("ui.plan_mode_placeholder") + ")"
                              else

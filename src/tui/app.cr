@@ -191,6 +191,10 @@ module H2code
       # config `github.token` (and the live Ci service), Esc cancels.
       property? github_token_mode : Bool = false
 
+      # GitLab token wizard (`/gitlab token`). Same flow as the GitHub one;
+      # saves to config `gitlab.token`.
+      property? gitlab_token_mode : Bool = false
+
       # Approval state
       @approval_pending : ApprovalRequest?
       @approval_channel = Channel(Permission::ApprovalChoice).new

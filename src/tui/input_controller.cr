@@ -115,6 +115,32 @@ module H2code
           return
         end
 
+        # GitLab token wizard (/gitlab token): same input flow as /github.
+        if @gitlab_token_mode
+          case key.key
+          when .enter?
+            unless @editor.empty?
+              text = @editor.submit!
+              submit_gitlab_token(text)
+            end
+          when .escape?, .ctrl_d?
+            cancel_gitlab_token_wizard
+          when .paste?
+            if text = key.text
+              paste_lines = text.count('\n') + 1
+              if paste_lines > 10 || text.size > 1000
+                @editor.insert_paste_marker(text, paste_lines)
+              else
+                @editor.insert_text(text)
+              end
+            end
+          else
+            @editor.handle_input(key)
+          end
+          @dirty = true
+          return
+        end
+
         if @tasks_browser.visible?
           @tasks_browser.rows = @terminal.rows
           @tasks_browser.handle_input(key)
@@ -671,6 +697,8 @@ module H2code
           cmd_cleanup(args)
         when "/github"
           cmd_github(args)
+        when "/gitlab"
+          cmd_gitlab(args)
         else
           emit_to_log(Message.new("error", H2code.t("ui.unknown_command", cmd: cmd)))
         end

@@ -4,7 +4,7 @@ This file describes the high-level features of h2code and the architecture
 behind them. Each feature entry states the user-visible behaviour, the
 trigger/start conditions, and the moving parts in the codebase.
 
-## Full CI Integration (ping-pong with GitHub Actions)
+## Full CI Integration (ping-pong with GitHub Actions / GitLab CI)
 
 Automatically observe the CI status of commits the agent pushes, keep a live
 "Waiting for CI for commit <sha>" indicator per pending commit in the active
@@ -20,9 +20,12 @@ contains a `git push` segment exits successfully, the tool calls
 one targeted by the command — `git -C <dir> push` watches `<dir>`, not the
 session cwd. Observation starts only when all of these hold:
 
-- the repo has a `.github/workflows` directory (GitHub Actions present);
-- `git remote get-url origin` points at github.com;
-- the `gh` CLI can query the commit (checked lazily on the first poll).
+- GitHub Actions: the repo has a `.github/workflows` directory and
+  `git remote get-url origin` points at github.com (the `gh` CLI is checked
+  lazily on the first poll);
+- GitLab CI: the repo has a `.gitlab-ci.yml` file and the origin remote
+  points at gitlab.com, or at the host of the configured self-hosted
+  endpoint (config `gitlab.endpoint` / `GITLAB_HOST` env).
 
 No separate commit tool is needed — the observer piggybacks on every push,
 exactly like sudo detection piggybacks on every elevated command.
@@ -30,11 +33,13 @@ exactly like sudo detection piggybacks on every elevated command.
 ### CI observer (`src/tools/ci.cr`)
 
 `Tools::Ci` follows the `Cron.service` pattern: a module-level service seam
-(`Ci.service`) with a `LiveCiService` implementation. Each watched commit gets
-an `Observer` that polls on a **fixed 30 s interval** (no backoff; gives up
-after 30 minutes). There are two polling backends:
+(`Ci.service`) with a `LiveCiService` implementation. Provider detection
+(`detect_repo`) resolves the origin remote once per cwd into a `RepoInfo`
+(provider + host + project path). Each watched commit gets an `Observer`
+that polls on a **fixed 30 s interval** (no backoff; gives up after
+30 minutes). There are three polling backends:
 
-- **Direct REST mode (priority)** — when a GitHub token is configured
+- **GitHub direct REST mode (priority)** — when a GitHub token is configured
   (config.json `github.token`, overridden by `GITHUB_TOKEN` / `GH_TOKEN` env),
   the observer polls `api.github.com` itself (`GithubApi` in `ci.cr`:
   `/repos/{owner}/{repo}/actions/runs?head_sha=…`, run logs via the 302
@@ -42,15 +47,28 @@ after 30 minutes). There are two polling backends:
   owner/repo pair comes from `git remote get-url origin`.
 - **gh CLI fallback** — without a token, `gh run list -c <sha> --json …` /
   `gh run view <id> --log-failed` are used (requires an interactive gh login).
+- **GitLab REST mode** — GitLab repos are polled through the GitLab v4 API
+  (`GitlabApi` in `ci.cr`: `/projects/{group%2Fproject}/pipelines?sha=…`,
+  failure logs via the first hard-failed job's `/jobs/{id}/trace`). The token
+  (config `gitlab.token`, overridden by `GITLAB_TOKEN` /
+  `GITLAB_PRIVATE_TOKEN` env, settable via `/gitlab token`) is **optional** —
+  public projects answer anonymous pipeline queries. When access is denied
+  (401/403/404 — private projects answer 404 to anonymous queries) and the
+  `glab` CLI is installed (probed once), the poll is retried through
+  `glab api --hostname <host> -X GET …`, so a glab login covers private
+  projects without any token in h2code's config. Self-hosted
+  instances: set `gitlab.endpoint` (or `GITLAB_HOST`) to the base URL and
+  remotes on that host are treated as GitLab.
 
-Run aggregation (shared by both backends): pending while any run is in
-progress or none is registered yet; failure on any `failure`/`cancelled`/
-`timed_out`/`action_required`/`startup_failure` conclusion; success
-otherwise. Transient poll failures (gh exit != 0, non-JSON output, HTTP
-5xx/rate limit) are retried — up to `MAX_CONSECUTIVE_FAILURES` in a row —
-before the observer gives up with an "error", so the wait line never
-disappears on a blip. On failure the observer also captures an excerpt of
-the failed-step logs.
+Run aggregation (shared by the backends): pending while any run/pipeline is
+in progress or none is registered yet; failure on any `failure`/`cancelled`/
+`timed_out`/`action_required`/`startup_failure` GitHub conclusion or
+`failed`/`canceled`/`manual` GitLab status; success otherwise. Transient
+poll failures (gh/glab exit != 0, non-JSON output, HTTP 5xx/rate limit) are
+retried — up to `MAX_CONSECUTIVE_FAILURES` in a row — before the observer
+gives up with an "error", so the wait line never disappears on a blip. On
+failure the observer also captures an excerpt of the failed-step logs / the
+failed job's trace.
 
 On a terminal state the service:
 
@@ -67,9 +85,10 @@ On a terminal state the service:
   `Waiting for CI for commit <sha> (<elapsed>s)` line per pending observer
   (every push gets its own observer, oldest commit first) with a pulsing
   circle (`Spinner::CI_BULLET_FRAMES`), followed by a clickable
-  `link: <url>` to the commit's Actions checks page on github.com
-  (`https://github.com/{owner}/{repo}/commit/{sha}/checks`, resolved from
-  the origin remote and empty when the owner/repo pair is unknown),
+  `link: <url>` to the commit's checks page
+  (`https://github.com/{owner}/{repo}/commit/{sha}/checks` on GitHub,
+  `https://{host}/{group}/{project}/-/commits/{sha}` on GitLab — resolved
+  from the origin remote and empty when the repo info is unknown),
   bracketed by `declare_active(:ci)` /
   `release_active(:ci)` so the zone-balance invariant holds. A settled
   commit's outcome is logged even while other commits are still pending;

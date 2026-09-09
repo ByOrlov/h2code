@@ -120,6 +120,14 @@ module H2code
       # api.github.com directly and skip the gh CLI entirely. Config
       # `github.token`; GITHUB_TOKEN / GH_TOKEN env vars override.
       property github_token : String = ""
+      # GitLab API token for CI observation (private projects need it;
+      # public ones are polled anonymously). Config `gitlab.token`;
+      # GITLAB_TOKEN / GITLAB_PRIVATE_TOKEN env vars override.
+      property gitlab_token : String = ""
+      # Self-hosted GitLab base URL (e.g. "https://gitlab.example.com"):
+      # remotes on that host are observed as GitLab CI. Config
+      # `gitlab.endpoint`; the GITLAB_HOST env var overrides.
+      property gitlab_endpoint : String = ""
       property max_steps : Int32 = 150
       property max_context_tokens : Int32 = 262144
       property temperature : Float64? = nil
@@ -268,6 +276,12 @@ module H2code
         if key = ENV["GITHUB_TOKEN"]? || ENV["GH_TOKEN"]?
           config.github_token = key
         end
+        if key = ENV["GITLAB_TOKEN"]? || ENV["GITLAB_PRIVATE_TOKEN"]?
+          config.gitlab_token = key
+        end
+        if host = ENV["GITLAB_HOST"]?
+          config.gitlab_endpoint = host.starts_with?("http") ? host : "https://#{host}"
+        end
         if lang = ENV["H2CODE_LANG"]?
           config.language = lang
         end
@@ -388,6 +402,11 @@ module H2code
 
         if github = root["github"]?.try(&.as_h?)
           config.github_token = github["token"]?.try(&.as_s?) || ""
+        end
+
+        if gitlab = root["gitlab"]?.try(&.as_h?)
+          config.gitlab_token = gitlab["token"]?.try(&.as_s?) || ""
+          config.gitlab_endpoint = gitlab["endpoint"]?.try(&.as_s?) || ""
         end
 
         if services = root["services"]?.try(&.as_h?)
@@ -634,6 +653,13 @@ module H2code
                 json.field("token", @github_token)
               end
             end unless @github_token.empty?
+
+            json.field("gitlab") do
+              json.object do
+                json.field("token", @gitlab_token)
+                json.field("endpoint", @gitlab_endpoint) unless @gitlab_endpoint.empty?
+              end
+            end unless @gitlab_token.empty? && @gitlab_endpoint.empty?
 
             json.field("agent") do
               json.object do

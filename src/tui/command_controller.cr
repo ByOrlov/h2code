@@ -830,6 +830,102 @@ module H2code
         end
         emit_to_log(Message.new("system", H2code.t("ui.github_token_cleared")))
       end
+
+      # `/gitlab [status|token [clear]]` — GitLab integration settings.
+      # `status` (the default) reports whether a token is configured;
+      # `token` starts the same wizard as /github token and saves to config
+      # `gitlab.token`; `token clear` removes it.
+      private def cmd_gitlab(args : String) : Nil
+        sub = args.strip.split(/\s+/).reject(&.empty?)
+        case sub[0]?
+        when nil, "", "status"
+          emit_to_log(Message.new("system", gitlab_status_message))
+        when "token"
+          case sub[1]?
+          when nil, ""
+            start_gitlab_token_wizard
+          when "clear", "remove", "off"
+            clear_gitlab_token
+          else
+            emit_to_log(Message.new("error", H2code.t("ui.usage_gitlab")))
+          end
+        else
+          emit_to_log(Message.new("error", H2code.t("ui.usage_gitlab")))
+        end
+      end
+
+      private def gitlab_status_message : String
+        token = @app_config.try(&.gitlab_token) || ""
+        body = token.empty? ? H2code.t("ui.gitlab_token_not_set") : H2code.t("ui.gitlab_token_set", masked: mask_secret(token))
+        unless ENV["GITLAB_TOKEN"]?.nil? && ENV["GITLAB_PRIVATE_TOKEN"]?.nil?
+          body += "\n#{H2code.t("ui.gitlab_token_env_override")}"
+        end
+        body
+      end
+
+      # Open the GitLab token wizard: same editor flow as /github token.
+      private def start_gitlab_token_wizard : Nil
+        unless @app_config
+          emit_to_log(Message.new("error", H2code.t("ui.gitlab_token_no_config")))
+          return
+        end
+        @gitlab_token_mode = true
+        @status = H2code.t("ui.gitlab_token_entering")
+        @editor.clear
+        @show_command_hints = false
+        emit_to_log(Message.new("system", H2code.t("ui.gitlab_wizard_intro")))
+        @dirty = true
+      end
+
+      # Save the token collected by the wizard: config `gitlab.token` plus
+      # the live Ci service, so GitLab observers switch to authenticated API
+      # polling without a restart. Echo is masked like the GitHub wizard.
+      private def submit_gitlab_token(text : String) : Nil
+        token = text.strip
+        emit_to_log(Message.new("user", "#{"•" * {token.size, 8}.min}"))
+        exit_gitlab_token_wizard
+        if token.empty?
+          emit_to_log(Message.new("error", H2code.t("ui.gitlab_token_empty")))
+          return
+        end
+        if cfg = @app_config
+          cfg.gitlab_token = token
+          cfg.save
+        end
+        if service = Tools::Ci.service.as?(Tools::Ci::LiveCiService)
+          service.gitlab_token = token
+        end
+        emit_to_log(Message.new("system", H2code.t("ui.gitlab_token_saved")))
+      end
+
+      private def cancel_gitlab_token_wizard : Nil
+        exit_gitlab_token_wizard
+        emit_to_log(Message.new("system", H2code.t("ui.gitlab_token_cancelled")))
+      end
+
+      private def exit_gitlab_token_wizard : Nil
+        @gitlab_token_mode = false
+        @status = ""
+        @editor.clear
+        @show_command_hints = false
+        @dirty = true
+      end
+
+      # Remove the token from config and the live Ci service. Env vars
+      # (GITLAB_TOKEN / GITLAB_PRIVATE_TOKEN) still apply on the next launch.
+      private def clear_gitlab_token : Nil
+        cfg = @app_config
+        unless cfg
+          emit_to_log(Message.new("error", H2code.t("ui.gitlab_token_no_config")))
+          return
+        end
+        cfg.gitlab_token = ""
+        cfg.save
+        if service = Tools::Ci.service.as?(Tools::Ci::LiveCiService)
+          service.gitlab_token = ""
+        end
+        emit_to_log(Message.new("system", H2code.t("ui.gitlab_token_cleared")))
+      end
     end
   end
 end
