@@ -301,8 +301,14 @@ module H2code
 
     class LocalMediaFileSystem < MediaFileSystem
       def read(path : String) : Bytes
-        content = File.read(path).encode("UTF-8")
-        content
+        # Read raw bytes — media files are binary, so any UTF-8 String decode
+        # here would raise on the first invalid multibyte sequence.
+        File.open(path) do |f|
+          size = f.size
+          bytes = Bytes.new(size)
+          read = f.read(bytes)
+          read == size ? bytes : bytes[0, read]
+        end
       end
 
       def size(path : String) : Int64
@@ -769,19 +775,23 @@ module H2code
           )
         end
 
-        # Build output: <image|video path="..."> + base64 + closing tag + note.
+        # Build output: the media payload travels in `result.media` (delivered
+        # to the model as a native image_url/video_url content part by the
+        # loop), while the text keeps only the wrapper tags + note. Mirrors
+        # the JS multi-part output (text + media + text).
         tag = detected.kind.image? ? "image" : "video"
-        b64 = Base64.strict_encode(body_bytes)
         note = build_media_note(detected.kind, mime, size.to_i32, dims, delivery)
 
         output = String.build do |io|
           io << "<#{tag} path=\"#{path}\">\n"
-          io << "data:#{body_mime};base64,#{b64}\n"
+          io << "[media: #{tag}, #{body_mime}, #{delivery.byte_length} bytes]\n"
           io << "</#{tag}>\n"
           io << note
         end
 
-        ToolResult.success(output)
+        result = ToolResult.success(output)
+        result.media = ["data:#{body_mime};base64,#{Base64.strict_encode(body_bytes)}"]
+        result
       end
 
       private def parse_region(value : JSON::Any?) : ImageRegion?

@@ -7,6 +7,9 @@ module H2code
       property content : String
       property? is_error : Bool
       property display : Tools::ToolDisplay? = nil
+      # Media data-URLs from the tool result, delivered to the model as native
+      # content parts by `assemble_results`.
+      property media : Array(String) = [] of String
       # An unexpected exception raised inside the fiber. When non-nil, the
       # caller must re-raise it on the main fiber so the loop-level interceptor
       # can surface it to the UI. UserCancellationError is NOT carried here —
@@ -201,7 +204,9 @@ module H2code
             end
           end
 
-          channel.send(ToolBatchResult.new(pc.index, tc.id, budgeted_content, result.is_error?, result.display))
+          r = ToolBatchResult.new(pc.index, tc.id, budgeted_content, result.is_error?, result.display)
+          r.media = result.media
+          channel.send(r)
         rescue ex : UserCancellationError
           channel.send(ToolBatchResult.new(pc.index, tc.id, "Cancelled: #{ex.reason}", true))
         rescue ex
@@ -226,8 +231,17 @@ module H2code
           case plan.status
           when PlannedCallStatus::Approved
             result = results_by_index[idx]
-            @context.add_tool_result(result.tool_call_id, result.content)
-            messages << LLM::Message.tool(result.content, result.tool_call_id)
+            if result.media.empty?
+              @context.add_tool_result(result.tool_call_id, result.content)
+              messages << LLM::Message.tool(result.content, result.tool_call_id)
+            else
+              # Multi-part tool result: text + native media parts, so the
+              # model receives the image as an image_url/video_url content
+              # part instead of inline base64 text.
+              msg = LLM::Message.tool_with_media(result.content, result.media, result.tool_call_id)
+              @context.add_tool_result_parts(result.tool_call_id, msg.content)
+              messages << msg
+            end
           when PlannedCallStatus::Skipped, PlannedCallStatus::Stopped
             content = plan.content || ""
             @context.add_tool_result(tc.id, content)

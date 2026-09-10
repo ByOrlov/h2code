@@ -401,8 +401,17 @@ MVP Crystal — shell-out в `convert`/`magick` из ImageMagick.
 - [x] Рантайм-вайринг: `Media.fs` / `Media.capabilities` / `Media.image_processor`
       назначаются в `h2code.cr` и `acp/server.cr` (раньше тул всегда отвечал
       "not initialized").
-- [ ] Конвертация data-URL в tool result → `ImageContent` part в loop
-      (сейчас текстовый protocol; провайдеры сами парсят) — отложено.
+- [x] Конвертация data-URL в tool result → `ImageContent` part в loop —
+      реализовано: `ToolResult.media` (data-URL канал) →
+      `Loop::ToolBatch` → `LLM::Message.tool_with_media`
+      (TextContent + ImageContent/VideoContent parts) →
+      `Context::Memory#add_tool_result_parts`. Base64 больше не ходит
+      по текстовому контексту. Демо: `rake mock:image`
+      (headless: `H2CODE_PROVIDER=mock H2CODE_MOCK_SCRIPT=image ./h2code -p x --yolo`).
+- [x] Фикс `LocalMediaFileSystem#read`: файл читался как UTF-8 String и
+      падал на бинарных данных («Invalid multibyte sequence»); теперь
+      читается как байты (реальный FS-путь не покрывался спеками —
+      гонялись только через FakeMediaFS).
 
 ---
 

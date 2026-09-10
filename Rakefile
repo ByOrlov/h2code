@@ -358,6 +358,27 @@ namespace :mock do
     sh "H2CODE_PROVIDER=mock H2CODE_MOCK_SCRIPT=plan ./h2code --tui-prompt 'mock' --yolo"
   end
 
+  desc "Run TUI with mock provider — ReadMediaFile multi-part image delivery demo"
+  task :image => :build do
+    # Generate a text-rendering PNG via ImageMagick so the demo is
+    # self-verifying (a real model can read the words back). Falls back to
+    # the project logo when ImageMagick is unavailable.
+    img = File.expand_path("tmp/mock_image_text.png", __dir__)
+    mkdir_p File.dirname(img)
+    text = "Hello H2Code, this is image text"
+    bin = %w[magick convert].find { |b| system(b, "-version", out: File::NULL, err: File::NULL) }
+    if bin && system(bin, "-size", "800x300", "xc:white", "-fill", "black",
+                     "-pointsize", "48", "-gravity", "center",
+                     "-annotate", "+0+0", text, img)
+      puts "▶ Generated #{img} (#{text.bytesize} chars of text rendered)".colorize(:blue)
+      env = "H2CODE_MOCK_IMAGE=#{img} "
+    else
+      puts "▶ ImageMagick not found — falling back to logo.png".colorize(:yellow)
+      env = ""
+    end
+    sh "H2CODE_PROVIDER=mock H2CODE_MOCK_SCRIPT=image #{env}./h2code --tui-prompt 'mock' --yolo"
+  end
+
   # --- standalone mock binaries (built by build:mock_h2code / build:mockfast_h2code) ---
 
   desc "Build and run bin/mock_h2code (simulated 100-tool LLM output for render testing)"
