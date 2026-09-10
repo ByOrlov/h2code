@@ -399,7 +399,7 @@ describe H2code::Config::Config do
       config.transcription.enabled?.should be_true
       config.transcription.socket.should eq("~/.h2voice/voice.sock")
       config.transcription.engine.should eq("auto")
-      config.transcription.max_duration_sec.should eq(120)
+      config.transcription.max_duration_sec.should eq(1800)
     end
 
     it "keeps transcription enabled when the section omits the flag" do

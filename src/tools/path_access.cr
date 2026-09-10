@@ -1,3 +1,4 @@
+# Fork-sandbox write confinement gate used by Mode::Write resolution below.
 module H2code
   module Tools
     # Path resolution + sensitive-file detection for the builtin tools.
@@ -137,6 +138,15 @@ module H2code
           )
         end
 
+        # Fork-sandbox confinement: a /fork session must never write into
+        # the original repository its sandbox was cloned from — not even
+        # via an absolute path outside the workspace.
+        if mode == Mode::Write
+          if reason = Sandbox.write_block_reason(canonical, cwd)
+            raise AccessError.new("PATH_SANDBOX_WRITE", path, canonical, reason)
+          end
+        end
+
         outside = !within_directory?(canonical, canonicalize(cwd, cwd))
         if outside && !raw_is_absolute
           raise AccessError.new(
@@ -169,3 +179,7 @@ module H2code
     end
   end
 end
+
+# Loaded after PathAccess is defined (same pattern as home_port.cr): the
+# Mode::Write gate above calls into the Sandbox confinement module.
+require "../sandbox"

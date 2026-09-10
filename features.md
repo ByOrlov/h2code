@@ -119,25 +119,66 @@ result itself lands in the transcript as the `tool.result`.
   that emits the final status line into the log zone.
 - ACP server registers `WaitForCI` too and shares the service.
 
-## Worktree Isolation (`/fork` + `/merge`)
+## Fork Sandbox Isolation (`/fork` + `/merge`)
 
-Fork a session into an isolated git worktree, work on a feature without
-touching the main checkout, then fold the branch back with the agent's
-help. No registry is kept — the deterministic directory layout and git's
-own worktree state are the source of truth.
+Fork a session into an isolated **standalone git clone**, work on a feature
+without touching the main checkout, then fold the branch back with the agent's
+help. No registry is kept — the deterministic directory layout is the source
+of truth.
+
+A standalone clone (`git clone --no-hardlinks`) owns its object database, refs,
+reflog and config outright, unlike a linked worktree which shares all of that
+with the main repository. Destructive commands run inside the sandbox
+(`git branch -D`, `git update-ref`, `git gc --prune=now`, ...) cannot poison
+the original repository or its other branches — the isolation is structural,
+at the filesystem level (no shared inodes). The clone's origin remote points
+at the original repo so `/merge` can resolve it.
+
+### Write confinement (tool level)
+
+Beyond the structural isolation, the tools themselves refuse to touch the
+original repository from a fork session (`H2code::Sandbox`, `src/sandbox.cr`).
+The sandbox's origin is resolved once per work dir (cached) and then:
+
+- `Write` / `Edit` / `ApplyPatch` (via `PathAccess` Mode::Write) reject any
+  target inside the original repo — lexically and through a realpath pass, so
+  a symlink planted in the sandbox cannot tunnel a write through;
+- `Bash` and `InteractiveShell` reject a `cwd` inside the original repo and
+  any command text referencing its absolute path (best-effort lexical match
+  on path boundaries; references to the sandbox's own path are exempt
+  because the encoded layout mirrors the repo's segments);
+- reads, Grep and Glob of the original repo stay allowed.
+
+The single exception is the `/merge` turn: the TUI raises
+`Sandbox.merge_active` for that turn (an explicit user command whose purpose
+is to write into the original repo) and lowers it at turn end.
+
+### Sibling confinement (all sessions)
+
+Two further guards apply to every session — fork or not — and are never
+lifted, not even during `/merge`:
+
+- the h2code session store (`~/.h2code/sessions/**`) is private session
+  data: no tool ever writes there (any session's, its own included; tool
+  plumbing such as background-task logs writes outside the tool gate and
+  keeps working). Reading it with `Read` / `Grep` stays allowed;
+- other sessions' sandboxes under `~/.h2code/worktree/**` are off-limits:
+  only the session's own work tree is writable. Shared work folds back
+  through the original repository.
+
 
 ### `/fork`
 
-Creates a git worktree plus a fresh branch `h2code-<session-id>` cut from
+Creates a standalone clone plus a fresh branch `h2code-<session-id>` cut from
 the **current branch** (not master) and checked out under
 `~/.h2code/worktree/<encoded-project-path>/<branch>` (`/home/oleg/p1` ->
 `home/oleg/p1`, `C:\Users\oleg\p1` -> `c/users/oleg/p1`). Then:
 
 1. the conversation is forked into a new session whose `cwd` is the
-   worktree dir (`Session::Lifecycle.fork`, `src/session/lifecycle.cr`);
+   sandbox dir (`Session::Lifecycle.fork`, `src/session/lifecycle.cr`);
 2. the path-bound tools (`Read`, `Write`, `Edit`, `Glob`, `Grep`, `Bash`,
    `ApplyPatch`, `WaitForCI`) and both subagent runners retarget their
-   `work_dir` at the worktree (`rebind_path_tools` in `src/h2code.cr`).
+   `work_dir` at the sandbox (`rebind_path_tools` in `src/h2code.cr`).
 
 The switch only ever happens at the idle boundary — `/fork` refuses to
 run while a turn is in flight, so no in-flight turn observes the cwd
@@ -145,25 +186,33 @@ change. Detached HEAD or a non-git cwd is reported and aborts the fork.
 
 ### `/merge`
 
-Injects a synthetic user prompt telling the agent to merge the worktree
-branch back into the original repository (resolved via
-`git rev-parse --git-common-dir`) using Bash with an explicit `cwd`.
+Injects a synthetic user prompt telling the agent to fold the sandbox
+branch back into the original repository (resolved via the clone's origin
+URL) using Bash with an explicit `cwd`:
+
+1. `git fetch <sandbox> +<branch>:<branch>` — the branch lives only in
+   the clone, so it is brought over first;
+2. `git merge <branch> --no-edit`, resolving conflicts if any.
+
 When that turn ends (`EventController` TurnEnd handler):
 
-- branch fully merged + clean worktree → worktree removed
-  (`git worktree remove`), branch deleted (`git branch -d`, refuses
+- branch fully merged + clean sandbox → sandbox removed (plain `rm -r`,
+  nothing shared to deregister), branch deleted (`git branch -d`, refuses
   unmerged), tools/session retargeted back at the original checkout;
-- merged but dirty → worktree kept for review (uncommitted files are
+- merged but dirty → sandbox kept for review (uncommitted files are
   never destroyed);
 - not fully merged → kept, with a hint to re-run `/merge` or finish
   manually.
 
 ### Management and cleanup (`src/worktree.cr`)
 
-- `/fork list` — every h2code worktree with branch, merged/dirty status,
+- `/fork list` — every h2code sandbox with branch, merged/dirty status,
   age and path.
-- `/fork clean` — removes fully merged, clean worktrees; reports and
+- `/fork clean` — removes fully merged, clean sandboxes; reports and
   keeps the unmerged or dirty ones.
-- Age-based GC at TUI startup: fully merged, clean worktrees untouched
+- Age-based GC at TUI startup: fully merged, clean sandboxes untouched
   for 14 days are removed; unmerged work is never collected.
+- Legacy linked worktrees created by older versions (marked by a `.git`
+  file instead of a `.git` directory) are still listed, merged and
+  cleaned up by the same commands.
 

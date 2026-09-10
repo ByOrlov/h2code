@@ -66,13 +66,13 @@ module H2code
       # Default voice language ("auto" = detect on the server; detection can
       # misfire on short/noisy clips). Set via /voicelang.
       property language : String = "auto"
-      property max_duration_sec : Int32 = 120
+      property max_duration_sec : Int32 = 1800
 
       def initialize(@enabled : Bool = true,
                      @socket : String = "~/.h2voice/voice.sock",
                      @engine : String = "auto",
                      @language : String = "auto",
-                     @max_duration_sec : Int32 = 120)
+                     @max_duration_sec : Int32 = 1800)
       end
     end
 

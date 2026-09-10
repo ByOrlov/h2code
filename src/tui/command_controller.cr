@@ -152,7 +152,7 @@ module H2code
           return
         end
         dir = @work_dir
-        unless H2code::Worktree.worktree?(dir)
+        unless H2code::Worktree.fork_sandbox?(dir, @home)
           emit_to_log(Message.new("error", H2code.t("ui.merge_not_in_worktree")))
           return
         end
@@ -163,6 +163,10 @@ module H2code
           return
         end
         @pending_merge = H2code::Worktree::PendingMerge.new(dir, branch, main_repo)
+        # The merge turn is the one sanctioned moment a fork session may
+        # write into the original repository: lift the Sandbox write
+        # confinement for this turn only (lowered at turn end).
+        Sandbox.merge_active = true
         emit_to_log(Message.new("system", H2code.t("ui.merge_started", branch: branch, repo: main_repo)))
         deliver_external_prompt(merge_prompt(dir, branch, main_repo))
       end
@@ -170,13 +174,14 @@ module H2code
       # The synthetic user message driving the merge turn.
       private def merge_prompt(worktree : String, branch : String, main_repo : String) : String
         <<-PROMPT
-        You are working in an isolated git worktree at #{worktree} on branch "#{branch}". Merge this branch back into the original repository at #{main_repo}.
+        You are working in an isolated sandbox clone at #{worktree} on branch "#{branch}". Merge this branch back into the original repository at #{main_repo}.
 
         Use the Bash tool with cwd="#{main_repo}" for every git command. Steps:
         1. Check git status and the current branch in the original repository.
-        2. Run `git merge #{branch} --no-edit`.
-        3. If there are conflicts, resolve them carefully — the worktree branch holds the feature work, the original branch may have moved on; preserve the intent of both sides — then commit.
-        4. When the project has a test suite or build, run it and report the merge result.
+        2. The sandbox is a standalone clone, so the branch does not exist in the original repository yet — bring it over with `git fetch #{worktree} +#{branch}:#{branch}`.
+        3. Run `git merge #{branch} --no-edit`.
+        4. If there are conflicts, resolve them carefully — the sandbox branch holds the feature work, the original branch may have moved on; preserve the intent of both sides — then commit.
+        5. When the project has a test suite or build, run it and report the merge result.
 
         Do NOT delete the sandbox or the branch: cleanup happens automatically after this turn.
         PROMPT
@@ -186,6 +191,9 @@ module H2code
       # back into the session — auto-remove a fully merged sandbox and
       # switch the tools home, or keep it and tell the user why.
       private def finish_pending_merge : Nil
+        # The merge turn is over — the fork-sandbox write confinement
+        # holds again from here on, whether or not a merge ran.
+        Sandbox.merge_active = false
         pm = @pending_merge
         return unless pm
         @pending_merge = nil

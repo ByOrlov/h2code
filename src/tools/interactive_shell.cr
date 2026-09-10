@@ -250,6 +250,14 @@ module H2code
     end
 
     class InteractiveShellTool < Tool
+      @work_dir : String
+
+      # Retargeted by `/fork` / `/merge` at the idle boundary between turns.
+      setter work_dir
+
+      def initialize(@work_dir : String = Dir.current)
+      end
+
       def name : String
         Names::INTERACTIVE_SHELL
       end
@@ -318,6 +326,12 @@ module H2code
 
         cwd = input["cwd"]?.try(&.to_s)
         cwd = nil if cwd && cwd.empty?
+
+        # Fork-sandbox confinement: a REPL/debugger started in (or aimed
+        # at) the original repository is as good as a Bash escape.
+        if reason = Sandbox.shell_block_reason(command, cwd, @work_dir)
+          return ToolResult.error(reason)
+        end
 
         session = svc.start(command, cwd)
         # Give interactive programs a moment to print their banner.

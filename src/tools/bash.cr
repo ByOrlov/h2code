@@ -211,6 +211,13 @@ For long-running commands, pass run_in_background: true. The tool returns immedi
         command = input["command"]?.try(&.to_s) || ""
         return ToolResult.error("Command cannot be empty.") if command.empty?
 
+        # Fork-sandbox confinement: refuse to run anything aimed at the
+        # original repository (cwd inside it, or a command referencing
+        # its path) while this session works in a /fork sandbox.
+        if reason = Sandbox.shell_block_reason(command, input["cwd"]?.try(&.to_s), @work_dir)
+          return ToolResult.error(reason)
+        end
+
         run_in_background = input["run_in_background"]?.try(&.as_bool?) == true
 
         # Background execution requires a TaskService to track the process.

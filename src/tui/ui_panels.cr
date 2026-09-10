@@ -73,6 +73,17 @@ module H2code
         text.split('\n')
       end
 
+      # One-line notice directly under the input box, shown while the session
+      # lives in a `/fork` sandbox clone: `Clone: <folder>`. Rendered bold in
+      # the theme's warning colour so it stands out — a clear "you are NOT on
+      # the main checkout" signal. Disappears when `/merge` retargets the
+      # session back at the original repository.
+      private def render_clone_dir_line(cols : Int32) : Array(String)
+        return [] of String unless Worktree.fork_sandbox?(@work_dir, @home)
+        line = CharWidth.truncate_to_width("Clone: #{@work_dir}", {cols - 2, 1}.max)
+        ["#{ANSI.color(@theme.colors.warning, nil)}#{ANSI.bold} #{line}#{ANSI.reset}"]
+      end
+
       private def render_editor_box(cols : Int32) : Array(String)
         # Use cols-1 so border lines are never exactly cols wide — a full-width
         # line triggers a terminal pending-wrap state that corrupts incremental
