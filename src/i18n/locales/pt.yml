@@ -198,6 +198,8 @@ pt:
     send_a_message: "Envie uma mensagem..."
     press_to_exit: "Pressione %{btn} para sair"
     ci_waiting: "Aguardando o CI do commit %{sha} (%{elapsed})"
+    task_waiting: "Tarefa em segundo plano %{id} em execução (%{elapsed}): %{label}"
+    task_finished: "Tarefa em segundo plano %{id} concluída: %{detail}"
     ci_passed: "Build do CI passou para %{sha} (%{detail})"
     ci_failed: "Build do CI FALHOU para %{sha} (%{detail})"
     ci_error: "Erro do observador de CI para %{sha}: %{detail}"

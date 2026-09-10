@@ -133,6 +133,17 @@ module H2code
       # pending observer), their 80ms animation
       # tick, and the Ctrl+D exit warning. Mirrors @swarm_active's role.
       @ci_active : Bool = false
+      # True while at least one background task (Bash/Agent with
+      # run_in_background) is running — drives the animated active-zone wait
+      # lines (one per task) and their 80ms animation tick. Unlike CI
+      # observers tasks have no push events into the TUI, so the main loop
+      # polls the task registry via refresh_bg_tasks! (~4x/sec).
+      @bg_tasks_active : Bool = false
+      # Running-task snapshot taken by the last refresh_bg_tasks! poll — the
+      # renderer's sole data source (render_bg_task_lines).
+      @bg_running_tasks : Array(Tools::AgentTaskInfo) = [] of Tools::AgentTaskInfo
+      # Monotonic timestamp of the last background-task poll (run loop).
+      @last_bg_poll : Time::Span? = nil
       @exit_confirm : Bool = false
       @exit_key : String = "CTRL+C"
       @current_step : Int32 = 0
@@ -525,7 +536,15 @@ module H2code
           now = Time.monotonic
           elapsed = (now - @last_render).total_milliseconds
 
-          if (@agent_busy || @swarm_active || @ci_active || voice_active?) && elapsed >= 80
+          # Poll the background-task registry (~4x/sec): unlike CI observers,
+          # tasks deliver completion to the agent loop, not to the TUI, so
+          # the active-zone wait lines are fed by polling.
+          if (lp = @last_bg_poll).nil? || (now - lp).total_milliseconds >= 250
+            refresh_bg_tasks!
+            @last_bg_poll = now
+          end
+
+          if (@agent_busy || @swarm_active || @ci_active || @bg_tasks_active || voice_active?) && elapsed >= 80
             @spin_phase += 1
             @dirty = true
           end

@@ -402,6 +402,61 @@ module H2code
         @dirty = true
       end
 
+      # Poll the background-task registry (Bash/Agent run_in_background) for
+      # the active-zone wait lines. Mirrors on_ci_update's role for CI
+      # observers, but pull-based: tasks report completion to the agent loop
+      # via the delivery callback, not to the TUI, so the main loop calls this
+      # every ~250ms. A task that left the running snapshot gets a one-line
+      # summary in the log — like on_ci_update's terminal emission this both
+      # informs the user (the agent-facing notification may be merely queued
+      # while a turn is running) and satisfies the zone-balance invariant when
+      # the wait line disappears.
+      def refresh_bg_tasks! : Nil
+        tasks = @on_fetch_tasks.try(&.call) || [] of Tools::AgentTaskInfo
+        running = tasks.select { |t| !t.status.terminal? && t.detached != true }
+        prev_key = @bg_running_tasks.map(&.task_id).join(",")
+        new_key = running.map(&.task_id).join(",")
+        unless @bg_running_tasks.empty?
+          running_ids = Set.new(running.map(&.task_id))
+          @bg_running_tasks.each do |prev|
+            next if running_ids.includes?(prev.task_id)
+            if fresh = tasks.find { |x| x.task_id == prev.task_id }
+              emit_bg_task_summary(fresh)
+            end
+          end
+        end
+        @bg_running_tasks = running
+        was_active = @bg_tasks_active
+        @bg_tasks_active = !running.empty?
+        if @bg_tasks_active && !was_active
+          declare_active(:bg_tasks)
+        elsif !@bg_tasks_active && was_active
+          release_active(:bg_tasks)
+        end
+        @dirty = true if prev_key != new_key
+      end
+
+      # One-line completion summary flushed into the log when a background
+      # task leaves the running snapshot. Bright green on success (same
+      # treatment as ci_success), dim system gray otherwise.
+      private def emit_bg_task_summary(info : Tools::AgentTaskInfo) : Nil
+        ended = info.ended_at || Time.utc.to_unix_ms
+        elapsed_s = ((ended - info.started_at) // 1000).to_i.clamp(0..)
+        detail = String.build do |s|
+          s << info.status.to_wire
+          if ec = info.exit_code
+            s << ", exit " << ec
+          end
+          if r = info.stop_reason
+            s << ", " << r
+          end
+          s << " (" << DurationFormat.hms(elapsed_s) << ")"
+        end
+        role = info.status.completed? ? "task_success" : "system"
+        emit_to_log(Message.new(role, H2code.t("ui.task_finished", id: info.task_id, detail: detail)))
+        @dirty = true
+      end
+
       private def handle_subagent_started(event : Loop::Event) : Nil
         idx = find_swarm_message(event.tool_call_id)
         return unless idx
