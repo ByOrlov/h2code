@@ -413,6 +413,7 @@ module H2code
         @spinner = Spinner.new
         @markdown = Markdown.new(@theme)
         @provider_list = SelectList.new([] of String, @theme)
+        @provider_list.searchable = true
         @provider_list.max_visible = 15
         @model_list = SelectList.new([] of String, @theme)
         @model_list.searchable = true

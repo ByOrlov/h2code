@@ -168,6 +168,7 @@ es:
     select_language: "Seleccionar idioma"
     select_model: "Seleccionar modelo (%{name})"
     search_model: "Buscar modelo…"
+    search_provider: "Buscar proveedor…"
     search_session: "Buscar sesiones…"
     picker_navigate: "navegar"
     picker_search: "buscar"

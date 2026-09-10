@@ -168,6 +168,7 @@ ru:
     select_language: "Выберите язык"
     select_model: "Выберите модель (%{name})"
     search_model: "Поиск модели…"
+    search_provider: "Поиск провайдера…"
     search_session: "Поиск по сессиям…"
     picker_navigate: "навигация"
     picker_search: "поиск"

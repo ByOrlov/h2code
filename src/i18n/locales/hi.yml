@@ -168,6 +168,7 @@ hi:
     select_language: "भाषा चुनें"
     select_model: "मॉडल चुनें (%{name})"
     search_model: "मॉडल खोजें…"
+    search_provider: "प्रदाता खोजें…"
     search_session: "सत्र खोजें…"
     picker_navigate: "नेविगेट"
     picker_search: "खोज"

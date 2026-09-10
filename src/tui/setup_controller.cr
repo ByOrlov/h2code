@@ -35,7 +35,7 @@ module H2code
           @provider_list.handle_input(key)
           @dirty = true
         when .enter?
-          idx = @provider_list.selected
+          idx = @provider_list.selected_original_index
           choices = Setup::Wizard.choices
           choice = choices[idx]? || choices.first
           @provider_list.hide
@@ -56,9 +56,14 @@ module H2code
           end
           advance_setup_step
         when .escape?, .ctrl_d?
-          # ESC/Ctrl+D at the provider selector: exit the app — the user
-          # is aborting setup. Without this the wizard is inescapable.
-          @running = false
+          # Clear the search query first; exit setup only once it is empty.
+          unless @provider_list.clear_query
+            @running = false
+            @dirty = true
+          end
+        else
+          # ↑/↓, Backspace, and typed characters drive the fuzzy filter.
+          @provider_list.handle_input(key)
           @dirty = true
         end
       end

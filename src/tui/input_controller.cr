@@ -1014,7 +1014,12 @@ module H2code
             emit_to_log(Message.new("error", "Provider switching is not wired up."))
           end
         when .escape?
-          @provider_list.hide
+          # A single Esc clears an active search first; a second Esc closes.
+          @provider_list.clear_query || @provider_list.hide
+          @dirty = true
+        else
+          # ↑/↓, Backspace, and typed characters drive the fuzzy filter.
+          @provider_list.handle_input(key)
           @dirty = true
         end
       end

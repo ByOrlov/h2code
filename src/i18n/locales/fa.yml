@@ -168,6 +168,7 @@ fa:
     select_language: "انتخاب زبان"
     select_model: "انتخاب مدل (%{name})"
     search_model: "جستجوی مدل…"
+    search_provider: "جستجوی ارائه‌دهنده…"
     search_session: "جستجوی گفتگو…"
     picker_navigate: "پیمایش"
     picker_search: "جستجو"

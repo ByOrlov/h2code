@@ -168,6 +168,7 @@ ja:
     select_language: "言語を選択"
     select_model: "モデルを選択 (%{name})"
     search_model: "モデルを検索…"
+    search_provider: "プロバイダーを検索…"
     search_session: "セッションを検索…"
     picker_navigate: "移動"
     picker_search: "検索"
