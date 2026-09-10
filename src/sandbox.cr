@@ -263,7 +263,7 @@ module H2code
     # no load-order dependencies.
     private def self.within?(candidate : String, base : String) : Bool
       {% if flag?(:win32) %}
-        within?(candidate.downcase.tr('/', '\\'), base.downcase.tr('/', '\\'), '\\')
+        within?(candidate.downcase.tr("/", "\\"), base.downcase.tr("/", "\\"), '\\')
       {% else %}
         within?(candidate, base, File::SEPARATOR)
       {% end %}

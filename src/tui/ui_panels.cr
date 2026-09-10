@@ -81,7 +81,7 @@ module H2code
       private def render_clone_dir_line(cols : Int32) : Array(String)
         return [] of String unless Worktree.fork_sandbox?(@work_dir, @home)
         line = CharWidth.truncate_to_width("Clone: #{@work_dir}", {cols - 2, 1}.max)
-        ["#{ANSI.color(@theme.colors.warning, nil)}#{ANSI.bold} #{line}#{ANSI.reset}"]
+        ["#{ANSI.color(@theme.colors.warning, nil)}#{ANSI.bold}#{line}#{ANSI.reset}"]
       end
 
       private def render_editor_box(cols : Int32) : Array(String)
