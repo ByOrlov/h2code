@@ -474,8 +474,10 @@ module H2code
       Tools::Bash.shell = config.shell
       # Windows: advertise the configured bash location to the model. cmd.exe
       # always executes commands; this only tells the model where bash is so
-      # it can invoke it explicitly for POSIX-only tasks.
-      Tools::Tool::SHELL_PORT.bash_path = config.bash_available
+      # it can invoke it explicitly for POSIX-only tasks. bash_path is a
+      # class-level setting (inert on Unix) — set it on ShellPort, not on
+      # the SHELL_PORT instance.
+      H2code::ShellPort.bash_path = config.bash_available
       tools.register(bash_tool)
 
       goal_service = H2code::Tools::AgentGoalService.new
