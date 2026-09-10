@@ -15,6 +15,11 @@ module H2code
     enum MessageOrigin
       Normal
       Injection
+      # Background-result notifications (e.g. a detached subagent finishing).
+      # Unlike `Injection` (per-step protocol state pruned at the start of
+      # every step), notification content is conversation: it must survive
+      # `prune_injections` so the model actually sees it on a later step.
+      Notification
       CompactionSummary
     end
 
@@ -64,6 +69,16 @@ module H2code
       def add_injection(content : String) : Nil
         msg = LLM::Message.system(content)
         @history << ContextMessage.new(msg, MessageOrigin::Injection)
+        update_token_count
+      end
+
+      # Background-result notification (e.g. a detached subagent's completion).
+      # Stored like an injection but with `Notification` origin so the
+      # per-step `prune_injections` sweep — which removes transient step
+      # reminders — does not drop it before the model has seen it.
+      def add_notification(content : String) : Nil
+        msg = LLM::Message.system(content)
+        @history << ContextMessage.new(msg, MessageOrigin::Notification)
         update_token_count
       end
 

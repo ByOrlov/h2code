@@ -86,6 +86,18 @@ module H2code
         return if @queue.empty?
 
         next_msg = @queue.shift
+        # Coalesce consecutive external notifications (background-task /
+        # CI completions) into a single turn: N completions that piled up
+        # while the agent was busy produce one wrap-up turn instead of N
+        # sequential ones. Mirrors the TS steer-buffer flush, which appends
+        # every buffered notification before a single continuation step.
+        # User prompts ("prompt" mode) always get a turn of their own.
+        if next_msg.mode == "external"
+          while (following = @queue.first?) && following.mode == "external"
+            next_msg.text = "#{next_msg.text}\n\n#{following.text}"
+            @queue.shift
+          end
+        end
         @dispatch_pending = true
 
         # The tiny async hop lets the TurnEnd handler finish flipping phase
@@ -112,13 +124,32 @@ module H2code
       # are regenerated on resume from cron.json, and task notifications are
       # transient). When idle, a fresh turn is started (persisted: true so the
       # run_turn block skips writing a duplicate turn.prompt record).
+      #
+      # `<notification id="...">` payloads are deduplicated by id: each
+      # background task/CI outcome notifies exactly once, even if the source
+      # races and fires its delivery callback twice. Payloads without a
+      # notification id (cron fires, remote-control prompts) always pass
+      # through — their identity is not task-lifetime-scoped.
       def deliver_external_prompt(text : String) : Nil
         return if text.strip.empty?
+        if id = external_notification_id(text)
+          return if @delivered_notification_ids.includes?(id)
+          @delivered_notification_ids << id
+        end
         if @agent_busy || @is_compacting || @defer_user_messages
           enqueue_message(text, "external", persist: false)
         else
           start_turn(text, persisted: true)
         end
+      end
+
+      # Id attribute of a `<notification id="...">` envelope, or nil when the
+      # text is not a notification (cron fire, remote prompt, ...). The id is
+      # producer-scoped (`task.{task_id}.{status}` / `ci.{sha}.{type}`), so it
+      # is stable across duplicate delivery attempts.
+      private def external_notification_id(text : String) : String?
+        match = text.match(/<notification\s+id="([^"]*)"/)
+        match.try(&.[1])
       end
 
       # Authoritative busy flag for the remote control socket (`op: status`):

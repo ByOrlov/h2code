@@ -153,4 +153,18 @@ describe H2code::Context::Memory do
     msgs.any?(&.text.==("summary text")).should be_true
     msgs.any?(&.text.==("reminder")).should be_false
   end
+
+  it "prune_injections keeps notification-origin messages" do
+    mem = H2code::Context::Memory.new
+    mem.add_user("hello")
+    mem.add_notification("<notification id=\"task.t1.completed\">agent done</notification>")
+    mem.add_injection("<system-reminder>todo</system-reminder>")
+
+    mem.prune_injections
+
+    msgs = mem.messages
+    msgs.size.should eq(2)
+    msgs.any?(&.text.includes?("agent done")).should be_true
+    msgs.any?(&.text.==("<system-reminder>todo</system-reminder>")).should be_false
+  end
 end

@@ -80,6 +80,11 @@ module H2code
       # and the agent only researches. Toggled via `/plan` or `EnterPlanMode`.
       property? plan_mode : Bool = false
       @queue : Array(QueuedMessage) = [] of QueuedMessage
+      # Notification ids (`<notification id="...">`) already delivered or
+      # queued via `deliver_external_prompt`. Each background task/CI
+      # completion notifies exactly once — mirrors the TS
+      # `deliveredNotificationKeys` set in the background task manager.
+      @delivered_notification_ids : Set(String) = Set(String).new
       @spin_phase : Int32 = 0
       @dirty : Bool = true
       # When true, a terminal-exec (sudo) session owns the screen — skip TUI
