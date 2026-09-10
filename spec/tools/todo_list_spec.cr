@@ -125,6 +125,24 @@ describe H2code::Tools::TodoList do
       end
     end
 
+    it "clear! persists the empty state so a restart doesn't resurrect the list" do
+      Dir.tempdir.tap do |tmp|
+        session_dir = File.join(tmp, "todo-clear-bang-#{Random::Secure.hex(4)}")
+        Dir.mkdir_p(session_dir)
+
+        todo = H2code::Tools::TodoList.new(session_dir)
+        todo.execute(JSON.parse(%({"todos":[{"title":"old","status":"done"}]})))
+
+        todo.clear!
+        todo.todos.empty?.should be_true
+        File.read(File.join(session_dir, "todo.json")).should eq("[]")
+
+        # A fresh instance (simulated restart / --resume) restores an empty list.
+        restored = H2code::Tools::TodoList.new(session_dir)
+        restored.todos.empty?.should be_true
+      end
+    end
+
     it "ignores a corrupt todo.json" do
       Dir.tempdir.tap do |tmp|
         session_dir = File.join(tmp, "todo-corrupt-#{Random::Secure.hex(4)}")

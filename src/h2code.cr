@@ -1414,7 +1414,9 @@ module H2code
       app.on_clear_todos = -> : Nil do
         todo_tool = agent.tools.get(Tools::Names::TODO_LIST)
         return nil unless t = todo_tool.as?(H2code::Tools::TodoList)
-        t.todos.clear
+        # clear! (not `todos.clear`) so the cleared state is persisted and a
+        # restart / --resume doesn't resurrect the old list from todo.json.
+        t.clear!
         nil
       end
 

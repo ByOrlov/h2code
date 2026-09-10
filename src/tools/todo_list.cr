@@ -128,6 +128,14 @@ module H2code
         end
       end
 
+      # Clear the list and persist the empty state. Unlike mutating `#todos`
+      # directly, this keeps `<session_dir>/todo.json` in sync, so a cleared
+      # list stays cleared across a restart / `--resume`.
+      def clear! : Nil
+        @todos.clear
+        persist
+      end
+
       # ------------------------------------------------------------------
       # Persistence (<session_dir>/todo.json)
       # ------------------------------------------------------------------
