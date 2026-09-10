@@ -101,8 +101,9 @@ module H2code
           end
         end
 
-        # Abort or timeout fired: kill (two-phase) and reap.
-        process.terminate rescue nil
+        # Abort or timeout fired: kill (two-phase, port-routed so Windows
+        # tree-kills instead of orphaning the shell's children) and reap.
+        PROCESS_PORT.terminate(process)
         select
         when status = status_ch.receive
           {status, timed_out, aborted}

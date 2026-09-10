@@ -10,6 +10,12 @@ module H2code
   # one place - the composition root `default` below - so no platform branching
   # leaks into the rest of the codebase.
   abstract class ProcessPort
+    # Ask *process* to stop: SIGTERM on Unix. On Windows there is no
+    # signal-based equivalent worth the name for console trees (taskkill
+    # without /F cannot close them), so the adapter force-kills the whole
+    # process tree — see Win32ProcessPort for why the tree matters.
+    abstract def terminate(process : Process) : Nil
+
     # Forcibly terminate *process* without giving it a chance to clean up.
     abstract def force_kill(process : Process) : Nil
 

@@ -328,7 +328,7 @@ module H2code
 
         if timed_out || aborted
           begin
-            process.terminate
+            PROCESS_PORT.terminate(process)
           rescue
           end
           select

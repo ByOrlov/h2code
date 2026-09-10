@@ -563,9 +563,10 @@ For long-running commands, pass run_in_background: true. The tool returns immedi
         ""
       end
 
-      # Two-phase kill: SIGTERM, then SIGKILL after 5s.
+      # Two-phase kill: SIGTERM (port-routed: Windows tree-kills), then
+      # SIGKILL after 5s.
       private def kill_two_phase(process : Process) : Nil
-        process.terminate rescue nil
+        PROCESS_PORT.terminate(process)
         spawn do
           sleep 5.seconds
           if process.exists?

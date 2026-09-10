@@ -8,6 +8,10 @@ module H2code
   # caught or ignored, so the kernel reaps the process on the next scheduler
   # tick.
   class UnixProcessPort < ProcessPort
+    def terminate(process : Process) : Nil
+      process.terminate rescue nil # SIGTERM
+    end
+
     def force_kill(process : Process) : Nil
       LibC.kill(process.pid, 9) rescue nil
     end
