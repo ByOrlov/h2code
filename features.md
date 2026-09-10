@@ -37,7 +37,7 @@ exactly like sudo detection piggybacks on every elevated command.
 (`detect_repo`) resolves the origin remote once per cwd into a `RepoInfo`
 (provider + host + project path). Each watched commit gets an `Observer`
 that polls on a **fixed 30 s interval** (no backoff; gives up after
-30 minutes). There are three polling backends:
+60 minutes). There are three polling backends:
 
 - **GitHub direct REST mode (priority)** — when a GitHub token is configured
   (config.json `github.token`, overridden by `GITHUB_TOKEN` / `GH_TOKEN` env),

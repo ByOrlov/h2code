@@ -12,7 +12,7 @@ module H2code
     #   1. The Bash tool detects a successful `git push` (sudo-detect style)
     #      and calls `Ci.service.try_observe_push`.
     #   2. If the repo has GitHub Actions workflows and a github.com remote,
-    #      an `Observer` starts polling every 30 s (gives up after 30 min).
+    #      an `Observer` starts polling every 30 s (gives up after 60 min).
     #      With a GitHub token
     #      configured (config `github.token` / GITHUB_TOKEN / GH_TOKEN)
     #      the observer polls api.github.com directly via `GithubApi` —
@@ -40,7 +40,7 @@ module H2code
       # Fixed poll cadence: poll GitHub Actions every 30 s, no backoff.
       POLL_INTERVAL_S = 30
       # Give up observing after this many seconds and report "timeout".
-      MAX_WAIT_S = 1800
+      MAX_WAIT_S = 3600
       # Consecutive failed `gh` polls tolerated before the observer gives up
       # with an "error" terminal state. A single network blip / rate limit /
       # stderr noise in the gh output must NOT drop the wait line while the
