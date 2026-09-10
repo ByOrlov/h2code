@@ -474,8 +474,10 @@ module H2code
       Tools::Bash.shell = config.shell
       # Windows: advertise the configured bash location to the model. cmd.exe
       # always executes commands; this only tells the model where bash is so
-      # it can invoke it explicitly for POSIX-only tasks.
-      Tools::Tool::SHELL_PORT.bash_path = config.bash_available
+      # it can invoke it explicitly for POSIX-only tasks. bash_path is a
+      # class-level setting (inert on Unix) — set it on ShellPort, not on
+      # the SHELL_PORT instance.
+      H2code::ShellPort.bash_path = config.bash_available
       tools.register(bash_tool)
 
       goal_service = H2code::Tools::AgentGoalService.new
@@ -1395,7 +1397,10 @@ module H2code
         exit(0)
       end
 
-      app.session_id = store.meta_id? || ""
+      # read_state covers the v2 layout (state.json); meta_id? is the
+      # legacy flat-layout fallback. meta.json alone misses fresh v2
+      # sessions, which left the welcome box showing "new" all session.
+      app.session_id = store.read_state.try(&.id) || store.meta_id? || ""
 
       # Plugin session-start: inject skill text into context on the first
       # turn of a new or resumed session (mirrors TS PluginSessionStartInjector).
