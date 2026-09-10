@@ -147,6 +147,8 @@ require "./tui/text"
 require "./tui/spinner"
 require "./tui/agent_status"
 require "./tui/editor"
+require "./tui/image_paste_port"
+require "./tui/media_attachment_store"
 require "./tui/markdown"
 require "./tui/fuzzy"
 require "./tui/select_list"
@@ -1578,7 +1580,7 @@ module H2code
         end
       end
 
-      app.run(initial_prompt: initial_prompt) do |prompt_text, persisted|
+      app.run(initial_prompt: initial_prompt) do |prompt_text, persisted, parts|
         store.append_simple("turn.prompt", "prompt", prompt_text) unless persisted
 
         # tool_call_id → tool_name, populated by tool_call_start and consumed
@@ -1587,7 +1589,7 @@ module H2code
         pending_tool_names = {} of String => String
 
         begin
-          agent.run_goal_turn(prompt_text, system_prompt) do |event|
+          agent.run_goal_turn(prompt_text, system_prompt, parts: parts) do |event|
             case event.type
             when .text_delta?
               app.on_event(Loop::Event.text_delta(event.text))

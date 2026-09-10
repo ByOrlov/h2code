@@ -5,22 +5,29 @@ module H2code
         text = text.strip
         return if text.empty?
 
+        # Resolve pasted media placeholders into content parts (nil for a
+        # plain-text message). The text with placeholders keeps serving the
+        # transcript and persistence; the parts ride alongside to the model.
+        parts, _matched = @media_store.extract_parts(text)
+
         # Gate mirrors the TS three-flag rule: defer the message (queue it)
         # when a turn is running, compaction is in flight, or a meta-command
         # asked us to defer. Idle + nothing-deferred → send immediately.
         if @agent_busy || @is_compacting || @defer_user_messages
-          enqueue_message(text)
+          enqueue_message(text, parts: parts)
           return
         end
 
-        start_turn(text)
+        start_turn(text, parts: parts)
       end
 
       # Append a message to the queue and persist it so drain survives a
       # resume. The hint shown in the queue pane depends on the current
       # phase (see `queue_hint`).
-      private def enqueue_message(text : String, mode : String = "prompt", *, persist : Bool = true) : Nil
-        @queue << QueuedMessage.new(text, mode)
+      private def enqueue_message(text : String, mode : String = "prompt", *,
+                                  persist : Bool = true,
+                                  parts : Array(LLM::ContentPart)? = nil) : Nil
+        @queue << QueuedMessage.new(text, mode, parts)
         @on_persist_queued.try(&.call("turn.prompt", text)) if persist
         emit_to_log(Message.new("system", "[Queued: #{truncate_preview(text)}]"))
         invalidate_log_cache!
@@ -36,7 +43,8 @@ module H2code
       # `persisted` is false when the message was already written to the wire
       # log (e.g. it sat in the queue and `enqueue_message` persisted it); the
       # drain path sets it to avoid a duplicate `turn.prompt` record.
-      private def start_turn(text : String, persisted : Bool = false) : Nil
+      private def start_turn(text : String, persisted : Bool = false,
+                             parts : Array(LLM::ContentPart)? = nil) : Nil
         emit_to_log(Message.new("user", text))
         # The welcome box is part of the Log zone history; do NOT hide it when
         # the first user message arrives. Removing it shrinks the log and
@@ -56,7 +64,7 @@ module H2code
         cb = @run_turn_cb || raise "run_turn_cb not initialized"
         spawn do
           begin
-            cb.call(text, persisted)
+            cb.call(text, persisted, parts)
           rescue ex : Exception
             # The turn fiber died before emitting TurnEnd (e.g. a store
             # append failed before the agent loop's begin/ensure). Without
@@ -86,7 +94,7 @@ module H2code
         spawn do
           @dispatch_pending = false
           # Already persisted when enqueued — skip the duplicate write.
-          start_turn(next_msg.text, persisted: true)
+          start_turn(next_msg.text, persisted: true, parts: next_msg.parts)
         end
       end
 

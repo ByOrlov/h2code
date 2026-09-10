@@ -143,11 +143,21 @@ module H2code
 
         print ANSI.hide_cursor
         print "\e[?2004h" # Enable bracketed paste mode
+        # Push the kitty keyboard protocol (flags 7: disambiguate escape
+        # codes + report event types + report alternate keys). Terminals
+        # that support it — Alacritty, kitty, Ghostty, WezTerm — then
+        # deliver keys like Ctrl+V to the application instead of applying
+        # their own default bindings (Alacritty's Ctrl+V is terminal
+        # paste: with an image-only clipboard that sends NOTHING to the
+        # app, which is exactly the "Ctrl+V does nothing" failure mode).
+        # Unsupported terminals ignore the sequence. Popped in restore!.
+        print "\e[>7u"
       end
 
       def restore! : Nil
         return unless @raw
 
+        print "\e[<u"     # Pop the kitty keyboard protocol stack
         print "\e[?2004l" # Disable bracketed paste mode
         print ANSI.show_cursor
         print "\r\n"

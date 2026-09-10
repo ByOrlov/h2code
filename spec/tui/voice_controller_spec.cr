@@ -123,7 +123,7 @@ describe H2code::TUI::App do
         enabled: true, socket: mock.socket_path, engine: "auto", language: "ru")
       app.app_config = config
       submitted = [] of String
-      app.run_turn_cb = ->(text : String, _persisted : Bool) do
+      app.run_turn_cb = ->(text : String, _persisted : Bool, _parts : Array(H2code::LLM::ContentPart)?) do
         submitted << text
         nil
       end
@@ -179,7 +179,7 @@ describe H2code::TUI::App do
         enabled: true, socket: mock.socket_path, engine: "auto", language: "ru")
       app.app_config = config
       submitted = [] of String
-      app.run_turn_cb = ->(text : String, _persisted : Bool) do
+      app.run_turn_cb = ->(text : String, _persisted : Bool, _parts : Array(H2code::LLM::ContentPart)?) do
         submitted << text
         nil
       end
@@ -221,7 +221,7 @@ describe H2code::TUI::App do
       config.transcription = H2code::Config::TranscriptionConfig.new(
         enabled: true, socket: mock.socket_path, engine: "auto", language: "ru")
       app.app_config = config
-      app.run_turn_cb = ->(_text : String, _persisted : Bool) { nil }
+      app.run_turn_cb = ->(_text : String, _persisted : Bool, _parts : Array(H2code::LLM::ContentPart)?) { nil }
 
       # Simulate a busy agent: the transcription must land in the queue.
       # compaction_started flips @is_compacting + @defer_user_messages — the
