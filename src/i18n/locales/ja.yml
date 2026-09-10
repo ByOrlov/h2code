@@ -123,6 +123,7 @@ ja:
     cleanup: "古いセッションと音声メッセージを削除"
     github: "CIステータス用のGitHubトークンを設定"
     gitlab: "CIステータス用のGitLabトークンを設定"
+    ci: "コミットのCIを手動で監視"
     bash: "シェルとbashの状態を表示"
   help:
     title: "ヘルプ"
@@ -305,6 +306,11 @@ ja:
     telemetry_off_label: "オフ"
     telemetry_status: "テレメトリ: %{state}\n追跡カウンター:\n%{counters}"
     telemetry_usage: "使い方: /telemetry on|off"
+    # /ci — manual CI observer start
+    ci_unavailable: "CIオブザーバーはこのセッションでは利用できません。"
+    ci_not_eligible: "このリポジトリはCI観測の対象外です（.github/workflows を持つ GitHub リモート、または .gitlab-ci.yml を持つ GitLab リモートが必要です）。"
+    ci_bad_commit: "このリポジトリのコミットではありません: %{ref}"
+    ci_started: "%{sha} のCIを監視しています — ビルド終了時に結果を報告します。"
     # /github — GitHubトークン セットアップウィザード (CI監視用の config github.token)
     usage_github: "使い方: /github [status|token [clear]]"
     github_token_set: "GitHubトークン: 設定済み (%{masked})"

@@ -123,6 +123,7 @@ uk:
     cleanup: "Видалити старі сесії та голосові повідомлення"
     github: "Налаштування GitHub-токена для статусу CI"
     gitlab: "Налаштування GitLab-токена для статусу CI"
+    ci: "Вручну спостерігати CI для коміту"
     bash: "Статус оболонки та bash"
   help:
     title: "довідка"
@@ -305,6 +306,11 @@ uk:
     telemetry_off_label: "вимк"
     telemetry_status: "Телеметрія: %{state}\nВідстежувані лічильники:\n%{counters}"
     telemetry_usage: "Використання: /telemetry on|off"
+    # /ci — manual CI observer start
+    ci_unavailable: "Спостерігач CI недоступний у цій сесії."
+    ci_not_eligible: "Цей репозиторій не підходить для спостереження CI (потрібен віддалений репозиторій GitHub з .github/workflows або GitLab з .gitlab-ci.yml)."
+    ci_bad_commit: "Не є комітом цього репозиторію: %{ref}"
+    ci_started: "Спостерігаю за CI %{sha} — результат буде повідомлено після завершення збірки."
     # /github — майстер налаштування GitHub-токена (config github.token для спостереження за CI)
     usage_github: "Використання: /github [status|token [clear]]"
     github_token_set: "GitHub-токен: заданий (%{masked})"

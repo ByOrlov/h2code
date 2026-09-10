@@ -123,6 +123,7 @@ fa:
     cleanup: "حذف جلسات و پیام‌های صوتی قدیمی"
     github: "پیکربندی توکن گیت‌هاب برای وضعیت CI"
     gitlab: "پیکربندی توکن گیت‌لب برای وضعیت CI"
+    ci: "مشاهده دستی CI برای یک کامیت"
     bash: "نمایش وضعیت پوسته و bash"
   help:
     title: "راهنما"
@@ -305,6 +306,11 @@ fa:
     telemetry_off_label: "خاموش"
     telemetry_status: "تله‌متری: %{state}\nشمارنده‌های ردیابی شده:\n%{counters}"
     telemetry_usage: "استفاده: /telemetry on|off"
+    # /ci — manual CI observer start
+    ci_unavailable: "ناظر CI در این نشست در دسترس نیست."
+    ci_not_eligible: "این مخزن برای مشاهده CI واجد شرایط نیست (یک ریموت GitHub با .github/workflows، یا یک ریموت GitLab با .gitlab-ci.yml لازم است)."
+    ci_bad_commit: "یک کامیت از این مخزن نیست: %{ref}"
+    ci_started: "در حال مشاهده CI برای %{sha} — نتیجه پس از پایان ساخت گزارش می‌شود."
     # /github — راه‌اندازی توکن گیت‌هاب (config github.token برای مشاهده CI)
     usage_github: "روش استفاده: /github [status|token [clear]]"
     github_token_set: "توکن گیت‌هاب: تنظیم شده (%{masked})"

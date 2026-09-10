@@ -36,7 +36,12 @@ session cwd. Observation starts only when all of these hold:
   the same gate to its default HEAD path.
 
 No separate commit tool is needed — the observer piggybacks on every push,
-exactly like sudo detection piggybacks on every elevated command.
+exactly like sudo detection piggybacks on every elevated command. A manual
+start is also available: the `/ci [<commit>]` slash command (`cmd_ci` in
+`src/tui/command_controller.cr`) resolves the argument through
+`git rev-parse <commit>^{commit}` (short SHA, branch and tag all work; no
+argument observes HEAD) and calls `Ci.service.observe` — same eligibility
+gate as pushes, and from there the exact same wait-line / notification flow.
 
 ### CI observer (`src/tools/ci.cr`)
 
@@ -139,14 +144,20 @@ reflog and config outright, unlike a linked worktree which shares all of that
 with the main repository. Destructive commands run inside the sandbox
 (`git branch -D`, `git update-ref`, `git gc --prune=now`, ...) cannot poison
 the original repository or its other branches — the isolation is structural,
-at the filesystem level (no shared inodes). The clone's origin remote points
-at the original repo so `/merge` can resolve it.
+at the filesystem level (no shared inodes). The clone keeps the local source
+repo on the `h2code-main` remote so `/merge` can resolve it, while `origin`
+inherits the source repo's own remote URL (GitHub/GitLab) — so CI observation
+(which keys off `git remote get-url origin`) and pushes to the shared remote
+work in the sandbox exactly like in the original checkout. Sources without a
+remote of their own keep the legacy layout (`origin` = local source path;
+`main_repo` falls back to it).
 
 ### Write confinement (tool level)
 
 Beyond the structural isolation, the tools themselves refuse to touch the
 original repository from a fork session (`H2code::Sandbox`, `src/sandbox.cr`).
-The sandbox's origin is resolved once per work dir (cached) and then:
+The sandbox's local source repo is resolved once per work dir (cached) and
+then:
 
 - `Write` / `Edit` / `ApplyPatch` (via `PathAccess` Mode::Write) reject any
   target inside the original repo — lexically and through a realpath pass, so
@@ -195,8 +206,8 @@ change. Detached HEAD or a non-git cwd is reported and aborts the fork.
 ### `/merge`
 
 Injects a synthetic user prompt telling the agent to fold the sandbox
-branch back into the original repository (resolved via the clone's origin
-URL) using Bash with an explicit `cwd`:
+branch back into the original repository (resolved via the clone's
+`h2code-main` remote) using Bash with an explicit `cwd`:
 
 1. `git fetch <sandbox> +<branch>:<branch>` — the branch lives only in
    the clone, so it is brought over first;

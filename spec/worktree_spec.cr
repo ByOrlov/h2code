@@ -126,6 +126,34 @@ module H2code
         end
       end
 
+      it "inherits the source repo's origin and keeps the local source on the local remote" do
+        with_git_repo do |repo, home|
+          wt_git(repo, "remote", "add", "origin", "https://github.com/example/repo.git")
+          dest = Worktree.create(repo, "sess11", home).path.not_nil!
+
+          # origin carries the source's own remote URL, so CI observation
+          # (git remote get-url origin) and pushes to the shared remote
+          # work in the sandbox like in the original checkout. (Compared
+          # via the source's own get-url — git's insteadOf rewriting may
+          # rewrite the literal URL.)
+          wt_git(dest, "remote", "get-url", "origin").should eq(
+            wt_git(repo, "remote", "get-url", "origin"))
+
+          # The local source repo stays reachable via the local remote for
+          # /merge, list/clean/gc and the sandbox write guard.
+          wt_git(dest, "remote", "get-url", "h2code-main").should eq(
+            File.expand_path(repo))
+          Worktree.main_repo(dest).should eq(File.expand_path(repo))
+
+          infos = Worktree.list(home)
+          infos.size.should eq(1)
+          infos[0].main_repo.should eq(File.expand_path(repo))
+
+          wt_git_ok?(dest, "push", "h2code-main", "h2code-sess11").should be_true
+          wt_git_ok?(repo, "rev-parse", "--verify", "h2code-sess11").should be_true
+        end
+      end
+
       it "refuses to fork a detached HEAD" do
         with_git_repo do |repo, home|
           wt_git(repo, "checkout", "--detach")

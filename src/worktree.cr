@@ -14,9 +14,15 @@ module H2code
   # A standalone clone (unlike a linked worktree) owns its object database,
   # refs, reflog and config outright, so destructive commands run inside the
   # sandbox (`git branch -D`, `git update-ref`, `git gc --prune=now`, ...)
-  # cannot poison the original repository or its other branches. The origin
-  # remote (fetch and push alike) points at the original repo, so `/merge`
-  # can find it and `git push` of the session branch works from the sandbox.
+  # cannot poison the original repository or its other branches. The local
+  # source repository is reachable through the `h2code-main` remote, so
+  # `/merge` can find it and `git push` of the session branch to it works
+  # from the sandbox. `origin` is inherited from the source repo (e.g.
+  # git@github.com:owner/repo.git), so CI observation (which keys off
+  # `git remote get-url origin`) and pushes to the shared remote work in
+  # the sandbox exactly like in the original checkout. Sources without a
+  # remote of their own keep the legacy layout: `origin` is the local
+  # source path, and `main_repo` falls back to it.
   #
   # `/merge` asks the agent to fetch the branch from the sandbox into the
   # original repository and merge it; on success the sandbox and the branch
@@ -25,6 +31,13 @@ module H2code
   # file) created by older versions are still listed, merged and cleaned up.
   module Worktree
     BRANCH_PREFIX = "h2code-"
+
+    # Remote that keeps pointing at the local source repository in fork
+    # sandboxes, so `/merge`, list/clean/gc and the sandbox write guard
+    # always resolve a local checkout (never a network URL) — see
+    # `main_repo`. `origin` itself carries the source repo's own remote
+    # URL (GitHub/GitLab) for CI observation and pushes.
+    LOCAL_ORIGIN = "h2code-main"
 
     # A `/merge` in flight: which worktree/branch to fold back and where.
     # Checked by the TUI when the merge turn ends.
@@ -128,17 +141,22 @@ module H2code
       git_repo?(expanded)
     end
 
-    # The main repository a fork sandbox belongs to. For a standalone clone
-    # that is the origin remote's fetch URL (set to the source repo at clone
-    # time); for a legacy linked worktree it is the parent of the shared
-    # `.git`. Returns nil when not resolvable.
+    # The main repository a fork sandbox belongs to: the local source remote
+    # (`h2code-main`, set at clone time when the source repo has its own
+    # origin), falling back to `origin` for legacy sandboxes whose origin
+    # still is the local source path. Never the network URL — callers run
+    # git against a local checkout (merge checks, branch deletion, the
+    # sandbox write guard). For a legacy linked worktree it is the parent
+    # of the shared `.git`. Returns nil when not resolvable.
     def self.main_repo(dir : String) : String?
       if File.directory?(File.join(dir, ".git"))
-        res = git(dir, "remote", "get-url", "origin")
-        return nil unless res[:code] == 0
-        url = res[:out].strip
-        return nil if url.empty?
-        return url
+        {LOCAL_ORIGIN, "origin"}.each do |remote|
+          res = git(dir, "remote", "get-url", remote)
+          next unless res[:code] == 0
+          url = res[:out].strip
+          return url unless url.empty?
+        end
+        nil
       end
       res = git(dir, "rev-parse", "--git-common-dir")
       return nil unless res[:code] == 0
@@ -201,13 +219,31 @@ module H2code
       Dir.mkdir_p(File.dirname(dest))
 
       # --no-hardlinks: full object copy, not a single shared inode with the
-      # original `.git` — the structural poisoning boundary.
-      res = git(cwd, "clone", "--no-hardlinks", cwd, dest)
+      # original `.git` — the structural poisoning boundary. When the source
+      # repo has its own origin, the local source remote is renamed to
+      # `h2code-main` at clone time and `origin` is re-pointed at the
+      # source's remote URL below — CI observation and pushes to the shared
+      # remote work in the sandbox like in the original checkout.
+      source_origin = origin_url(cwd)
+      if source_origin
+        res = git(cwd, "clone", "--no-hardlinks", "--origin", LOCAL_ORIGIN, cwd, dest)
+      else
+        res = git(cwd, "clone", "--no-hardlinks", cwd, dest)
+      end
       if res[:code] != 0
         FileUtils.rm_r(dest) if File.exists?(dest)
         message = res[:err].strip
         message = "git clone failed" if message.empty?
         return CreateResult.failure(message)
+      end
+      if url = source_origin
+        res = git(dest, "remote", "add", "origin", url)
+        if res[:code] != 0
+          FileUtils.rm_r(dest)
+          message = res[:err].strip
+          message = "git remote add origin failed" if message.empty?
+          return CreateResult.failure(message)
+        end
       end
       # The clone checked out the source's current branch at its HEAD; fork
       # the session branch off that tip (exists only inside the clone).
@@ -218,9 +254,20 @@ module H2code
         message = "git checkout -b failed" if message.empty?
         return CreateResult.failure(message)
       end
-      # The clone's origin (fetch and push) points at the source repo, so a
-      # `git push` of the session branch from the sandbox works out of the box.
+      # The local source remote (fetch and push) points at the source repo,
+      # so a `git push` of the session branch to it works out of the box;
+      # `origin` carries the source's own remote URL for CI observation and
+      # pushes to the shared remote.
       CreateResult.success(dest, branch)
+    end
+
+    # Fetch URL of the source repo's own origin remote, or nil when it has
+    # none (a pure-local repository).
+    private def self.origin_url(dir : String) : String?
+      res = git(dir, "remote", "get-url", "origin")
+      return nil unless res[:code] == 0
+      url = res[:out].strip
+      url.empty? ? nil : url
     end
 
     # Remove a fork sandbox and delete its (fully merged) branch from the

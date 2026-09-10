@@ -123,6 +123,7 @@ hi:
     cleanup: "पुराने सत्र और वॉइस संदेश हटाएं"
     github: "CI स्थिति के लिए GitHub टोकन कॉन्फ़िगर करें"
     gitlab: "CI स्थिति के लिए GitLab टोकन कॉन्फ़िगर करें"
+    ci: "किसी कमिट के CI को मैन्युअली देखें"
     bash: "शेल और bash की स्थिति दिखाएँ"
   help:
     title: "सहायता"
@@ -305,6 +306,11 @@ hi:
     telemetry_off_label: "बंद"
     telemetry_status: "टेलीमेट्री: %{state}\nट्रैक किए गए काउंटर:\n%{counters}"
     telemetry_usage: "उपयोग: /telemetry on|off"
+    # /ci — manual CI observer start
+    ci_unavailable: "CI प्रेक्षक इस सत्र में उपलब्ध नहीं है।"
+    ci_not_eligible: "यह रिपॉज़िटरी CI निगरानी के लिए पात्र नहीं है (.github/workflows वाला GitHub रिमोट, या .gitlab-ci.yml वाला GitLab रिमोट आवश्यक है)।"
+    ci_bad_commit: "यह इस रिपॉज़िटरी का कमिट नहीं है: %{ref}"
+    ci_started: "%{sha} का CI देखा जा रहा है — बिल्ड समाप्त होने पर परिणाम रिपोर्ट किया जाएगा।"
     # /github — GitHub टोकन सेटअप विज़ार्ड (CI निगरानी के लिए config github.token)
     usage_github: "उपयोग: /github [status|token [clear]]"
     github_token_set: "GitHub टोकन: सेट है (%{masked})"

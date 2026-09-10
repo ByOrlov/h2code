@@ -84,6 +84,7 @@ module H2code
         CommandInfo.new("/voicelang", "Default voice message language", "ru|en|…|auto", "voicelang"),
         CommandInfo.new("/upgrade", "Update h2code to the latest release", description_key: "upgrade"),
         CommandInfo.new("/cleanup", "Delete old sessions and voice messages", "[week|month|6months|year]", "cleanup"),
+        CommandInfo.new("/ci", "Manually watch CI for a commit", "[<commit>]", "ci"),
         CommandInfo.new("/github", "Configure the GitHub token for CI status", "[status|token [clear]]", "github"),
         CommandInfo.new("/gitlab", "Configure the GitLab token for CI status", "[status|token [clear]]", "gitlab"),
       ]
