@@ -501,6 +501,9 @@ module H2code
 
       agent = Loop::Agent.new(provider, memory, tools, permission)
       agent.debug = config.debug?
+      # Persist the per-model text-only mark when the agent intercepts the
+      # "content.type is invalid, allowed values: ['text']" 400.
+      agent.on_text_only_detected = ->(model : String) { config.mark_text_only_model!(model) }
       merged_hooks = config.hooks + plugin_hooks
       agent.hooks = Hooks::Engine.new(merged_hooks, cwd: work_dir, session_id: store.meta_id?) unless merged_hooks.empty?
 
@@ -597,6 +600,9 @@ module H2code
       provider.max_context_tokens = config.max_context_tokens
       provider.prompt_cache_key = cache_key
       provider.debug = config.debug?
+      # Per-model text-only mark (persisted in [model] text_only_models):
+      # media blocks are stripped from history before sending.
+      provider.text_only = config.text_only_model?(provider.model_name)
     end
 
     # Build the WebSearch service for the current session. Explicit

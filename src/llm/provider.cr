@@ -41,6 +41,14 @@ module H2code
                         aborted? : -> Bool = -> { false },
                         &block : MessagePart ->) : StepResult
 
+      # Whether the active model accepts only `{"type":"text"}` content
+      # parts. When true, the transport strips image/audio/video blocks
+      # from the message history before sending — text-only endpoints
+      # (e.g. GLM coding-plan models) reject them with HTTP 400. Set from
+      # the config's per-model `text_only_models` mark, or flipped
+      # automatically by the agent loop when the endpoint rejects media.
+      property? text_only : Bool = false
+
       # Runtime request-config hooks. The base Provider no-ops them so the
       # agent loop can call them uniformly on any backend; OpenAIChatProvider
       # overrides to fold them into the request body (prompt-cache key, thinking

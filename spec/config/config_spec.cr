@@ -454,6 +454,67 @@ describe H2code::Config::Config do
       end
     end
   end
+
+  describe "text_only_models" do
+    it "parses the per-model marks from the model section" do
+      config = H2code::Config::Config.parse_json(
+        %({"model": {"text_only_models": ["glm-5.2", "some-text-model"]}}))
+      config.text_only_models.should eq(["glm-5.2", "some-text-model"])
+      config.text_only_model?("glm-5.2").should be_true
+      config.text_only_model?("kimi-for-coding").should be_false
+      config.text_only_model?(nil).should be_false
+      config.text_only_model?("").should be_false
+    end
+
+    it "defaults to an empty list" do
+      H2code::Config::Config.new.text_only_models.should eq([] of String)
+    end
+
+    it "round-trips through save" do
+      config = H2code::Config::Config.new
+      config.text_only_models = ["glm-5.2"]
+
+      path = File.join(Dir.tempdir, "h2code-config-test-#{Random::Secure.hex(8)}.json")
+      begin
+        config.save(path)
+        reloaded = H2code::Config::Config.parse_json(File.read(path))
+        reloaded.text_only_models.should eq(["glm-5.2"])
+      ensure
+        File.delete(path) rescue nil
+      end
+    end
+
+    it "mark_text_only_model! adds the model and persists it" do
+      config = H2code::Config::Config.new
+      config.text_only_models.should be_empty
+
+      # mark_text_only_model! saves to the default path — point HOME-derived
+      # h2code home at a temp dir so the test never touches the real config.
+      tmp_home = File.join(Dir.tempdir, "h2code-home-#{Random::Secure.hex(8)}")
+      Dir.mkdir_p(tmp_home)
+      old_home = ENV["H2CODE_HOME"]?
+      ENV["H2CODE_HOME"] = tmp_home
+      begin
+        config.mark_text_only_model!("glm-5.2")
+        config.text_only_model?("glm-5.2").should be_true
+
+        reloaded = H2code::Config::Config.parse_json(
+          File.read(File.join(tmp_home, "config.json")))
+        reloaded.text_only_models.should eq(["glm-5.2"])
+
+        # Marking the same model twice must not duplicate it.
+        config.mark_text_only_model!("glm-5.2")
+        config.text_only_models.should eq(["glm-5.2"])
+      ensure
+        if old_home
+          ENV["H2CODE_HOME"] = old_home
+        else
+          ENV.delete("H2CODE_HOME")
+        end
+        FileUtils.rm_rf(tmp_home)
+      end
+    end
+  end
 end
 
 describe "H2code.build_named_provider with nil" do

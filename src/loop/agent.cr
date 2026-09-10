@@ -17,6 +17,11 @@ module H2code
       property abort_controller : AbortController = AbortController.new
       property hooks : Hooks::Engine?
       property? debug : Bool = false
+      # Fired when the endpoint rejects media content with the text-only
+      # 400 ("messages.content.type is invalid, allowed values: ['text']").
+      # Receives the model name so the host can persist the per-model
+      # text-only mark in the user's config. Wired in CLI.run / ACP server.
+      property on_text_only_detected : Proc(String, Nil)? = nil
 
       @overflow_recovery : Context::Overflow::Recovery = Context::Overflow::Recovery.new
       @max_steps : Int32 = 150
@@ -370,6 +375,20 @@ module H2code
             # If the user cancelled (incl. mid-connection), surface that and
             # never retry the partial/aborted request.
             @abort_controller.throw_if_aborted!
+
+            # Text-only endpoint rejected the media blocks in history with a
+            # 400. Intercept it: mark the model text-only (persisted via the
+            # host callback so future sessions skip media too), enable
+            # stripping on the provider, and retry immediately. Only fires
+            # once — after the flag is set the history is already clean, so
+            # a repeat of this error falls through to fail-fast below.
+            if ex.is_a?(LLM::ApiError) && ex.text_only_rejection? && !@provider.text_only?
+              @provider.text_only = true
+              @on_text_only_detected.try(&.call(@provider.model_name))
+              on_event.call(Event.info(
+                "Model #{@provider.model_name} accepts text only — media removed from history."))
+              next
+            end
 
             # 413 (request too large) has its own recovery path: degrade →
             # strip → compact. It is non-retryable by the generic backoff,

@@ -653,3 +653,82 @@ describe "OpenAIChatProvider request shaping" do
     json.as_h.has_key?("parallel_tool_calls").should be_false
   end
 end
+
+describe "Message#without_media" do
+  it "strips image parts from a mixed text + image message" do
+    parts = [
+      H2code::LLM::TextContent.new("here is a screenshot"),
+      H2code::LLM::ImageContent.new(H2code::LLM::ImageRef.new("data:image/png;base64,AAAA")),
+    ] of H2code::LLM::ContentPart
+    msg = H2code::LLM::Message.user(parts).without_media
+
+    msg.content.size.should eq(1)
+    msg.content.first.should be_a(H2code::LLM::TextContent)
+    msg.text.should eq("here is a screenshot")
+  end
+
+  it "keeps audio and video out too" do
+    parts = [
+      H2code::LLM::TextContent.new("t"),
+      H2code::LLM::AudioContent.new(H2code::LLM::AudioRef.new("data:audio/wav;base64,AAAA")),
+      H2code::LLM::VideoContent.new(H2code::LLM::VideoRef.new("data:video/mp4;base64,AAAA")),
+    ] of H2code::LLM::ContentPart
+    msg = H2code::LLM::Message.user(parts).without_media
+
+    msg.content.size.should eq(1)
+    msg.content.first.should be_a(H2code::LLM::TextContent)
+  end
+
+  it "inserts a placeholder when the message was media-only" do
+    parts = [H2code::LLM::ImageContent.new(H2code::LLM::ImageRef.new("data:image/png;base64,AAAA"))] of H2code::LLM::ContentPart
+    msg = H2code::LLM::Message.user(parts).without_media
+
+    msg.content.size.should eq(1)
+    msg.content.first.should be_a(H2code::LLM::TextContent)
+    msg.text.should contain("only accepts text")
+  end
+
+  it "keeps think parts and preserves tool metadata" do
+    parts = [
+      H2code::LLM::TextContent.new("look"),
+      H2code::LLM::ImageContent.new(H2code::LLM::ImageRef.new("data:image/png;base64,AAAA")),
+      H2code::LLM::ThinkContent.new("hmm"),
+    ] of H2code::LLM::ContentPart
+    original = H2code::LLM::Message.tool_parts(parts, "call-1")
+    msg = original.without_media
+
+    msg.tool_call_id.should eq("call-1")
+    msg.content.size.should eq(2)
+    msg.thinking.should eq("hmm")
+    # The original message is untouched (struct copy, not in-place edit).
+    original.content.size.should eq(3)
+  end
+
+  it "returns self when there is no media" do
+    msg = H2code::LLM::Message.user("plain")
+    msg.without_media.text.should eq("plain")
+  end
+end
+
+describe "ApiError#text_only_rejection?" do
+  it "matches the GLM text-only content-type 400" do
+    ex = H2code::LLM::ApiError.new(400,
+      "Chat API error 400: messages.content.type is invalid, allowed values: ['text']",
+      false)
+    ex.text_only_rejection?.should be_true
+  end
+
+  it "does not match endpoints that accept text plus images" do
+    ex = H2code::LLM::ApiError.new(400,
+      "Chat API error 400: messages.content.type is invalid, allowed values: ['text', 'image_url']",
+      false)
+    ex.text_only_rejection?.should be_false
+  end
+
+  it "does not match other 400s or retryable statuses" do
+    H2code::LLM::ApiError.new(400, "Chat API error 400: invalid tool definition", false)
+      .text_only_rejection?.should be_false
+    H2code::LLM::ApiError.new(500, "messages.content.type is invalid, allowed values: ['text']", true)
+      .text_only_rejection?.should be_false
+  end
+end

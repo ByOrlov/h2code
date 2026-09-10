@@ -170,5 +170,44 @@ describe H2code::LLM::OpenAIChatProvider do
       last.to_s.should contain("/models")
       (transport.last_headers || raise "last_headers should not be nil")["Authorization"].should eq("Bearer test-key")
     end
+
+    it "strips media content parts from the request when text_only is set" do
+      transport = H2code::MockHttpTransport.new
+      transport.mode = H2code::MockHttpTransport::Mode::NormalStream
+      transport.stream_lines = [sse_text_chunk("ok", "end_turn")]
+
+      provider = TestProvider.new("m", "http://localhost", transport: transport)
+      provider.text_only = true
+
+      media_parts = [
+        H2code::LLM::TextContent.new("look at this"),
+        H2code::LLM::ImageContent.new(H2code::LLM::ImageRef.new("data:image/png;base64,AAAA")),
+      ] of H2code::LLM::ContentPart
+
+      json = JSON.parse(provider.build_request(
+        [H2code::LLM::Message.user(media_parts)], nil).to_json)
+      json["messages"][0]["content"].should eq("look at this")
+      json["messages"][0]["content"].to_s.should_not contain("image_url")
+
+      # Media-only message becomes a text placeholder, not an empty message.
+      image_only = [H2code::LLM::ImageContent.new(
+        H2code::LLM::ImageRef.new("data:image/png;base64,AAAA"))] of H2code::LLM::ContentPart
+      json2 = JSON.parse(provider.build_request(
+        [H2code::LLM::Message.user(image_only)], nil).to_json)
+      json2["messages"][0]["content"].to_s.should contain("only accepts text")
+    end
+
+    it "keeps media content parts when text_only is unset" do
+      provider = TestProvider.new("m", "http://localhost",
+        transport: H2code::MockHttpTransport.new)
+
+      media_parts = [
+        H2code::LLM::TextContent.new("look at this"),
+        H2code::LLM::ImageContent.new(H2code::LLM::ImageRef.new("data:image/png;base64,AAAA")),
+      ] of H2code::LLM::ContentPart
+
+      wire = provider.build_request([H2code::LLM::Message.user(media_parts)], nil).to_json
+      wire.should contain("image_url")
+    end
   end
 end

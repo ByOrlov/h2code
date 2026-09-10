@@ -535,6 +535,9 @@ module H2code
 
         # Build agent
         agent = Loop::Agent.new(provider, memory, tools, permission)
+        # Persist the per-model text-only mark when the agent intercepts the
+        # "content.type is invalid, allowed values: ['text']" 400.
+        agent.on_text_only_detected = ->(model : String) { @config.mark_text_only_model!(model) }
 
         # Build system prompt
         system_prompt = Prompt::SystemPrompt.build(cwd,
