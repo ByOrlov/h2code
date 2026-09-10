@@ -55,6 +55,29 @@ module H2code
     end
   end
 
+  # A tool that emits a media data-URL alongside its text result — the
+  # ReadMediaFile delivery shape. Verifies the batch assembles a multi-part
+  # tool message (text + native image content part) instead of inline base64.
+  class MediaTool < Tools::Tool
+    def name : String
+      "Media"
+    end
+
+    def description : String
+      "Returns a text result plus a media data-URL."
+    end
+
+    def parameters : JSON::Any
+      JSON.parse(%({"type":"object","properties":{}}))
+    end
+
+    def execute(input : JSON::Any) : Tools::ToolResult
+      result = Tools::ToolResult.success("<image path=\"img.png\">\n[media: image, image/png, 8 bytes]\n</image>")
+      result.media = ["data:image/png;base64,aVBOR"]
+      result
+    end
+  end
+
   module ToolBatchSpecHelper
     def self.make_registry(tools : Array(Tools::Tool)) : Tools::Registry
       registry = Tools::Registry.new
@@ -231,5 +254,33 @@ describe H2code::Loop::ToolBatch do
     end
     json.valid_encoding?.should be_true
     json.should contain("\"role\":\"tool\"")
+  end
+
+  it "delivers tool media as native image content parts" do
+    context = H2code::Context::Memory.new
+    batch = helper.make_batch([H2code::MediaTool.new], context: context)
+
+    results = batch.run([helper.tool_call("call_1", "Media")]) { |_| }
+
+    msg = results[0]
+    msg.role.should eq("tool")
+    msg.content.size.should eq(2)
+    msg.content[0].should be_a(H2code::LLM::TextContent)
+    img = msg.content[1].should be_a(H2code::LLM::ImageContent)
+    img.image_url.url.should eq("data:image/png;base64,aVBOR")
+    # Text stays clean — no base64 in the textual context.
+    msg.text.should_not contain("base64")
+
+    # The persisted context message carries the same parts.
+    persisted = context.messages.find! { |m| m.role == "tool" }
+    persisted.content[1].should be_a(H2code::LLM::ImageContent)
+
+    # Wire shape: role=tool with a content array containing an image_url part.
+    json = String.build do |io|
+      JSON.build(io) { |b| msg.to_wire_json(b) }
+    end
+    json.should contain("\"role\":\"tool\"")
+    json.should contain("\"type\":\"image_url\"")
+    json.should contain("data:image/png;base64,aVBOR")
   end
 end

@@ -141,6 +141,21 @@ module H2code
       # 1:1; think parts are never sent here (they are lifted to the
       # message-level `reasoning_content` field by `Message#to_wire_json`).
       abstract def to_wire_json(json : JSON::Builder) : Nil
+
+      # Map a data-URL (or remote URL) to the matching media ContentPart:
+      # `data:image/...` / any http(s) image URL → ImageContent,
+      # `data:video/...` → VideoContent, `data:audio/...` → AudioContent.
+      # Returns nil for non-media URLs.
+      def self.from_data_url(url : String) : ContentPart?
+        return nil unless url.starts_with?("data:")
+        if url.starts_with?("data:image/")
+          ImageContent.new(ImageRef.new(url))
+        elsif url.starts_with?("data:video/")
+          VideoContent.new(VideoRef.new(url))
+        elsif url.starts_with?("data:audio/")
+          AudioContent.new(AudioRef.new(url))
+        end
+      end
     end
 
     class TextContent < ContentPart
@@ -352,6 +367,24 @@ module H2code
 
       def self.tool(content : String, tool_call_id : String) : Message
         new("tool", content, nil, tool_call_id)
+      end
+
+      # Build a tool-role message from explicit content parts — the multi-part
+      # tool result shape (e.g. text + ImageContent media delivered by
+      # ReadMediaFile). Mirrors the JS ContentPart[] tool result output.
+      def self.tool_parts(parts : Array(ContentPart), tool_call_id : String) : Message
+        new("tool", parts, nil, tool_call_id)
+      end
+
+      # Build a tool-role message pairing a text result with media data-URLs:
+      # [TextContent(content)] + one media ContentPart per URL. Falls back to
+      # a plain text tool message when no URL maps to a media part.
+      def self.tool_with_media(content : String, media : Array(String), tool_call_id : String) : Message
+        media_parts = media.compact_map { |url| ContentPart.from_data_url(url) }
+        return tool(content, tool_call_id) if media_parts.empty?
+        parts = [TextContent.new(content)] of ContentPart
+        parts.concat(media_parts)
+        tool_parts(parts, tool_call_id)
       end
 
       # Concatenated text of all TextContent parts. Equivalent to the kosong

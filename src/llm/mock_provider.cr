@@ -386,9 +386,45 @@ module H2code
         ),
       ] of MockStep
 
+      # Image delivery demo: reads an image via ReadMediaFile, then answers.
+      # Exercises the multi-part tool result path — the image travels to the
+      # provider as a native image_url content part, not inline base64 text.
+      # The file defaults to logo.png; set H2CODE_MOCK_IMAGE to another path
+      # (the rake mock:image task generates a text-rendering PNG via
+      # ImageMagick so the demo is self-verifying). Use with:
+      #   H2CODE_PROVIDER=mock H2CODE_MOCK_SCRIPT=image
+      def self.image_demo_script : Array(MockStep)
+        img_path = ENV["H2CODE_MOCK_IMAGE"]? || "logo.png"
+        [
+          MockStep.new(
+            parts: [ToolCallPart.new("m_img_1", Tools::Names::READ_MEDIA_FILE, %({"path":"#{img_path}"}))] of MessagePart,
+            stop_reason: "tool_use",
+            part_delay_ms: 300,
+          ),
+          MockStep.new(
+            parts: [TextPart.new("I've read #{img_path} as a native image content part. The media payload rode in the tool result's media channel, so no base64 bloated the text context.")] of MessagePart,
+            stop_reason: "end_turn",
+            text: "I've read #{img_path} as a native image content part. The media payload rode in the tool result's media channel, so no base64 bloated the text context.",
+          ),
+        ] of MockStep
+      end
+
       property model : String
       property script : Array(MockStep)
       @step : Int32 = 0
+
+      # Clipboard paste demo: the user pastes an image with Ctrl+V (the
+      # clipboard is pointed at a file via H2CODE_CLIPBOARD_FILE, so the demo
+      # is deterministic), the placeholder lands in the editor, and this
+      # single-step script answers as if the image content part was received.
+      #   H2CODE_PROVIDER=mock H2CODE_MOCK_SCRIPT=imagepaste
+      IMAGEPASTE_DEMO_SCRIPT = [
+        MockStep.new(
+          parts: [TextPart.new("I can see the pasted image — it arrived as a native image_url content part in your message, no tool call needed. What would you like me to do with it?")] of MessagePart,
+          stop_reason: "end_turn",
+          text: "I can see the pasted image — it arrived as a native image_url content part in your message, no tool call needed. What would you like me to do with it?",
+        ),
+      ] of MockStep
 
       def initialize(@script : Array(MockStep) = DEFAULT_SCRIPT.dup, @model : String = DEFAULT_MODEL)
       end
@@ -405,6 +441,8 @@ module H2code
         when "sudo"            then SUDO_DEMO_SCRIPT.dup
         when "todos"           then TODOS_DEMO_SCRIPT.dup
         when "plan"            then PLAN_DEMO_SCRIPT.dup
+        when "image"           then image_demo_script
+        when "imagepaste"      then IMAGEPASTE_DEMO_SCRIPT.dup
         else                        nil
         end
       end
