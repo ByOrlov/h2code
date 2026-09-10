@@ -206,18 +206,21 @@ module H2code
       # live query instead of normal editor content.
       private def search_picker_active? : Bool
         (@model_list.visible? && @model_list.searchable?) ||
+          (@provider_list.visible? && @provider_list.searchable?) ||
           (@session_list.visible? && @session_list.searchable?)
       end
 
       # The query string driving the currently open searchable picker.
       private def current_search_query : String
         return @session_list.query if @session_list.visible? && @session_list.searchable?
+        return @provider_list.query if @provider_list.visible? && @provider_list.searchable?
         @model_list.query
       end
 
       # Placeholder shown in the input box while the query is empty.
       private def search_placeholder : String
         return H2code.t("ui.search_session") if @session_list.visible? && @session_list.searchable?
+        return H2code.t("ui.search_provider") if @provider_list.visible? && @provider_list.searchable?
         H2code.t("ui.search_model")
       end
 
@@ -499,11 +502,12 @@ module H2code
         "#{ANSI.color(@theme.colors.dim, nil)}#{left}#{" " * gap}#{right}#{ANSI.reset}"
       end
 
-      # Rotating keyboard / workflow hint shown in the footer when idle.
-      # Picked by wall-clock seconds so it cycles without per-render state.
+      # Provider selector panel. Filtered rows keep the provider description
+      # suffix (dimmed) after the fuzzy-highlighted name.
       private def render_provider_panel(cols : Int32) : Array(String)
         lines = [] of String
         lines << ""
+        searching = !@provider_list.query.empty?
         lines << "#{ANSI.color(@theme.colors.accent, nil)}#{ANSI.bold}  #{@provider_list.title}#{ANSI.reset}"
 
         start, count = @provider_list.visible_window
@@ -512,24 +516,27 @@ module H2code
         end
         count.times do |rel|
           i = start + rel
-          item = @provider_list.items[i]
+          item = @provider_list.item_at(i).to_s
+          positions = @provider_list.match_positions_at(i)
+          rendered = render_picker_item(item, positions, cols - 6,
+            i == @provider_list.selected)
           info = LLM::Provider.providers.find { |p| p.name == item }
           desc = info.try(&.description) || ""
           marker = item == @provider_name ? " (active)" : ""
-          line_text = "#{item.ljust(8)} #{desc}#{marker}"
-          line_text = CharWidth.truncate_to_width(line_text, cols - 6)
-          if i == @provider_list.selected
-            lines << "#{ANSI.color(@theme.colors.accent, nil)}#{ANSI.bold}  ▶ #{line_text}#{ANSI.reset}"
-          else
-            lines << "#{ANSI.color(@theme.colors.muted, nil)}    #{line_text}#{ANSI.reset}"
+          suffix = "#{desc}#{marker}"
+          avail = cols - 6 - visible_len(item) - 4
+          if !suffix.empty? && avail > 0
+            suffix = CharWidth.truncate_to_width(suffix, avail, "…")
+            rendered += "#{ANSI.color(@theme.colors.dim, nil)} #{suffix}#{ANSI.reset}"
           end
+          lines << rendered
         end
         if @provider_list.scrolled_down?
-          remaining = @provider_list.items.size - (start + count)
+          remaining = @provider_list.filtered_size - (start + count)
           lines << "#{ANSI.color(@theme.colors.dim, nil)}  ↓ #{remaining} more#{ANSI.reset}"
         end
 
-        lines << "#{ANSI.color(@theme.colors.dim, nil)}  [↑↓] navigate  [Enter] select  [Esc] cancel#{ANSI.reset}"
+        lines << "#{ANSI.color(@theme.colors.dim, nil)}  #{picker_hint(searching)}#{ANSI.reset}"
         lines
       end
 
@@ -569,13 +576,13 @@ module H2code
           status = H2code.t("ui.models_shown_all")
         end
         lines << "#{ANSI.color(@theme.colors.dim, nil)}  #{status}#{ANSI.reset}"
-        lines << "#{ANSI.color(@theme.colors.dim, nil)}  #{model_picker_hint(searching)}#{ANSI.reset}"
+        lines << "#{ANSI.color(@theme.colors.dim, nil)}  #{picker_hint(searching)}#{ANSI.reset}"
         lines
       end
 
       # Builds the key-hint line from translated action words. The bracketed
       # key symbols are universal; only the action text is localized.
-      private def model_picker_hint(searching : Bool) : String
+      private def picker_hint(searching : Bool) : String
         nav = "[↑↓] #{H2code.t("ui.picker_navigate")}"
         pick = "[Enter] #{H2code.t("ui.picker_select")}"
         cancel = "[Esc] #{H2code.t("ui.picker_cancel")}"

@@ -8,13 +8,33 @@ class ProviderSwitchApp < H2code::TUI::App
     open_provider_selector
   end
 
+  def provider_key(key : H2code::TUI::KeyEvent)
+    handle_provider_key(key)
+  end
+
   def provider_enter
     handle_provider_key(H2code::TUI::KeyEvent.new(H2code::TUI::Key::Enter))
+  end
+
+  def provider_escape
+    handle_provider_key(H2code::TUI::KeyEvent.new(H2code::TUI::Key::Escape))
+  end
+
+  def provider_type(text : String)
+    text.each_char { |c| provider_key(H2code::TUI::KeyEvent.char(c)) }
+  end
+
+  def provider_backspace
+    provider_key(H2code::TUI::KeyEvent.new(H2code::TUI::Key::Backspace))
   end
 
   def select_provider(name : String)
     list = @provider_list
     list.selected = list.items.index(name) || 0
+  end
+
+  def provider_list
+    @provider_list
   end
 
   def model_list
@@ -76,5 +96,40 @@ describe H2code::TUI::App do
     # Give the (absent) fetch fiber a chance to run before asserting.
     10.times { Fiber.yield }
     app.model_list.visible?.should be_false
+  end
+
+  it "fuzzy-filters the provider list as the user types" do
+    app = ProviderSwitchApp.new
+    app.open_provider
+    total = app.provider_list.items.size
+    total.should be > 1
+
+    app.provider_type("za")
+    app.provider_list.filtered_size.should be <= total
+    app.provider_list.current.to_s.should eq("zai")
+    # Backspace edits the query; Esc clears it first, then closes.
+    app.provider_backspace
+    app.provider_list.query.should eq("z")
+    app.provider_escape
+    app.provider_list.visible?.should be_true
+    app.provider_list.query.should be_empty
+    app.provider_escape
+    app.provider_list.visible?.should be_false
+  end
+
+  it "commits the filtered selection on Enter" do
+    app = ProviderSwitchApp.new
+    app.on_provider_configured = ->(_name : String) : Bool { true }
+    app.on_provider_change = ->(name : String) : Bool do
+      app.model = "kimi-k2"
+      true
+    end
+    app.on_fetch_models = -> : Array(String) { ["kimi-k2"] }
+
+    app.open_provider
+    app.provider_type("zai")
+    app.provider_list.filtered_size.should be >= 1
+    app.provider_enter
+    app.provider_name.should eq("zai")
   end
 end

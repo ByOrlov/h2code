@@ -171,6 +171,7 @@ zh:
     select_language: "选择语言"
     select_model: "选择模型 (%{name})"
     search_model: "搜索模型…"
+    search_provider: "搜索提供商…"
     search_session: "搜索会话…"
     picker_navigate: "导航"
     picker_search: "搜索"

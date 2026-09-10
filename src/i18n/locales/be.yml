@@ -171,6 +171,7 @@ be:
     select_language: "Выберыце мову"
     select_model: "Выберыце мадэль (%{name})"
     search_model: "Пошук мадэлі…"
+    search_provider: "Пошук правайдэра…"
     search_session: "Пошук па сесіях…"
     picker_navigate: "навігацыя"
     picker_search: "пошук"

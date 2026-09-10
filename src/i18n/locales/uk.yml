@@ -171,6 +171,7 @@ uk:
     select_language: "Виберіть мову"
     select_model: "Виберіть модель (%{name})"
     search_model: "Пошук моделі…"
+    search_provider: "Пошук провайдера…"
     search_session: "Пошук по сесіях…"
     picker_navigate: "навігація"
     picker_search: "пошук"
