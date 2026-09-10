@@ -1397,7 +1397,10 @@ module H2code
         exit(0)
       end
 
-      app.session_id = store.meta_id? || ""
+      # read_state covers the v2 layout (state.json); meta_id? is the
+      # legacy flat-layout fallback. meta.json alone misses fresh v2
+      # sessions, which left the welcome box showing "new" all session.
+      app.session_id = store.read_state.try(&.id) || store.meta_id? || ""
 
       # Plugin session-start: inject skill text into context on the first
       # turn of a new or resumed session (mirrors TS PluginSessionStartInjector).
