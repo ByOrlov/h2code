@@ -555,3 +555,59 @@ private class PromptCaptureProvider < H2code::LLM::Provider
     @inner.chat(messages, tools, system_prompt, aborted?) { |p| block.call(p) }
   end
 end
+
+# Provider that rejects the first request with the text-only content-type
+# 400 (as GLM coding-plan endpoints do when the history contains media),
+# then answers normally — lets the spec verify the agent loop's intercept:
+# mark the model text-only, fire the persistence callback, retry.
+private class TextOnlyRejectingProvider < H2code::LLM::Provider
+  property attempts : Int32 = 0
+
+  def name : String
+    "text-only-test"
+  end
+
+  def model_name : String
+    "glm-test"
+  end
+
+  def fetch_models : Array(String)
+    [] of String
+  end
+
+  def chat(messages : Array(H2code::LLM::Message), tools : Array(H2code::LLM::ToolDefinition)?,
+           system_prompt : String? = nil, aborted? : -> Bool = -> { false },
+           &block : H2code::LLM::MessagePart ->) : H2code::LLM::StepResult
+    @attempts += 1
+    if @attempts == 1
+      raise H2code::LLM::ApiError.new(400,
+        "Chat API error 400: messages.content.type is invalid, allowed values: ['text']",
+        retryable: false)
+    end
+    block.call(H2code::LLM::TextPart.new("ok"))
+    H2code::LLM::StepResult.new(stop_reason: "end_turn", text: "ok")
+  end
+end
+
+describe H2code::Loop::Agent do
+  it "intercepts the text-only 400: marks the model, retries with stripped history" do
+    provider = TextOnlyRejectingProvider.new
+    memory = H2code::Context::Memory.new
+    tools = H2code::Tools::Registry.new
+    permission = H2code::Permission::Manager.new(H2code::Permission::Mode::Yolo)
+    agent = H2code::Loop::Agent.new(provider, memory, tools, permission)
+
+    marked = [] of String
+    agent.on_text_only_detected = ->(model : String) { marked << model }
+
+    events = [] of H2code::Loop::Event
+    result = agent.run_turn("hi", nil) { |e| events << e }
+
+    # The retry after the intercept succeeded — no error surfaced.
+    result.stop_reason.should eq("end_turn")
+    provider.attempts.should eq(2)
+    provider.text_only?.should be_true
+    marked.should eq(["glm-test"])
+    events.any? { |e| e.type.info? && e.text.includes?("accepts text only") }.should be_true
+  end
+end

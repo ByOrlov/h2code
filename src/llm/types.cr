@@ -387,6 +387,29 @@ module H2code
         tool_parts(parts, tool_call_id)
       end
 
+      # Placeholder inserted by `without_media` when a message's content was
+      # nothing but media blocks — keeps the message shape valid for
+      # text-only endpoints.
+      MEDIA_REMOVED_PLACEHOLDER = "[media content removed: this model only accepts text]"
+
+      # A copy of this message with image/audio/video content parts removed.
+      # Some models (e.g. GLM coding-plan endpoints) accept only
+      # `{"type":"text"}` content blocks and reject anything else with
+      # HTTP 400 ("messages.content.type is invalid, allowed values:
+      # ['text']"). When every non-think part is media, a short text
+      # placeholder keeps the message valid. ThinkContent is left in place —
+      # it is lifted to `reasoning_content` at wire serialization and never
+      # appears inside `content`.
+      def without_media : Message
+        has_media = @content.any? { |p| p.is_a?(ImageContent) || p.is_a?(AudioContent) || p.is_a?(VideoContent) }
+        return self unless has_media
+        kept = @content.reject { |p| p.is_a?(ImageContent) || p.is_a?(AudioContent) || p.is_a?(VideoContent) }
+        kept = [TextContent.new(MEDIA_REMOVED_PLACEHOLDER)] of ContentPart if kept.empty?
+        copy = self
+        copy.content = kept
+        copy
+      end
+
       # Concatenated text of all TextContent parts. Equivalent to the kosong
       # `extractText(message)` — the plain-string view of the message for code
       # that doesn't care about thinking or media.
@@ -785,6 +808,20 @@ module H2code
 
       def self.retryable_status?(status_code : Int32) : Bool
         status_code == 408 || status_code == 429 || status_code >= 500
+      end
+
+      # True when the backend rejected the request because the message
+      # history contained non-text content parts — text-only chat endpoints
+      # answer with HTTP 400 and a body like "messages.content.type is
+      # invalid, allowed values: ['text']". The agent loop intercepts this
+      # to mark the model text-only (persisted in the user config), strip
+      # media from history, and retry. The allowed-list check is anchored to
+      # a text-only list so endpoints that accept text + images (their list
+      # is `['text', 'image_url']`) are not misclassified.
+      def text_only_rejection? : Bool
+        return false unless @status_code == 400
+        msg = message.to_s
+        msg.includes?("content.type") && !!(msg =~ /allowed values:?\s*\[\s*'text'\s*\]/)
       end
 
       # Builds a human-readable error message from a raw HTTP response body.

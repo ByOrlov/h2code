@@ -80,6 +80,12 @@ module H2code
       property model : String? = nil
       property provider_name : String? = nil
       property thinking_effort : String = "medium"
+      # Models that only accept `{"type":"text"}` content parts (e.g. GLM
+      # coding-plan models): media blocks are stripped from the message
+      # history before sending. Marked automatically by the agent loop the
+      # first time the endpoint rejects media with HTTP 400
+      # ("messages.content.type is invalid, allowed values: ['text']").
+      property text_only_models : Array(String) = [] of String
       property permission_mode : String = "manual"
       # App-wide sudo permission mode for Bash ("off", "request", "always").
       # Set via `/sudo` and persisted so it applies to every chat/instance.
@@ -159,6 +165,23 @@ module H2code
       property transcription : TranscriptionConfig = TranscriptionConfig.new
 
       def initialize
+      end
+
+      # Whether the given model is marked as accepting only text content.
+      def text_only_model?(model : String?) : Bool
+        return false if model.nil? || model.empty?
+        @text_only_models.includes?(model)
+      end
+
+      # Mark a model as text-only and persist the mark to the user's config
+      # so it applies to future sessions too. Called by the agent loop when
+      # the endpoint rejects media content with HTTP 400. A failed save
+      # (e.g. read-only home) must not kill the turn — the in-memory mark
+      # still unblocks the current session.
+      def mark_text_only_model!(model : String) : Nil
+        return if model.empty? || @text_only_models.includes?(model)
+        @text_only_models << model
+        save rescue nil
       end
 
       def self.load(path : String? = nil) : Config
@@ -334,6 +357,9 @@ module H2code
         if model = root["model"]?.try(&.as_h?)
           config.model = model["default"]?.try(&.as_s?)
           config.thinking_effort = model["thinking_effort"]?.try(&.as_s?) || "medium"
+          if list = model["text_only_models"]?.try(&.as_a?)
+            config.text_only_models = list.map(&.to_s).reject(&.empty?)
+          end
         end
 
         if perm = root["permission"]?.try(&.as_h?)
@@ -513,6 +539,9 @@ module H2code
                   json.field("default", m)
                 end
                 json.field("thinking_effort", @thinking_effort)
+                unless @text_only_models.empty?
+                  json.field("text_only_models", @text_only_models)
+                end
               end
             end
 

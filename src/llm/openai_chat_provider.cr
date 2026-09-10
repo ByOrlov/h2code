@@ -341,6 +341,11 @@ module H2code
       # reasoning-effort object for backends that speak it. Extracted from
       # `chat` so the request shape is unit-testable without a network call.
       def build_request(messages : Array(Message), tools : Array(ToolDefinition)?) : ChatRequest
+        # Text-only model: strip image/audio/video blocks from the history —
+        # the endpoint rejects any other content type with HTTP 400
+        # ("messages.content.type is invalid, allowed values: ['text']").
+        messages = messages.map(&.without_media) if text_only?
+
         request = ChatRequest.new(
           model: @model,
           messages: messages,
