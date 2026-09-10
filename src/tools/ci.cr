@@ -445,9 +445,14 @@ module H2code
         end
       end
 
-      # Aggregate `gh run list --json` rows into an observer status.
-      # Pending while any run is in progress or none is registered yet.
+      # Aggregate `gh run list --json` / Actions API run rows into an observer
+      # status. Pending while any run is in progress or none is registered
+      # yet. `event: dynamic` rows (Dependabot's dependabot-updates
+      # bookkeeping runs, which attach to the default branch head month after
+      # month) are not builds of the commit and are ignored — counted in,
+      # they drown out the commit's real runs and fabricate a pass verdict.
       def self.aggregate_runs(runs : Array(JSON::Any)) : {Status, String}
+        runs = runs.reject { |run| run["event"]?.try(&.to_s) == "dynamic" }
         return {Status::Pending, "no runs reported yet"} if runs.empty?
         in_progress = [] of String
         failed = [] of String
@@ -808,7 +813,10 @@ module H2code
         # Direct REST polling (token mode): GET /actions/runs?head_sha=…,
         # map onto the same aggregation as the gh path.
         private def poll_once_via_api(obs : Observer, target : ApiTarget) : Nil
-          res = api_call("/repos/#{target.repo.path}/actions/runs?head_sha=#{obs.sha}&per_page=20")
+          # per_page=100: runs come back newest-first, and bookkeeping runs
+          # (Dependabot updates) must not crowd the commit's real runs off
+          # the first page before aggregation filters them out.
+          res = api_call("/repos/#{target.repo.path}/actions/runs?head_sha=#{obs.sha}&per_page=100")
           unless res.status_code == 200
             record_poll_failure(obs, "GitHub API HTTP #{res.status_code}: #{Ci.excerpt(res.body, DETAIL_EXCERPT_BYTES)}")
             return
@@ -927,7 +935,10 @@ module H2code
 
         # gh CLI polling (fallback mode — needs an interactive gh login).
         private def poll_once_via_gh(obs : Observer, cwd : String) : Nil
-          res = run("gh run list -c #{obs.sha} --json databaseId,name,status,conclusion --limit 20", cwd)
+          # event is requested so aggregation can drop Dependabot's dynamic
+          # bookkeeping runs; --limit 100 keeps real runs from being crowded
+          # off the newest-first listing.
+          res = run("gh run list -c #{obs.sha} --json databaseId,name,status,conclusion,event --limit 100", cwd)
           unless res.exit_code == 0
             record_poll_failure(obs, "gh failed (exit #{res.exit_code}): #{Ci.excerpt(res.output, DETAIL_EXCERPT_BYTES)}")
             return

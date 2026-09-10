@@ -190,6 +190,33 @@ module H2code::Tools
         status.failure?.should be_true
         detail.should contain("spec (failure)")
       end
+
+      it "ignores Dependabot dynamic bookkeeping runs" do
+        # Dependabot's dependabot-updates runs attach to the default branch
+        # head; counted as passes they fabricate a green verdict for commits
+        # whose real CI never ran or failed.
+        runs = [
+          {"name" => "github_actions in /. - Update #1", "status" => "completed",
+           "conclusion" => "success", "event" => "dynamic"},
+          {"name" => "bundler in /. - Update #2", "status" => "completed",
+           "conclusion" => "success", "event" => "dynamic"},
+        ].map { |h| JSON.parse(h.to_json) }
+        status, detail = Ci.aggregate_runs(runs)
+        status.pending?.should be_true
+        detail.should contain("no runs")
+      end
+
+      it "reports failure from the real run among dynamic runs" do
+        runs = [
+          {"name" => "github_actions in /. - Update #1", "status" => "completed",
+           "conclusion" => "success", "event" => "dynamic"},
+          {"name" => "CI", "status" => "completed", "conclusion" => "failure",
+           "event" => "push"},
+        ].map { |h| JSON.parse(h.to_json) }
+        status, detail = Ci.aggregate_runs(runs)
+        status.failure?.should be_true
+        detail.should contain("CI (failure)")
+      end
     end
 
     describe "aggregate_pipelines" do
@@ -649,7 +676,7 @@ module H2code::Tools
           svc.poll_once(obs, dir)
 
           obs.status.success?.should be_true
-          api_urls.should contain("/repos/acme/app/actions/runs?head_sha=#{CI_SPEC_SHA}&per_page=20")
+          api_urls.should contain("/repos/acme/app/actions/runs?head_sha=#{CI_SPEC_SHA}&per_page=100")
           # No gh CLI invocation on the API path.
           runner.commands.any?(&.starts_with?("gh ")).should be_false
         end
