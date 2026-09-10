@@ -340,6 +340,54 @@ describe H2code::TUI::App do
     end
   end
 
+  it "stops the recording on Space when the editor holds only whitespace" do
+    mock = VoiceSessionMock.new
+    begin
+      app = H2code::TUI::App.new
+      config = H2code::Config::Config.new
+      config.transcription = H2code::Config::TranscriptionConfig.new(
+        enabled: true, socket: mock.socket_path, engine: "auto", language: "ru")
+      app.app_config = config
+
+      app.toggle_voice_recording
+      voice_wait_until { app.voice_recording? }.should be_true
+
+      # Stray spaces (and tabs) in the input are not content: Space still
+      # stops the capture instead of typing another character.
+      app.@editor.set("   \t ")
+      app.space_stops_recording?(H2code::TUI::KeyEvent.char(' ')).should be_true
+
+      app.toggle_voice_recording
+      voice_wait_until { !app.voice_active? }.should be_true
+      mock.stop_requests.should eq(1)
+    ensure
+      mock.close
+    end
+  end
+
+  it "types the Space normally mid-typing instead of stopping the recording" do
+    mock = VoiceSessionMock.new
+    begin
+      app = H2code::TUI::App.new
+      config = H2code::Config::Config.new
+      config.transcription = H2code::Config::TranscriptionConfig.new(
+        enabled: true, socket: mock.socket_path, engine: "auto", language: "ru")
+      app.app_config = config
+
+      app.toggle_voice_recording
+      voice_wait_until { app.voice_recording? }.should be_true
+
+      app.@editor.set("/tips")
+      app.space_stops_recording?(H2code::TUI::KeyEvent.char(' ')).should be_false
+
+      app.cancel_voice_recording
+      voice_wait_until { !app.voice_active? }.should be_true
+      mock.stop_requests.should eq(0)
+    ensure
+      mock.close
+    end
+  end
+
   it "does not start a recording when text is typed between the two Spaces" do
     mock = VoiceSessionMock.new
     begin
