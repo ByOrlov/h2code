@@ -71,8 +71,13 @@ module H2code
 
         # Tokens persisted — reconnect to swap this tool for the real ones.
         @manager.reconnect(@server_name)
+        url_note = if url = @captured_auth_url
+                     " Authorized via #{url}."
+                   else
+                     ""
+                   end
         Tools::ToolResult.success(
-          "MCP server \"#{@server_name}\" authenticated successfully. " \
+          "MCP server \"#{@server_name}\" authenticated successfully.#{url_note} " \
           "The real MCP tools have replaced this synthetic authenticate tool.")
       rescue ex
         url_hint = ""
