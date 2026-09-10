@@ -155,6 +155,7 @@ zh:
     fork_wt_merged: "已合并"
     fork_wt_unmerged: "未合并"
     fork_wt_dirty: "未提交的更改"
+    fork_wt_session_archived: "已归档"
     fork_clean_done: "已删除 %{removed} 个 worktree，保留 %{kept} 个："
     merge_busy: "回合运行期间无法合并。请先等待或中断。"
     merge_not_in_worktree: "此会话不在 worktree 中。请先使用 /fork。"

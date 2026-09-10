@@ -155,6 +155,7 @@ hi:
     fork_wt_merged: "मर्ज हो गई"
     fork_wt_unmerged: "अनमर्ज"
     fork_wt_dirty: "अनकमिटेड परिवर्तन"
+    fork_wt_session_archived: "संग्रहित"
     fork_clean_done: "%{removed} worktree हटाए गए, %{kept} रखे गए:"
     merge_busy: "टर्न चल रहा हो तो मर्ज नहीं कर सकते। पहले प्रतीक्षा करें या बाधित करें।"
     merge_not_in_worktree: "यह सत्र worktree में नहीं है। पहले /fork का उपयोग करें।"

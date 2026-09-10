@@ -83,20 +83,80 @@ module H2code
       end
 
       # `/fork` — every h2code sandbox with its merge/dirty status. Rows are
-      # numbered so `/fork go <n>` can address them by index.
+      # numbered so `/fork go <n>` can address them by index. Under each
+      # sandbox the sessions linked to it via state.json's `sandbox_folder`
+      # (the forked conversation itself, plus any `/fork go` / `/new`
+      # sessions that entered it).
       private def cmd_fork_list : Nil
         infos = H2code::Worktree.list(@home)
         if infos.empty?
           emit_to_log(Message.new("system", H2code.t("ui.fork_list_empty")))
           return
         end
+        # Sessions per sandbox: group the Index by sandbox_folder. Archived
+        # and empty sessions are included — this is a management view of the
+        # link, not a picker.
+        by_sandbox = Hash(String, Array(Session::SessionEntry)).new
+        Session::Index.new(@home)
+          .list(include_archived: true, include_empty: true)
+          .reject(&.sandbox_folder.empty?)
+          .each do |entry|
+            key = File.expand_path(entry.sandbox_folder)
+            (by_sandbox[key] ||= [] of Session::SessionEntry) << entry
+          end
         rows = infos.map_with_index do |info, i|
           status = info.merged? ? H2code.t("ui.fork_wt_merged") : H2code.t("ui.fork_wt_unmerged")
           status += ", #{H2code.t("ui.fork_wt_dirty")}" if info.dirty?
           age_days = ((Time.utc - info.last_used) / 1.day).to_i
-          "  #{i + 1}. #{info.branch}  [#{status}]  #{age_days}d  #{info.path}"
+          row = "  #{i + 1}. #{info.branch}  [#{status}]  #{age_days}d  #{info.path}"
+          linked = by_sandbox[File.expand_path(info.path)]?
+          if linked && !linked.empty?
+            linked.sort_by! { |e| -e.updated_at.to_unix }
+            linked.each { |e| row += "\n      #{fork_session_line(e)}" }
+          else
+            row += "\n      —"
+          end
+          row
         end
         emit_to_log(Message.new("system", "#{H2code.t("ui.fork_list_header")}\n#{rows.join("\n")}"))
+      end
+
+      # One-line label for a session linked to a fork sandbox: its FIRST
+      # user prompt (what the session is about), falling back to the title
+      # and then the bare id. Whitespace is collapsed so a multi-line prompt
+      # cannot break the row layout.
+      private def fork_session_line(entry : Session::SessionEntry) : String
+        desc = fork_session_preview(entry)[0...80]
+        id8 = entry.id[0...8]
+        named = desc.empty? ? id8 : "#{desc} (#{id8})"
+        age_days = ((Time.utc - entry.updated_at) / 1.day).to_i
+        archived = entry.archived? ? " [#{H2code.t("ui.fork_wt_session_archived")}]" : ""
+        "• #{named}, #{age_days}d#{archived}"
+      end
+
+      # First user prompt of a session, read straight from its wire log.
+      # The opening question tells what a fork session is about — more
+      # telling than the auto title ("Forked session") or the bare id.
+      # Unlike Index#preview this skips leading bookkeeping lines instead
+      # of giving up when the log does not start with a prompt.
+      private def fork_session_preview(entry : Session::SessionEntry) : String
+        prompt = ""
+        File.each_line(entry.wire_path) do |line|
+          next if line.strip.empty?
+          begin
+            parsed = JSON.parse(line)
+          rescue JSON::ParseException
+            next
+          end
+          if parsed["type"]?.to_s == "turn.prompt"
+            prompt = parsed["data"]?.try(&.["prompt"]?).try(&.to_s) || ""
+            break
+          end
+        end
+        prompt = entry.title if prompt.strip.empty?
+        prompt.gsub(/\s+/, " ").strip
+      rescue File::Error
+        entry.title
       end
 
       # `/fork go <id>` — switch the session into an existing fork sandbox.
