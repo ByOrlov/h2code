@@ -48,14 +48,119 @@ module H2code
         end
       end
 
-      private def cmd_fork : Nil
-        if @agent_busy
-          emit_to_log(Message.new("error", "Cannot fork while a turn is running. Wait or interrupt first."))
-        elsif cb = @on_fork
-          cb.call
-          emit_to_log(Message.new("system", "Session forked."))
+      # `/fork` — fork the session into an isolated git worktree: a fresh
+      # branch `h2code-<session-id>` is cut from the CURRENT branch and
+      # checked out under `~/.h2code/worktree/<project-path>/<branch>`.
+      # The host callback creates the worktree, forks the session and
+      # retargets the path-bound tools; it reports success/failure itself.
+      # `/fork list` and `/fork clean` manage existing worktrees instead.
+      private def cmd_fork(args : String) : Nil
+        case args.strip
+        when "list"
+          cmd_fork_list
+        when "clean"
+          cmd_fork_clean
+        when ""
+          if @agent_busy
+            emit_to_log(Message.new("error", H2code.t("ui.fork_busy")))
+          elsif cb = @on_fork
+            cb.call
+          else
+            emit_to_log(Message.new("error", H2code.t("ui.fork_not_wired")))
+          end
         else
-          emit_to_log(Message.new("error", "Session fork is not wired up."))
+          emit_to_log(Message.new("error", H2code.t("ui.fork_usage")))
+        end
+      end
+
+      # `/fork list` — every h2code worktree with its merge/dirty status.
+      private def cmd_fork_list : Nil
+        infos = H2code::Worktree.list(@home)
+        if infos.empty?
+          emit_to_log(Message.new("system", H2code.t("ui.fork_list_empty")))
+          return
+        end
+        rows = infos.map do |info|
+          status = info.merged? ? H2code.t("ui.fork_wt_merged") : H2code.t("ui.fork_wt_unmerged")
+          status += ", #{H2code.t("ui.fork_wt_dirty")}" if info.dirty?
+          age_days = ((Time.utc - info.last_used) / 1.day).to_i
+          "  #{info.branch}  [#{status}]  #{age_days}d  #{info.path}"
+        end
+        emit_to_log(Message.new("system", "#{H2code.t("ui.fork_list_header")}\n#{rows.join("\n")}"))
+      end
+
+      # `/fork clean` — remove fully merged, clean worktrees; keep (and
+      # report) the unmerged or dirty ones.
+      private def cmd_fork_clean : Nil
+        result = H2code::Worktree.clean(@home)
+        lines = [H2code.t("ui.fork_clean_done", removed: result.removed.size, kept: result.kept.size)]
+        result.removed.each { |path| lines << "  ✓ #{path}" }
+        result.kept.each { |entry| lines << "  • #{entry}" }
+        emit_to_log(Message.new("system", lines.join("\n")))
+      end
+
+      # `/merge` — inject a prompt asking the agent to fold the current
+      # worktree branch back into the original repository. When that turn
+      # ends, `finish_pending_merge` removes the worktree (if fully merged)
+      # and retargets the tools back to the main checkout.
+      private def cmd_merge : Nil
+        if @agent_busy
+          emit_to_log(Message.new("error", H2code.t("ui.merge_busy")))
+          return
+        end
+        dir = @work_dir
+        unless H2code::Worktree.worktree?(dir)
+          emit_to_log(Message.new("error", H2code.t("ui.merge_not_in_worktree")))
+          return
+        end
+        main_repo = H2code::Worktree.main_repo(dir)
+        branch = H2code::Worktree.current_branch(dir)
+        unless main_repo && branch
+          emit_to_log(Message.new("error", H2code.t("ui.merge_no_repo")))
+          return
+        end
+        @pending_merge = H2code::Worktree::PendingMerge.new(dir, branch, main_repo)
+        emit_to_log(Message.new("system", H2code.t("ui.merge_started", branch: branch, repo: main_repo)))
+        deliver_external_prompt(merge_prompt(dir, branch, main_repo))
+      end
+
+      # The synthetic user message driving the merge turn.
+      private def merge_prompt(worktree : String, branch : String, main_repo : String) : String
+        <<-PROMPT
+        You are working in an isolated git worktree at #{worktree} on branch "#{branch}". Merge this branch back into the original repository at #{main_repo}.
+
+        Use the Bash tool with cwd="#{main_repo}" for every git command. Steps:
+        1. Check git status and the current branch in the original repository.
+        2. Run `git merge #{branch} --no-edit`.
+        3. If there are conflicts, resolve them carefully — the worktree branch holds the feature work, the original branch may have moved on; preserve the intent of both sides — then commit.
+        4. When the project has a test suite or build, run it and report the merge result.
+
+        Do NOT delete the worktree or the branch: cleanup happens automatically after this turn.
+        PROMPT
+      end
+
+      # Called from the TurnEnd handler: fold the just-finished `/merge`
+      # back into the session — auto-remove a fully merged worktree and
+      # switch the tools home, or keep it and tell the user why.
+      private def finish_pending_merge : Nil
+        pm = @pending_merge
+        return unless pm
+        @pending_merge = nil
+        begin
+          if H2code::Worktree.branch_merged?(pm.main_repo, pm.branch)
+            if H2code::Worktree.dirty?(pm.worktree)
+              emit_to_log(Message.new("system", H2code.t("ui.merge_kept_dirty", path: pm.worktree)))
+            elsif error = H2code::Worktree.remove(pm.main_repo, pm.worktree, pm.branch)
+              emit_to_log(Message.new("error", H2code.t("ui.merge_remove_failed", error: error)))
+            else
+              @on_worktree_exit.try(&.call(pm.main_repo))
+              emit_to_log(Message.new("system", H2code.t("ui.merge_done", branch: pm.branch, repo: pm.main_repo)))
+            end
+          else
+            emit_to_log(Message.new("system", H2code.t("ui.merge_kept", branch: pm.branch, path: pm.worktree)))
+          end
+        rescue ex
+          emit_to_log(Message.new("error", H2code.t("ui.merge_remove_failed", error: ex.message.to_s)))
         end
       end
 

@@ -15,6 +15,9 @@ module H2code
 
       PARENT_AGENT_ID = "main"
 
+      # Retargeted by `/fork` / `/merge` at the idle boundary between turns.
+      setter work_dir
+
       def initialize(@registry : SubagentRegistry,
                      @parent_agent : Loop::Agent,
                      @system_prompt : String,

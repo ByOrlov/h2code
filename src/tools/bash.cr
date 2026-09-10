@@ -90,6 +90,9 @@ module H2code
       # detached to a background task instead of being killed.
       @auto_background_on_timeout : Bool
 
+      # Retargeted by `/fork` / `/merge` at the idle boundary between turns.
+      setter work_dir
+
       def initialize(@work_dir : String = Dir.current,
                      @task_service : TaskService? = nil,
                      @session_dir : String? = nil,

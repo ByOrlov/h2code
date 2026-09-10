@@ -3,6 +3,10 @@ module H2code
     class Write < Tool
       @work_dir : String
 
+      # `/fork` into a worktree (and `/merge` back) retarget this at the
+      # idle boundary between turns.
+      setter work_dir
+
       def initialize(@work_dir : String = Dir.current)
       end
 

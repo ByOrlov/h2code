@@ -1,3 +1,5 @@
+require "../worktree"
+
 module H2code
   module TUI
     class App
@@ -171,7 +173,16 @@ module H2code
       # the setup wizard for the selected provider.
       @on_provider_configured : (String -> Bool)?
       @on_resume_session : (String -> Nil)?
-      @on_fork : (-> Nil)? = nil
+      # `/fork` into an isolated worktree: the host creates the worktree +
+      # branch, forks the session, retargets the path-bound tools and
+      # reports the outcome itself. Returns true on success.
+      @on_fork : (-> Bool)? = nil
+      # `/merge` completion: the host retargets the path-bound tools and the
+      # session cwd back to the original repository directory.
+      @on_worktree_exit : (String -> Nil)? = nil
+      # In-flight `/merge`: checked when the merge turn ends to decide
+      # whether the worktree is removed and the tools switched back.
+      @pending_merge : Worktree::PendingMerge? = nil
       @on_archive : (-> Nil)?
       @on_rename : (String -> Nil)?
       @on_debug : (-> Nil)?
@@ -294,7 +305,9 @@ module H2code
       # the setup wizard for the selected provider.
       property on_provider_configured : (String -> Bool)?
       property on_resume_session : (String -> Nil)?
-      property on_fork : (-> Nil)?
+      property on_fork : (-> Bool)?
+      property on_worktree_exit : (String -> Nil)?
+      property pending_merge : Worktree::PendingMerge?
       property on_archive : (-> Nil)?
       property on_rename : (String -> Nil)?
       property on_debug : (-> Nil)?

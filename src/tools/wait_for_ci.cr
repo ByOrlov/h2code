@@ -43,6 +43,9 @@ module H2code
         Limits: waits up to timeout_s seconds (default 600, max 3600). On timeout the background observer keeps running and will still notify.
       DESC
 
+      # Retargeted by `/fork` / `/merge` at the idle boundary between turns.
+      setter work_dir
+
       def initialize(@work_dir : String = Dir.current)
       end
 

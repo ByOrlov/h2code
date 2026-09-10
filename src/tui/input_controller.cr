@@ -594,7 +594,9 @@ module H2code
         when "/search"
           cmd_search
         when "/fork"
-          cmd_fork
+          cmd_fork(args)
+        when "/merge"
+          cmd_merge
         when "/archive"
           cmd_archive
         when "/rename", "/title"

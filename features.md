@@ -118,3 +118,52 @@ result itself lands in the transcript as the `tool.result`.
   cron/background tasks use), the session `store`, and an `on_update` hook
   that emits the final status line into the log zone.
 - ACP server registers `WaitForCI` too and shares the service.
+
+## Worktree Isolation (`/fork` + `/merge`)
+
+Fork a session into an isolated git worktree, work on a feature without
+touching the main checkout, then fold the branch back with the agent's
+help. No registry is kept — the deterministic directory layout and git's
+own worktree state are the source of truth.
+
+### `/fork`
+
+Creates a git worktree plus a fresh branch `h2code-<session-id>` cut from
+the **current branch** (not master) and checked out under
+`~/.h2code/worktree/<encoded-project-path>/<branch>` (`/home/oleg/p1` ->
+`home/oleg/p1`, `C:\Users\oleg\p1` -> `c/users/oleg/p1`). Then:
+
+1. the conversation is forked into a new session whose `cwd` is the
+   worktree dir (`Session::Lifecycle.fork`, `src/session/lifecycle.cr`);
+2. the path-bound tools (`Read`, `Write`, `Edit`, `Glob`, `Grep`, `Bash`,
+   `ApplyPatch`, `WaitForCI`) and both subagent runners retarget their
+   `work_dir` at the worktree (`rebind_path_tools` in `src/h2code.cr`).
+
+The switch only ever happens at the idle boundary — `/fork` refuses to
+run while a turn is in flight, so no in-flight turn observes the cwd
+change. Detached HEAD or a non-git cwd is reported and aborts the fork.
+
+### `/merge`
+
+Injects a synthetic user prompt telling the agent to merge the worktree
+branch back into the original repository (resolved via
+`git rev-parse --git-common-dir`) using Bash with an explicit `cwd`.
+When that turn ends (`EventController` TurnEnd handler):
+
+- branch fully merged + clean worktree → worktree removed
+  (`git worktree remove`), branch deleted (`git branch -d`, refuses
+  unmerged), tools/session retargeted back at the original checkout;
+- merged but dirty → worktree kept for review (uncommitted files are
+  never destroyed);
+- not fully merged → kept, with a hint to re-run `/merge` or finish
+  manually.
+
+### Management and cleanup (`src/worktree.cr`)
+
+- `/fork list` — every h2code worktree with branch, merged/dirty status,
+  age and path.
+- `/fork clean` — removes fully merged, clean worktrees; reports and
+  keeps the unmerged or dirty ones.
+- Age-based GC at TUI startup: fully merged, clean worktrees untouched
+  for 14 days are removed; unmerged work is never collected.
+

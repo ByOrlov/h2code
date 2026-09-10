@@ -16,6 +16,9 @@ module H2code
 
       @work_dir : String
 
+      # Retargeted by `/fork` / `/merge` at the idle boundary between turns.
+      setter work_dir
+
       def initialize(@work_dir : String = Dir.current)
       end
 

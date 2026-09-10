@@ -19,6 +19,9 @@ module H2code
       DEFAULT_TIMEOUT_MS = Tools::Agent::DEFAULT_SUBAGENT_TIMEOUT_MS
       PARENT_AGENT_ID    = "main"
 
+      # Retargeted by `/fork` / `/merge` at the idle boundary between turns.
+      setter work_dir
+
       def initialize(@registry : SubagentRegistry,
                      @parent_agent : Loop::Agent,
                      @task_service : Tools::TaskService,

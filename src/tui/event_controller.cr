@@ -286,6 +286,9 @@ module H2code
           @is_compacting = false
           @defer_user_messages = false
           stop_spinner
+          # An in-flight /merge resolves here: auto-clean a fully merged
+          # worktree and switch the tools back to the main checkout.
+          finish_pending_merge
           if event.is_error?
             @agent_status = AgentStatus::Error
             @status = H2code.t("status.interrupted")

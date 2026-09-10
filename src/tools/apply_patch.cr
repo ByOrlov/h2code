@@ -384,6 +384,9 @@ module H2code
     end
 
     class ApplyPatchTool < Tool
+      # Retargeted by `/fork` / `/merge` at the idle boundary between turns.
+      setter work_dir
+
       def initialize(@work_dir : String = Dir.current)
       end
 

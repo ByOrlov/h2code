@@ -18,6 +18,7 @@ require "./upgrader"
 require "./exception_handler"
 require "./process_port"
 require "./home_port"
+require "./worktree"
 require "./shell_port"
 require "./llm/types"
 require "./llm/token_counter"
@@ -936,6 +937,22 @@ module H2code
       !app.setup_mode?
     end
 
+    # Retarget every path-bound tool (and the subagent runners) at a new
+    # working directory — the idle-boundary cwd switch behind `/fork` and
+    # `/merge`. Only called while the agent is idle, so no in-flight turn
+    # observes the change.
+    private def self.rebind_path_tools(agent, agent_runner, swarm_runner, new_work_dir : String) : Nil
+      {Tools::Names::READ, Tools::Names::WRITE, Tools::Names::EDIT,
+       Tools::Names::GLOB, Tools::Names::GREP, Tools::Names::BASH,
+       Tools::Names::WAIT_FOR_CI, Tools::Names::APPLY_PATCH}.each do |name|
+        agent.tools.get(name).try do |tool|
+          tool.work_dir = new_work_dir if tool.responds_to?(:work_dir=)
+        end
+      end
+      agent_runner.try(&.work_dir=(new_work_dir))
+      swarm_runner.try(&.work_dir=(new_work_dir))
+    end
+
     private def self.run_interactive(agent, system_prompt, store, config, permission, oauth, home, work_dir, initial_prompt = nil,
                                      agent_runner : Loop::SubagentAgentRunner? = nil,
                                      swarm_runner : Loop::SubagentSwarmRunner? = nil,
@@ -943,6 +960,13 @@ module H2code
                                      mcp_manager : Mcp::Manager = Mcp::Manager.new,
                                      plugin_manager : Plugin::Manager = Plugin::Manager.new(home))
       dispatcher = Notify::Dispatcher.from_config(config.notifications)
+      # Age-based worktree GC: drop fully merged, clean worktrees untouched
+      # for two weeks. Unmerged work is never collected. Best-effort — a
+      # failure here must not block startup.
+      begin
+        H2code::Worktree.gc(home)
+      rescue
+      end
       app = TUI::App.new(dispatcher: dispatcher)
       app.app_config = config
       # Random startup tip (shown under the welcome box) — data-driven, read
@@ -1226,13 +1250,43 @@ module H2code
         end
         nil
       end
-      app.on_fork = -> {
-        forked = lifecycle.fork(store, work_dir)
-        store.adopt(forked)
-        app.session_id = forked.read_state.try(&.id) || ""
-        control_socket.rebind(store.session_dir)
+      app.on_fork = -> : Bool do
+        session_id = store.meta_id? || app.session_id
+        session_id = Random::Secure.hex(12) if session_id.empty?
+        result = H2code::Worktree.create(work_dir, session_id, home)
+        if error = result.error
+          app.add_message("error", H2code.t("ui.fork_failed", error: error))
+          false
+        elsif (path = result.path) && (branch = result.branch)
+          # Fork the conversation into the worktree: the fresh session's cwd
+          # is the worktree dir, so a later resume lands there as well.
+          forked = lifecycle.fork(store, cwd: path)
+          store.adopt(forked)
+          app.session_id = forked.read_state.try(&.id) || ""
+          rebind_path_tools(agent, agent_runner, swarm_runner, path)
+          app.work_dir = path
+          work_dir = path
+          control_socket.rebind(store.session_dir)
+          app.add_message("system", H2code.t("ui.fork_created", branch: branch, path: path))
+          true
+        else
+          app.add_message("error", H2code.t("ui.fork_failed", error: "inconsistent create result"))
+          false
+        end
+      end
+      app.on_worktree_exit = ->(repo : String) do
+        # /merge finished: retarget the tools and the session back at the
+        # original checkout.
+        rebind_path_tools(agent, agent_runner, swarm_runner, repo)
+        app.work_dir = repo
+        work_dir = repo
+        if meta = store.read_state
+          meta.cwd = repo
+          meta.updated_at = Time.utc.to_rfc3339
+          store.write_state(meta)
+        end
         nil
-      }
+      end
       app.on_archive = -> {
         id = store.read_state.try(&.id) || store.meta_id? || File.basename(store.session_dir)
         lifecycle.archive(id)
