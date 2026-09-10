@@ -155,6 +155,7 @@ ja:
     fork_wt_merged: "マージ済み"
     fork_wt_unmerged: "未マージ"
     fork_wt_dirty: "未コミットの変更"
+    fork_wt_session_archived: "アーカイブ済み"
     fork_clean_done: "%{removed} 件の worktree を削除、%{kept} 件を保持:"
     merge_busy: "ターン実行中はマージできません。完了を待つか中断してください。"
     merge_not_in_worktree: "このセッションは worktree 内にありません。先に /fork を使ってください。"

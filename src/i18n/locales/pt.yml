@@ -155,6 +155,7 @@ pt:
     fork_wt_merged: "mesclado"
     fork_wt_unmerged: "não mesclado"
     fork_wt_dirty: "mudanças não commitadas"
+    fork_wt_session_archived: "arquivada"
     fork_clean_done: "Removidos %{removed} worktree(s), mantidos %{kept}:"
     merge_busy: "Não é possível mesclar durante um turno. Aguarde ou interrompa primeiro."
     merge_not_in_worktree: "Esta sessão não está em um worktree. Use /fork primeiro."

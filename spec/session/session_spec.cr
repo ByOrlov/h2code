@@ -291,6 +291,30 @@ describe H2code::Session::Index do
     end
   end
 
+  it "surfaces sandbox_folder on entries so callers can group sessions per fork" do
+    home = temp_home
+    begin
+      ws = H2code::Session::Index.workspace_id("/repo")
+      linked = File.join(home, ".h2code", "sessions", ws, "d1" * 6)
+      plain = File.join(home, ".h2code", "sessions", ws, "e2" * 6)
+      [linked, plain].each do |d|
+        Dir.mkdir_p(d)
+        File.write(File.join(d, "wire.jsonl"), %({"type":"turn.prompt","data":{"prompt":"x"}}))
+      end
+      lm = H2code::Session::StateMeta.new("d1" * 6)
+      lm.sandbox_folder = "/sandbox/h2code-abc123"
+      File.write(File.join(linked, "state.json"), lm.to_json)
+      File.write(File.join(plain, "state.json"), H2code::Session::StateMeta.new("e2" * 6).to_json)
+
+      entries = H2code::Session::Index.new(home).list
+      entries.size.should eq(2)
+      entries.find(&.id.==("d1" * 6)).try(&.sandbox_folder).should eq("/sandbox/h2code-abc123")
+      entries.find(&.id.==("e2" * 6)).try(&.sandbox_folder).should eq("")
+    ensure
+      FileUtils.rm_rf(home)
+    end
+  end
+
   it "hides empty sessions (no messages) by default" do
     home = temp_home
     begin

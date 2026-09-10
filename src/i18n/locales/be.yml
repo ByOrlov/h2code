@@ -155,6 +155,7 @@ be:
     fork_wt_merged: "ўлітая"
     fork_wt_unmerged: "не ўлітая"
     fork_wt_dirty: "незакаміччаныя змены"
+    fork_wt_session_archived: "архіў"
     fork_clean_done: "Выдалена worktree: %{removed}, пакінута: %{kept}:"
     merge_busy: "Нельга зліваць падчас выканання ходу. Дачакайцеся заканчэння або перарвіце."
     merge_not_in_worktree: "Гэтая сесія не ў worktree. Спачатку выкарыстайце /fork."

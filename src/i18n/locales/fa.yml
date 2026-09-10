@@ -155,6 +155,7 @@ fa:
     fork_wt_merged: "ادغام‌شده"
     fork_wt_unmerged: "ادغام‌نشده"
     fork_wt_dirty: "تغییرات commit نشده"
+    fork_wt_session_archived: "بایگانی‌شده"
     fork_clean_done: "%{removed} worktree حذف شد، %{kept} نگه داشته شد:"
     merge_busy: "در حین اجرای نوبت نمی‌توان ادغام کرد. اول صبر کنید یا قطع کنید."
     merge_not_in_worktree: "این نشست در worktree نیست. اول /fork را اجرا کنید."

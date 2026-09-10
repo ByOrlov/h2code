@@ -49,6 +49,9 @@ module H2code
       property updated_at : Time = Time.utc
       property preview : String = "" # first user prompt (truncated)
       property workspace_id : String = ""
+      # Fork sandbox (`/fork`) this session lives in — state.json's
+      # `sandbox_folder`. Empty for plain-checkout sessions.
+      property sandbox_folder : String = ""
       property? legacy : Bool = false
       # True when the wire log has no real conversation events (no user
       # prompt, no assistant text, no tool calls/results). Such sessions
@@ -194,6 +197,7 @@ module H2code
           entry.cwd = meta.cwd
           entry.archived = meta.archived?
           entry.workspace_id = ws_id.empty? ? meta.workspace_id : ws_id
+          entry.sandbox_folder = meta.sandbox_folder
         end
 
         # Timestamps from the wire file's mtime (always present).

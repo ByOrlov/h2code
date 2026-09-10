@@ -155,6 +155,7 @@ en:
     fork_wt_merged: "merged"
     fork_wt_unmerged: "unmerged"
     fork_wt_dirty: "uncommitted changes"
+    fork_wt_session_archived: "archived"
     fork_clean_done: "Removed %{removed} worktree(s), kept %{kept}:"
     merge_busy: "Cannot merge while a turn is running. Wait or interrupt first."
     merge_not_in_worktree: "This session is not in a worktree. Use /fork first."
