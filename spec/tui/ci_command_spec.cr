@@ -115,6 +115,27 @@ describe "/ci command" do
     end
   end
 
+  it "repeated /ci for the same commit does not duplicate observers" do
+    old = H2code::Tools::Ci.service
+    with_tmpdir do |dir|
+      head = init_ci_repo(dir)
+      svc = H2code::Tools::Ci::LiveCiService.new
+      svc.autostart = false
+      H2code::Tools::Ci.service = svc
+      begin
+        app = CiCommandApp.new
+        app.work_dir = dir
+        20.times { app.run_cmd_ci("") }
+        # One pending observer for the HEAD sha, not twenty: observe()
+        # reuses the existing pending observer for the same sha.
+        svc.pending_observers.size.should eq(1)
+        svc.observer_for(head).should_not be_nil
+      ensure
+        H2code::Tools::Ci.service = old
+      end
+    end
+  end
+
   it "errors on a revision that does not resolve" do
     old = H2code::Tools::Ci.service
     with_tmpdir do |dir|
