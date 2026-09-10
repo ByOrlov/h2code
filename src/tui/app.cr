@@ -283,7 +283,8 @@ module H2code
       property context_tokens : Int32
       property max_context_tokens : Int32
       property session_id : String
-      property work_dir : String
+      # Read-only accessor; the setter refreshes the cached branch below.
+      getter work_dir : String
       property additional_dirs : Array(String)
       # Fired when `/add-dir` adds a directory; the host rebuilds the system
       # prompt (so the new dir shows up in the workspace tree) and may extend
@@ -570,6 +571,14 @@ module H2code
       def force_redraw! : Nil
         @first_render = true
         @dirty = true
+      end
+
+      # Retargeting the workspace (/fork into a worktree, /merge back to
+      # the main checkout) also refreshes the cached status-bar branch.
+      def work_dir=(dir : String) : String
+        @work_dir = dir
+        refresh_git_branch!
+        dir
       end
 
       # Deep byte size of the on-screen transcript — the TUI-side duplicate of

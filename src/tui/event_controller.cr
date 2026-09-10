@@ -289,6 +289,9 @@ module H2code
           # An in-flight /merge resolves here: auto-clean a fully merged
           # worktree and switch the tools back to the main checkout.
           finish_pending_merge
+          # The agent may have switched branches mid-turn (git checkout /
+          # switch via Bash); refresh the cached status-bar branch.
+          refresh_git_branch!
           if event.is_error?
             @agent_status = AgentStatus::Error
             @status = H2code.t("status.interrupted")
