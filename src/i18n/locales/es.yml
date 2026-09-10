@@ -122,6 +122,7 @@ es:
     cleanup: "Eliminar sesiones y mensajes de voz antiguos"
     github: "Configurar el token de GitHub para el estado de CI"
     gitlab: "Configurar el token de GitLab para el estado de CI"
+    bash: "Mostrar el estado del shell y bash"
   help:
     title: "ayuda"
     subtitle: "· Esc / Enter / q para cancelar · ↑↓ desplazar"

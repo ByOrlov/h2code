@@ -4,8 +4,10 @@ describe H2code::ShellPort do
   port = H2code::ShellPort.default
 
   {% if flag?(:win32) %}
-    it "resolves to an interpreter with a name" do
-      {"bash", "powershell"}.should contain(port.name)
+    it "resolves to native cmd.exe without probing at startup" do
+      port.name.should eq("cmd")
+      port.program.should eq("cmd.exe")
+      port.shell_args("echo hi").should eq(["/d", "/s", "/c", "echo hi"])
     end
   {% else %}
     it "wraps the command in -c argv" do
@@ -33,7 +35,7 @@ describe H2code::ShellPort do
   end
 
   it "runs a command and propagates its exit code" do
-    status = Process.new(port.program, port.shell_args("exit 7")).wait
+    status = port.spawn("exit 7", Hash(String, String?).new, Dir.current).wait
     status.exit_code.should eq(7)
   end
 end

@@ -641,6 +641,8 @@ module H2code
           cmd_voicelang(args)
         when "/sudo"
           cmd_sudo(args)
+        when "/bash"
+          cmd_bash(args)
         when "/sounds"
           cmd_sounds(args)
         when "/tips"

@@ -122,6 +122,7 @@ ja:
     cleanup: "古いセッションと音声メッセージを削除"
     github: "CIステータス用のGitHubトークンを設定"
     gitlab: "CIステータス用のGitLabトークンを設定"
+    bash: "シェルとbashの状態を表示"
   help:
     title: "ヘルプ"
     subtitle: "· Esc / Enter / q でキャンセル · ↑↓ スクロール"

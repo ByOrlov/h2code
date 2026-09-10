@@ -24,3 +24,5 @@ vendor/miniaudio/*.lib
 
 # scratch space for cloned reference repos (codex/opencode/grok-cli)
 /temp/
+# Vagrant machine-local state (contains private_key)
+.vagrant/

@@ -33,8 +33,11 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          # Branch push / PR: a CI build, not a release. Skip version math.
-          if [ -z "${{ inputs.version }}" ] && [[ ! "$GITHUB_REF_NAME" =~ ^[0-9] ]]; then
+          # Branch push / PR / merge queue: a CI build, not a release. Skip
+          # version math. PR refs are "N/merge" (leading digit!), so gate on
+          # the ref type instead of a digit heuristic. Dispatch runs pass a
+          # version input and always take the release path below.
+          if [ -z "${{ inputs.version }}" ] && [[ "$GITHUB_REF" != refs/tags/* ]]; then
             echo "version=0.0.0-ci" >> "$GITHUB_OUTPUT"
             exit 0
           fi

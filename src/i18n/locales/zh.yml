@@ -122,6 +122,7 @@ zh:
     cleanup: "删除旧会话和语音消息"
     github: "配置用于 CI 状态的 GitHub 令牌"
     gitlab: "配置用于 CI 状态的 GitLab 令牌"
+    bash: "显示 shell 与 bash 状态"
   help:
     title: "帮助"
     subtitle: "· Esc / Enter / q 取消 · ↑↓ 滚动"

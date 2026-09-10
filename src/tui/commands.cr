@@ -57,6 +57,7 @@ module H2code
         CommandInfo.new("/plan", "Toggle plan mode", description_key: "plan"),
         CommandInfo.new("/swarm", "Toggle swarm mode or run a swarm task", "[on|off|<prompt>]", "swarm"),
         CommandInfo.new("/sudo", "Set sudo permission mode", "off|request|always", "sudo"),
+        CommandInfo.new("/bash", "Show shell and bash status", "[status|detect|patch <path>|clear]", "bash"),
         CommandInfo.new("/debug", "Dump full session transcript to stdout", description_key: "debug"),
         CommandInfo.new("/debugzones", "Toggle TUI zone sizes debug overlay", description_key: "debugzones"),
         CommandInfo.new("/feedback", "Send feedback to the team", "<message>", "feedback"),
