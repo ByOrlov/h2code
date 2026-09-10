@@ -145,7 +145,7 @@ function Ensure-Ripgrep($installDir) {
         Expand-Archive -Path $rgZip -DestinationPath $extractDir -Force
         $rgExe = Get-ChildItem -Path $extractDir -Filter "rg.exe" -Recurse | Select-Object -First 1
         if ($rgExe) {
-            Move-Item -Path $rgExe.FullName -Destination (Join-Path $installDir "rg.exe") -Force
+            Copy-Item -Path $rgExe.FullName -Destination (Join-Path $installDir "rg.exe") -Force
             Write-Info "Installed rg.exe to $installDir"
         } else {
             Write-Err "rg.exe not found in ripgrep archive."
@@ -213,7 +213,15 @@ try {
         # --- Install --------------------------------------------------------------
         New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
         $Dest = Join-Path $InstallDir $BinName
-        Move-Item -Path $Src -Destination $Dest -Force
+        # Copy-Item -Force, not Move-Item: on re-installs Move-Item -Force is
+        # known to fail with "Cannot create a file when that file already
+        # exists" even though the destination is a regular file. The source
+        # lives in $Tmp and is cleaned up in finally anyway.
+        try {
+            Copy-Item -Path $Src -Destination $Dest -Force
+        } catch {
+            Fail "Could not replace $Dest -- is h2code currently running? Close it and re-run the installer. ($_)"
+        }
         Write-Info "Installed $Dest"
 
         # Startup tips data (tips/*.json, read from disk — see src/tips/tips.cr).
