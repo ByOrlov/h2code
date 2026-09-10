@@ -74,6 +74,81 @@ module H2code::Tools
       end
     end
 
+    describe "push_covers_branch?" do
+      it "covers every branch when a push trigger has no filters" do
+        with_tmpdir do |dir|
+          wf = File.join(dir, ".github", "workflows")
+          Dir.mkdir_p(wf)
+          File.write(File.join(wf, "a.yml"), "on: [push]")
+          File.write(File.join(wf, "b.yml"), "on:\n  push:")
+          Ci.push_covers_branch?(dir, "anything").should be_true
+        end
+      end
+
+      it "matches branches filters with fnmatch globs" do
+        with_tmpdir do |dir|
+          wf = File.join(dir, ".github", "workflows")
+          Dir.mkdir_p(wf)
+          File.write(File.join(wf, "ci.yml"), <<-YML)
+            on:
+              push:
+                branches: [master, develop, "release/**"]
+          YML
+          Ci.push_covers_branch?(dir, "master").should be_true
+          Ci.push_covers_branch?(dir, "release/1.2.3").should be_true
+          Ci.push_covers_branch?(dir, "feature/x").should be_false
+        end
+      end
+
+      it "honors branches-ignore without a branches list" do
+        with_tmpdir do |dir|
+          wf = File.join(dir, ".github", "workflows")
+          Dir.mkdir_p(wf)
+          File.write(File.join(wf, "ci.yml"), <<-YML)
+            on:
+              push:
+                branches-ignore: [docs/*]
+          YML
+          Ci.push_covers_branch?(dir, "master").should be_true
+          Ci.push_covers_branch?(dir, "docs/readme").should be_false
+        end
+      end
+
+      it "is not covered when only other events trigger" do
+        with_tmpdir do |dir|
+          wf = File.join(dir, ".github", "workflows")
+          Dir.mkdir_p(wf)
+          File.write(File.join(wf, "ci.yml"), "on:\n  pull_request:\n    branches: [master]")
+          Ci.push_covers_branch?(dir, "master").should be_false
+        end
+      end
+
+      it "treats undecidable input as covered" do
+        with_tmpdir do |dir|
+          wf = File.join(dir, ".github", "workflows")
+          Dir.mkdir_p(wf)
+          # Unparsable YAML, empty workflows dir, detached HEAD, no dir.
+          File.write(File.join(wf, "bad.yml"), "on: [push\n")
+          Ci.push_covers_branch?(dir, "master").should be_true
+          File.delete(File.join(wf, "bad.yml"))
+          Ci.push_covers_branch?(dir, "master").should be_true
+          Ci.push_covers_branch?(dir, "").should be_true
+          Ci.push_covers_branch?(dir, "HEAD").should be_true
+          Ci.push_covers_branch?(File.join(dir, "missing"), "master").should be_true
+        end
+      end
+
+      it "covers any branch when several workflows combine" do
+        with_tmpdir do |dir|
+          wf = File.join(dir, ".github", "workflows")
+          Dir.mkdir_p(wf)
+          File.write(File.join(wf, "a.yml"), "on:\n  push:\n    branches: [master]")
+          File.write(File.join(wf, "b.yml"), "on: [push, pull_request]")
+          Ci.push_covers_branch?(dir, "feature/x").should be_true
+        end
+      end
+    end
+
     describe "poll cadence" do
       it "is a fixed 30 s interval" do
         Ci::POLL_INTERVAL_S.should eq(30)
@@ -359,6 +434,53 @@ module H2code::Tools
         svc = Tools.fake_ci_service(runner)
 
         svc.try_observe_push("git commit -m wip", dir).should be_false
+      end
+    end
+
+    it "try_observe_push skips branches no workflow triggers on" do
+      with_tmpdir do |dir|
+        wf = File.join(dir, ".github", "workflows")
+        Dir.mkdir_p(wf)
+        File.write(File.join(wf, "ci.yml"), <<-YML)
+          name: CI
+          on:
+            push:
+              branches: [master, develop]
+        YML
+        delivered = [] of String
+        runner = CiFakeRunner.new
+        runner.add(0, "git@github.com:acme/app.git") # git remote get-url origin
+        runner.add(0, CI_SPEC_SHA)                   # git rev-parse HEAD
+        runner.add(0, "feature/x")                   # git rev-parse --abbrev-ref HEAD
+        svc = Tools.fake_ci_service(runner)
+        svc.delivery = ->(xml : String) { delivered << xml; nil }
+
+        svc.try_observe_push("git push", dir).should be_false
+        svc.observer_for(CI_SPEC_SHA).should be_nil
+        svc.pending?.should be_false
+        delivered.join.should contain("No CI build for this branch")
+        delivered.join.should contain("feature/x")
+      end
+    end
+
+    it "try_observe_push observes a branch covered by a workflow filter" do
+      with_tmpdir do |dir|
+        wf = File.join(dir, ".github", "workflows")
+        Dir.mkdir_p(wf)
+        File.write(File.join(wf, "ci.yml"), <<-YML)
+          name: CI
+          on:
+            push:
+              branches: [master, develop]
+        YML
+        runner = CiFakeRunner.new
+        runner.add(0, "git@github.com:acme/app.git")
+        runner.add(0, CI_SPEC_SHA)
+        runner.add(0, "develop")
+        svc = Tools.fake_ci_service(runner)
+
+        svc.try_observe_push("git push", dir).should be_true
+        svc.observer_for(CI_SPEC_SHA).should_not be_nil
       end
     end
 

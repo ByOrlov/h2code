@@ -53,6 +53,33 @@ module H2code::Tools
       end
     end
 
+    it "returns immediately when no workflow triggers on the branch" do
+      old = Ci.service
+      with_tmpdir do |dir|
+        wf = File.join(dir, ".github", "workflows")
+        Dir.mkdir_p(wf)
+        File.write(File.join(wf, "ci.yml"), "on:\n  push:\n    branches: [master]")
+        responses = {
+          "git remote get-url origin"        => "git@github.com:acme/app.git",
+          "git rev-parse HEAD"               => WAIT_CI_SPEC_SHA,
+          "git rev-parse --abbrev-ref HEAD"  => "feature/x",
+        }
+        svc = Ci::LiveCiService.new
+        svc.autostart = false
+        svc.runner = ->(cmd : String, _cwd : String) { Ci::CommandResult.new(0, responses[cmd]? || "") }
+        Ci.service = svc
+        tool = WaitForCI.new(dir)
+
+        result = tool.execute(JSON.parse(%({})))
+        result.is_error?.should be_false
+        result.content.should contain("No CI workflow triggers")
+        result.content.should contain("feature/x")
+        svc.observer_for(WAIT_CI_SPEC_SHA).should be_nil
+      ensure
+        Ci.service = old
+      end
+    end
+
     it "waits for a pending observer and returns success" do
       old = Ci.service
       begin
