@@ -992,6 +992,10 @@ module H2code
             if cb.call(name)
               @provider_name = name
               emit_to_log(Message.new("system", "Switched provider to #{name}."))
+              # The switch already loaded the provider's saved model into
+              # @model, so the selector opens positioned on it. Escaping the
+              # selector keeps that model.
+              open_model_selector
             end
           else
             emit_to_log(Message.new("error", "Provider switching is not wired up."))

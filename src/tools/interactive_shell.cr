@@ -89,17 +89,34 @@ module H2code
       end
 
       private def watch_exit : Nil
-        status = @process.wait
+        status = watch_exit_status
         message = if status.normal_exit?
                     "[process exited with code #{status.exit_status}]"
                   else
-                    "[process terminated by signal #{status.exit_signal?}]"
+                    "[process terminated by signal #{status.exit_signal}]"
                   end
         @mutex.synchronize do
           @exit_message = message
           @chunks << message
           @buffered += message.bytesize
         end
+        # Release the parent-side pipe descriptors; the child is gone.
+        @process.close
+      end
+
+      # Reap the child without letting `Process#wait` close its stdin
+      # while it is still running: the stdlib `wait` does `close_io
+      # @input` first, which would EOF the session immediately and kill
+      # any program reading stdin (cat, REPLs). Polling `terminated?`
+      # first and calling `wait` only once the child is gone makes the
+      # stdin close harmless — on Unix the runtime has already reaped the
+      # exit status via its SIGCHLD loop, and on Windows the handle is
+      # signaled, so `wait` just fetches the status without blocking.
+      private def watch_exit_status : Process::Status
+        until @process.terminated?
+          sleep 50.milliseconds
+        end
+        @process.wait
       end
 
       # Write raw data to the session's stdin (flushed immediately).
