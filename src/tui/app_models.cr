@@ -196,10 +196,11 @@ module H2code
       end
     end
 
-    # A message typed while the agent is mid-turn. Mirrors the TS
-    # `QueuedMessage` (mode 'prompt' = normal message, 'bash' = queued shell
-    # command — not yet used). Drained FIFO on turn end; `Ctrl+S` (steer)
-    # injects it into the *current* turn instead, via `Agent#steer`.
+    # A message typed while the agent is mid-turn. Modes: 'prompt' = a normal
+    # user message, 'external' = a synthetic prompt from an outside system
+    # (cron fire, background-task completion). Drained FIFO on turn end —
+    # consecutive 'external' entries coalesce into one turn; `Ctrl+S` (steer)
+    # injects a message into the *current* turn instead, via `Agent#steer`.
     struct QueuedMessage
       property text : String
       property mode : String # "prompt" | "bash"

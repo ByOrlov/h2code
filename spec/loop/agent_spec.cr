@@ -442,6 +442,40 @@ describe H2code::Loop::Agent do
     # The agent is no longer busy after the turn.
     agent.busy?.should be_false
   end
+
+  # Regression: background-subagent completion notifications are injected
+  # into the parent context with the Notification origin (the path used by
+  # `SubagentAgentRunner#inject_completion_notification`). The per-step
+  # `prune_injections` sweep removes transient Injection-origin reminders
+  # BEFORE the API call — it must not remove notifications, or background
+  # results are silently dropped and the model never sees them.
+  it "delivers a context-injected notification to the provider" do
+    captured = [] of Array(H2code::LLM::Message)
+    provider = RecordingProvider.new(
+      H2code::LLM::MockProvider.new([
+        H2code::LLM::MockStep.new(
+          parts: [H2code::LLM::TextPart.new("ok")] of H2code::LLM::MessagePart,
+          stop_reason: "end_turn",
+          text: "ok",
+        ),
+      ]),
+      captured,
+    )
+    memory = H2code::Context::Memory.new
+    memory.max_context_tokens = 131_072
+    tools = H2code::Tools::Registry.new
+    permission = H2code::Permission::Manager.new(H2code::Permission::Mode::Yolo)
+    agent = H2code::Loop::Agent.new(provider, memory, tools, permission)
+
+    # Simulate a background subagent finishing while the parent is idle.
+    memory.add_notification("<notification id=\"task.t1.completed\">Background agent completed</notification>")
+
+    agent.run_turn("hello", nil) { |_e| }
+
+    captured.any? do |msgs|
+      msgs.any?(&.text.includes?("Background agent completed"))
+    end.should be_true
+  end
 end
 
 # Mock provider wrapper that records every message list handed to `chat`,
