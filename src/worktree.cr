@@ -75,11 +75,26 @@ module H2code
     # git helpers
     # ------------------------------------------------------------------
 
+    # Git env vars that override `-C`-based repo discovery. When h2code (or
+    # its spec suite) runs as a child of a git hook — e.g. the pre-commit
+    # hook running `rake spec` — git exports GIT_DIR/GIT_INDEX_FILE pointing
+    # at the hosting repo, and every `git -C <other-repo> ...` child would
+    # silently operate on the HOSTING repo instead (creating branches,
+    # committing its index, even rewriting its config). Scrubbing them makes
+    # the target repo always win. Nil values unset the variable in the child.
+    GIT_ENV_SCRUB = {
+      "GIT_DIR"              => nil,
+      "GIT_WORK_TREE"        => nil,
+      "GIT_INDEX_FILE"       => nil,
+      "GIT_OBJECT_DIRECTORY" => nil,
+      "GIT_COMMON_DIR"       => nil,
+    } of String => String?
+
     private def self.git(dir : String, *args : String) : NamedTuple(out: String, err: String, code: Int32)
       out_io = IO::Memory.new
       err_io = IO::Memory.new
       code = Process.run("git", ["-C", dir] + args.to_a,
-        output: out_io, error: err_io).exit_code
+        output: out_io, error: err_io, env: GIT_ENV_SCRUB).exit_code
       {out: out_io.to_s, err: err_io.to_s, code: code}
     end
 

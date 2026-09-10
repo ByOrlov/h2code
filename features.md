@@ -25,7 +25,15 @@ session cwd. Observation starts only when all of these hold:
   lazily on the first poll);
 - GitLab CI: the repo has a `.gitlab-ci.yml` file and the origin remote
   points at gitlab.com, or at the host of the configured self-hosted
-  endpoint (config `gitlab.endpoint` / `GITLAB_HOST` env).
+  endpoint (config `gitlab.endpoint` / `GITLAB_HOST` env);
+- the pushed branch is covered by a workflow: some workflow's `on: push`
+  trigger matches the branch (`branches` / `branches-ignore` filters,
+  fnmatch globs; no filter covers every branch). A push to a ref no
+  workflow triggers on never produces a CI status, so instead of parking
+  a wait line until the timeout the observer is skipped and an info
+  notification explains why. Undecidable input (detached HEAD, unparsable
+  YAML, GitLab `workflow:rules`) counts as covered. `WaitForCI` applies
+  the same gate to its default HEAD path.
 
 No separate commit tool is needed — the observer piggybacks on every push,
 exactly like sudo detection piggybacks on every elevated command.

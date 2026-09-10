@@ -37,8 +37,12 @@ end
 private def wt_git(dir : String, *args : String) : String
   out_io = IO::Memory.new
   err_io = IO::Memory.new
+  # Scrub hook-exported git env (GIT_DIR etc.) — see Worktree::GIT_ENV_SCRUB.
+  # Without this, running the suite from a git hook (pre-commit → rake spec)
+  # redirects every command to the hosting repo.
   code = Process.run("git", ["-C", dir] + args.to_a,
-    output: out_io, error: err_io).exit_code
+    output: out_io, error: err_io,
+    env: H2code::Worktree::GIT_ENV_SCRUB).exit_code
   raise "git #{args.first} failed: #{err_io}" unless code == 0
   out_io.to_s.strip
 end
@@ -140,6 +144,30 @@ module H2code
           result.error.to_s.should contain("git")
         ensure
           FileUtils.rm_r(home)
+        end
+      end
+
+      # Regression: git exports GIT_DIR/GIT_INDEX_FILE into hook processes,
+      # and the pre-commit hook runs this suite via `rake spec`. Those vars
+      # override `-C` discovery, so without scrubbing every git command in
+      # the suite silently hit the HOSTING repo (created h2code-sess*
+      # branches there, committed its index as "init", and poisoned its
+      # shared config with the temp repo's user.name). See
+      # Worktree::GIT_ENV_SCRUB.
+      it "targets the temp repo even with hook-exported GIT_DIR set" do
+        with_git_repo do |repo, home|
+          ENV["GIT_DIR"] = File.join(Dir.tempdir, "h2code-wt-bogus-gitdir")
+          ENV["GIT_WORK_TREE"] = Dir.tempdir
+          begin
+            Worktree.current_branch(repo).should eq("main")
+            wt_git(repo, "status", "--porcelain").should be_empty
+            result = Worktree.create(repo, "sess08", home)
+            result.success?.should be_true
+            Worktree.current_branch(result.path.not_nil!).should eq("h2code-sess08")
+          ensure
+            ENV.delete("GIT_DIR")
+            ENV.delete("GIT_WORK_TREE")
+          end
         end
       end
     end

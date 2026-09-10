@@ -412,6 +412,8 @@ module H2code
       # Renders the todo list. In the active zone (`active = true`) a khaki
       # vertical bar marks the mutable region like other live blocks; the frozen
       # `todo_snapshot` in the log is clean — no bar (immutable history).
+      # In the active zone a full-width solid progress bar (done/total, in
+      # percent) is drawn below the plan — see `TUI::ProgressBar`.
       private def render_todo_panel(todos : Array({String, String}), cols : Int32, active : Bool = false) : Array(String)
         lines = [] of String
         accent = @theme.colors.primary
@@ -437,7 +439,11 @@ module H2code
                           end
           lines << "#{lead}#{ANSI.color(color, nil)}#{marker} #{title}#{ANSI.reset}"
         end
-        lines << "" if pending > 0
+        if active
+          lines << ProgressBar.render(done, todos.size, cols, khaki: @theme.colors.logo)
+        else
+          lines << "" if pending > 0
+        end
         lines
       end
 

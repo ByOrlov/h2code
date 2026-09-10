@@ -2,6 +2,7 @@ require "json"
 require "http/client"
 require "uri"
 require "compress/zip"
+require "yaml"
 
 module H2code
   module Tools
@@ -361,6 +362,89 @@ module H2code
         default
       end
 
+      # Does any workflow in `.github/workflows` run on a push of `branch`?
+      # Gates the post-push observer: a push to a ref no workflow's
+      # `on.push` trigger covers never produces a CI status, so observing
+      # it would just park a "Waiting for CI" line until MAX_WAIT_S.
+      # Mirrors GitHub's matching closely enough for that gate: a `push`
+      # trigger with no branch filter covers every branch, `branches` /
+      # `branches-ignore` hold fnmatch-style globs (`*`, `**`, `?`,
+      # `[...]`) matched with `File.match?`. Undecidable input (empty or
+      # detached branch, no workflow files, YAML the parser rejects)
+      # counts as covered, so observation degrades to the old behavior
+      # instead of skipping a real build. GitLab repos have no workflows
+      # dir and stay covered — `.gitlab-ci.yml` `workflow:rules` are not
+      # parsed.
+      def self.push_covers_branch?(repo_dir : String, branch : String) : Bool
+        return true if branch.empty? || branch == "HEAD"
+        paths = Dir.glob(File.join(repo_dir, ".github", "workflows", "*.{yml,yaml}"))
+        return true if paths.empty?
+        paths.each do |path|
+          doc = begin
+            YAML.parse(File.read(path))
+          rescue YAML::ParseException | IO::Error | File::NotFoundError
+            # Undecidable → covered, so observation degrades to the old
+            # behavior instead of skipping a possible build.
+            return true
+          end
+          filters = push_trigger(doc)
+          next if filters.nil? # no push event in this workflow
+          branches, ignore = filters
+          covered = if branches
+                      branches.any? { |p| File.match?(p, branch) }
+                    elsif ignore
+                      !ignore.any? { |p| File.match?(p, branch) }
+                    else
+                      true # push with no branch filter — every branch covered
+                    end
+          return true if covered
+        end
+        false
+      end
+
+      # `on.push` trigger of a workflow doc: nil when the workflow has no
+      # push event, otherwise its branch filters (nil component = absent).
+      private def self.push_trigger(doc : YAML::Any) : {Array(String)?, Array(String)?}?
+        on = on_value(doc)
+        return nil if on.nil?
+        push = case raw = on.raw
+               when Hash     then on["push"]?
+               when Array    then raw.any?(&.to_s.==("push")) ? true : nil
+               when String   then raw == "push" ? true : nil
+               else               nil
+               end
+        return nil if push.nil?
+        return {nil, nil} if push.is_a?(Bool) # bare push trigger — no filters
+        # `push:` with a null value wraps nil; YAML::Any#[]? only indexes
+        # Array/Hash and raises otherwise.
+        return {nil, nil} unless push.raw.is_a?(Hash)
+        {string_array(push["branches"]?), string_array(push["branches-ignore"]?)}
+      end
+
+      # The value of the `on:` key. YAML 1.1 parsers (and Crystal's) resolve
+      # the bare `on:` scalar to boolean true, so besides the string lookups
+      # the raw mapping keys are scanned for a boolean true.
+      private def self.on_value(doc : YAML::Any) : YAML::Any?
+        if v = doc["on"]? || doc["true"]?
+          return v
+        end
+        if h = doc.raw.as?(Hash)
+          h.each do |k, v|
+            return v if k.raw.as?(Bool) == true
+          end
+        end
+        nil
+      end
+
+      private def self.string_array(value : YAML::Any?) : Array(String)?
+        return nil if value.nil?
+        case raw = value.raw
+        when Array  then raw.map(&.to_s)
+        when String then [raw]
+        else             nil
+        end
+      end
+
       # Aggregate `gh run list --json` rows into an observer status.
       # Pending while any run is in progress or none is registered yet.
       def self.aggregate_runs(runs : Array(JSON::Any)) : {Status, String}
@@ -433,6 +517,14 @@ module H2code
         abstract def pending_observers : Array(Observer)
         abstract def pending? : Bool
         abstract def head_sha(cwd : String) : String?
+
+        # Branch of the repo at `cwd` ("" when undeterminable). Combined
+        # with `Ci.push_covers_branch?` to skip observing pushes no
+        # workflow triggers on. Concrete default keeps test doubles
+        # simple; `LiveCiService` overrides.
+        def current_branch(cwd : String) : String
+          ""
+        end
       end
 
       class LiveCiService < CiService
@@ -568,7 +660,49 @@ module H2code
           repo_dir = Ci.repo_dir_from_command(command, cwd)
           sha = head_sha(repo_dir)
           return false if sha.nil?
+          return false unless observe_push_branch?(repo_dir)
           observe(sha, repo_dir)
+        end
+
+        # A plain `git push` publishes the current branch, so before
+        # observing, check that branch against the workflows' `on.push`
+        # triggers. When no workflow covers it, CI never runs for the
+        # sha — report that instead of parking a "Waiting for CI" line
+        # until MAX_WAIT_S. Refspec pushes (`git push origin HEAD:master`)
+        # are not parsed; an undeterminable branch (empty / detached HEAD)
+        # falls through to observing, same as before.
+        private def observe_push_branch?(repo_dir : String) : Bool
+          branch = current_branch(repo_dir)
+          return true if Ci.push_covers_branch?(repo_dir, branch)
+          notify_uncovered_branch(branch)
+          false
+        end
+
+        # One-shot "nothing to observe" notification, shaped like the
+        # observer completion notifications so the delivery path is reused.
+        private def notify_uncovered_branch(branch : String) : Nil
+          body = "Branch: #{branch}\n" \
+                 "No CI workflow triggers on pushes to this branch, so no CI build will run for it. " \
+                 "Nothing is being observed. Check the `on: push` branch filters in .github/workflows " \
+                 "if you expected a build."
+          data = {
+            "id"          => JSON::Any.new("ci.noci.#{branch}"),
+            "category"    => JSON::Any.new("ci_completion"),
+            "type"        => JSON::Any.new("skipped"),
+            "source_kind" => JSON::Any.new("ci"),
+            "source_id"   => JSON::Any.new(branch),
+            "title"       => JSON::Any.new("No CI build for this branch"),
+            "severity"    => JSON::Any.new("info"),
+            "body"        => JSON::Any.new(body),
+          } of String => JSON::Any
+          @delivery.try(&.call(Tools.render_notification_xml(data)))
+        end
+
+        # Branch of the repo at `cwd`, "" when HEAD is detached or the
+        # lookup fails (both treated as "undeterminable — observe").
+        def current_branch(cwd : String) : String
+          res = run("git rev-parse --abbrev-ref HEAD", cwd)
+          res.exit_code == 0 ? res.output.strip : ""
         end
 
         # HEAD sha of the repo at `cwd`, or nil when the repo is not eligible

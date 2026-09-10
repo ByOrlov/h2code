@@ -37,6 +37,7 @@ module H2code
 
         Guidelines:
         - Omit `sha` to wait on the currently observed commit (the one just pushed).
+        - When no workflow triggers on pushes to the current branch, this returns immediately explaining that no CI build will run.
         - On a failed result: investigate the failure log excerpt, fix the code, commit and push again.
         - Do not loop on this tool with short timeouts; pick a reasonable `timeout_s` once.
 
@@ -92,8 +93,19 @@ module H2code
                 existing
               else
                 existing = svc.pending_observer
-                if existing.nil? && (head = svc.head_sha(@work_dir)) && svc.observe(head, @work_dir)
-                  existing = svc.observer_for(head)
+                if existing.nil? && (head = svc.head_sha(@work_dir))
+                  # Skip observing (and waiting for) a HEAD whose branch no
+                  # workflow's `on.push` trigger covers — that build will
+                  # never start, so the wait would just run to its timeout.
+                  unless Ci.push_covers_branch?(@work_dir, svc.current_branch(@work_dir))
+                    return ToolResult.success(
+                      "No CI workflow triggers on pushes to branch #{svc.current_branch(@work_dir)} — " \
+                      "no CI build will run for this commit, nothing to wait for.",
+                    )
+                  end
+                  if svc.observe(head, @work_dir)
+                    existing = svc.observer_for(head)
+                  end
                 end
                 existing
               end
