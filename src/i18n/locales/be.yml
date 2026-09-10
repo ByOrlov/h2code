@@ -123,6 +123,7 @@ be:
     cleanup: "Выдаліць старыя сесіі і галасавыя паведамленні"
     github: "Налада GitHub-токена для статуса CI"
     gitlab: "Налада GitLab-токена для статуса CI"
+    ci: "Уручную назіраць CI для каміта"
     bash: "Статус абалонкі і bash"
   help:
     title: "даведка"
@@ -303,6 +304,11 @@ be:
     telemetry_off_label: "выключ"
     telemetry_status: "Тэлеметрыя: %{state}\nАдсочваемыя лічыльнікі:\n%{counters}"
     telemetry_usage: "Выкарыстанне: /telemetry on|off"
+    # /ci — manual CI observer start
+    ci_unavailable: "Назіральнік CI недаступны ў гэтай сесіі."
+    ci_not_eligible: "Гэты рэпазітар не падыходзіць для назірання CI (патрэбны аддалены рэпазітар GitHub з .github/workflows або GitLab з .gitlab-ci.yml)."
+    ci_bad_commit: "Не з'яўляецца камітам гэтага рэпазіторыя: %{ref}"
+    ci_started: "Назіраю CI для %{sha} — вынік будзе паведамлены па заканчэнні зборкі."
     # /github — майстар налады GitHub-токена (config github.token для назірання за CI)
     usage_github: "Выкарыстанне: /github [status|token [clear]]"
     github_token_set: "GitHub-токен: зададзены (%{masked})"

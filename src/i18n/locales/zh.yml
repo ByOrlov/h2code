@@ -123,6 +123,7 @@ zh:
     cleanup: "删除旧会话和语音消息"
     github: "配置用于 CI 状态的 GitHub 令牌"
     gitlab: "配置用于 CI 状态的 GitLab 令牌"
+    ci: "手动观察某个提交的 CI"
     bash: "显示 shell 与 bash 状态"
   help:
     title: "帮助"
@@ -303,6 +304,11 @@ zh:
     telemetry_off_label: "关"
     telemetry_status: "遥测: %{state}\n跟踪的计数器:\n%{counters}"
     telemetry_usage: "用法: /telemetry on|off"
+    # /ci — manual CI observer start
+    ci_unavailable: "CI 观察器在此会话中不可用。"
+    ci_not_eligible: "此仓库不符合 CI 观察条件（需要带 .github/workflows 的 GitHub 远程仓库，或带 .gitlab-ci.yml 的 GitLab 远程仓库）。"
+    ci_bad_commit: "不是此仓库的提交：%{ref}"
+    ci_started: "正在观察 %{sha} 的 CI — 构建结束后将报告结果。"
     # /github — GitHub 令牌设置向导（用于 CI 观察的 config github.token）
     usage_github: "用法: /github [status|token [clear]]"
     github_token_set: "GitHub 令牌: 已设置（%{masked}）"

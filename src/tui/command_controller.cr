@@ -1163,6 +1163,56 @@ module H2code
         end
         emit_to_log(Message.new("system", H2code.t("ui.gitlab_token_cleared")))
       end
+
+      # `/ci [<commit>]` — manually start the CI observer. `<commit>` is
+      # anything `git rev-parse` resolves (full/short SHA, branch, tag);
+      # without it the current HEAD is observed. From there the flow is the
+      # automatic one: a wait line in the active zone while pending, a log
+      # line (+ agent notification on failure) when CI finishes.
+      private def cmd_ci(args : String) : Nil
+        svc = Tools::Ci.service
+        if svc.nil?
+          emit_to_log(Message.new("error", H2code.t("ui.ci_unavailable")))
+          return
+        end
+        # Same eligibility gate as the automatic push detection, so a repo
+        # without CI never gets a stuck wait line.
+        if svc.is_a?(Tools::Ci::LiveCiService) && svc.repo_info(@work_dir).nil?
+          emit_to_log(Message.new("error", H2code.t("ui.ci_not_eligible")))
+          return
+        end
+        ref = args.strip
+        sha = if ref.empty?
+                svc.head_sha(@work_dir)
+              else
+                resolve_commit_sha(ref)
+              end
+        if sha.nil?
+          emit_to_log(Message.new("error",
+            ref.empty? ? H2code.t("ui.ci_not_eligible") : H2code.t("ui.ci_bad_commit", ref: ref)))
+          return
+        end
+        if svc.observe(sha, @work_dir)
+          short = svc.observer_for(sha).try(&.short_sha) || sha[0, Math.min(7, sha.size)]
+          emit_to_log(Message.new("system", H2code.t("ui.ci_started", sha: short)))
+        else
+          emit_to_log(Message.new("error", H2code.t("ui.ci_not_eligible")))
+        end
+      end
+
+      # Full 40-hex SHA of a user-supplied revision, or nil when it does not
+      # resolve to a commit in the repository at the session cwd. The ref is
+      # passed to git as a single argv entry — never through a shell.
+      private def resolve_commit_sha(ref : String) : String?
+        out_io = IO::Memory.new
+        code = Process.run("git", ["-C", @work_dir, "rev-parse", "#{ref}^{commit}"],
+          output: out_io, error: Process::Redirect::Close).exit_code
+        sha = out_io.to_s.strip.lines.first?.try(&.strip) || ""
+        return nil if code != 0 || sha.size != 40 || sha =~ /[^0-9a-f]/
+        sha
+      rescue ex : File::NotFoundError | IO::Error
+        nil
+      end
     end
   end
 end

@@ -28,7 +28,12 @@ session cwd. Observation starts only when all of these hold:
   endpoint (config `gitlab.endpoint` / `GITLAB_HOST` env).
 
 No separate commit tool is needed — the observer piggybacks on every push,
-exactly like sudo detection piggybacks on every elevated command.
+exactly like sudo detection piggybacks on every elevated command. A manual
+start is also available: the `/ci [<commit>]` slash command (`cmd_ci` in
+`src/tui/command_controller.cr`) resolves the argument through
+`git rev-parse <commit>^{commit}` (short SHA, branch and tag all work; no
+argument observes HEAD) and calls `Ci.service.observe` — same eligibility
+gate as pushes, and from there the exact same wait-line / notification flow.
 
 ### CI observer (`src/tools/ci.cr`)
 

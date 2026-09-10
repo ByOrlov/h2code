@@ -123,6 +123,7 @@ en:
     cleanup: "Delete old sessions and voice messages"
     github: "Configure the GitHub token for CI status"
     gitlab: "Configure the GitLab token for CI status"
+    ci: "Manually watch CI for a commit"
     bash: "Show shell and bash status"
   help:
     title: "help"
@@ -303,6 +304,11 @@ en:
     telemetry_off_label: "off"
     telemetry_status: "Telemetry: %{state}\nTracked counters:\n%{counters}"
     telemetry_usage: "Usage: /telemetry on|off"
+    # /ci — manual CI observer start
+    ci_unavailable: "CI observer is not available in this session."
+    ci_not_eligible: "This repository is not eligible for CI observation (a GitHub remote with .github/workflows, or a GitLab remote with .gitlab-ci.yml, is required)."
+    ci_bad_commit: "Not a commit in this repository: %{ref}"
+    ci_started: "Watching CI for %{sha} — the outcome will be reported when the build finishes."
     # /github — GitHub token wizard (config github.token for CI observation)
     usage_github: "Usage: /github [status|token [clear]]"
     github_token_set: "GitHub token: set (%{masked})"

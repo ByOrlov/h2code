@@ -710,6 +710,8 @@ module H2code
           handle_language_command(args)
         when "/cleanup"
           cmd_cleanup(args)
+        when "/ci"
+          cmd_ci(args)
         when "/github"
           cmd_github(args)
         when "/gitlab"
