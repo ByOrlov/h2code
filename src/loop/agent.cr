@@ -70,6 +70,7 @@ module H2code
       end
 
       def run_turn(prompt : String, system_prompt : String? = nil,
+                   parts : Array(LLM::ContentPart)? = nil,
                    &on_event : Event ->) : TurnResult
         # A previous turn may have been cancelled; clear the flag so this turn
         # can run. Without this, interrupting once would poison every later turn.
@@ -90,7 +91,14 @@ module H2code
         # fires. Without this coverage, a failure in add_user/inject_goal_reminder
         # left @busy true and never emitted turn_end, locking the TUI.
         begin
-          @context.add_user(prompt)
+          # Pasted media: the user message carries interleaved text + image
+          # parts instead of a plain string (placeholders already resolved
+          # by the TUI media store).
+          if parts
+            @context.add_user_parts(parts)
+          else
+            @context.add_user(prompt)
+          end
           on_event.call(Event.user_message(prompt))
 
           # UserPromptSubmit hook: a block decision replaces the prompt with
@@ -201,8 +209,9 @@ module H2code
       # `run_turn` at the call site — the TUI/headless caller sees normal
       # turn_end events for each iteration.
       def run_goal_turn(prompt : String, system_prompt : String? = nil,
+                        parts : Array(LLM::ContentPart)? = nil,
                         &on_event : Event ->) : TurnResult
-        result = run_turn(prompt, system_prompt) { |e| on_event.call(e) }
+        result = run_turn(prompt, system_prompt, parts) { |e| on_event.call(e) }
 
         # A goal can become active during an ordinary turn: the model creates
         # one with CreateGoal, or resumes a paused/blocked goal via UpdateGoal.

@@ -203,8 +203,12 @@ module H2code
     struct QueuedMessage
       property text : String
       property mode : String # "prompt" | "bash"
+      # Media content parts resolved from pasted placeholders at submit time
+      # (nil for plain-text messages). Delivered to the turn with the text.
+      property parts : Array(LLM::ContentPart)? = nil
 
-      def initialize(@text : String, @mode : String = "prompt")
+      def initialize(@text : String, @mode : String = "prompt",
+                     @parts : Array(LLM::ContentPart)? = nil)
       end
     end
   end

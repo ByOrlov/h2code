@@ -17,6 +17,7 @@ module H2code
       CtrlB
       CtrlE
       CtrlR
+      CtrlV
       Up
       Down
       Left
@@ -73,6 +74,7 @@ module H2code
         in .right?       then io << "Right"
         in .ctrl_e?      then io << "Ctrl+E"
         in .ctrl_r?      then io << "Ctrl+R"
+        in .ctrl_v?      then io << "Ctrl+V"
         in .shift_enter? then io << "Shift+Enter"
         in .paste?       then io << "Paste"
         in .unknown?     then io << "Unknown"
@@ -87,6 +89,22 @@ module H2code
       @buffer : Array(UInt8) = [] of UInt8
       @events : Array(KeyEvent) = [] of KeyEvent
       @wait : InputWait = InputWait.default
+      @@debug_input_path : String? = nil
+
+      # When H2CODE_DEBUG_INPUT=/path/to/log is set, every raw stdin chunk
+      # and every parsed key event is appended there — the tool for
+      # diagnosing "my terminal sends Ctrl+V differently" reports.
+      def self.debug_input_path : String?
+        @@debug_input_path = ENV["H2CODE_DEBUG_INPUT"]? if @@debug_input_path.nil? && ENV["H2CODE_DEBUG_INPUT"]?
+        @@debug_input_path
+      end
+
+      private def log_debug_input(line : String) : Nil
+        path = self.class.debug_input_path || return
+        File.open(path, "a") { |f| f.puts line }
+      rescue
+        # Diagnostics must never break the input loop.
+      end
 
       def read_key : KeyEvent?
         return @events.shift? unless @events.empty?
@@ -130,6 +148,10 @@ module H2code
           bytes_read = read_stdin_chunk(slice)
           break if bytes_read <= 0
           @buffer.concat(slice[0, bytes_read].to_a)
+          if self.class.debug_input_path
+            hex = slice[0, bytes_read].map { |b| b.to_s(16).rjust(2, '0') }.join(' ')
+            log_debug_input("raw(#{bytes_read}): #{hex}")
+          end
         end
       end
 
@@ -145,6 +167,9 @@ module H2code
         loop do
           key, consumed = parse_one(@buffer)
           break if consumed == 0
+          if key && self.class.debug_input_path
+            log_debug_input("parsed: #{key} (consumed #{consumed})")
+          end
           @events << key if key
           @buffer = @buffer[consumed..]
         end
@@ -178,6 +203,8 @@ module H2code
           {KeyEvent.new(Key::CtrlE), 1}
         when 18
           {KeyEvent.new(Key::CtrlR), 1}
+        when 22
+          {KeyEvent.new(Key::CtrlV), 1}
         when 27
           parse_escape(bytes)
         else
@@ -268,10 +295,39 @@ module H2code
         when 72 then {KeyEvent.new(Key::Home), final_idx + 1}
         when 70 then {KeyEvent.new(Key::End), final_idx + 1}
         when 90 then {KeyEvent.new(Key::ShiftTab), final_idx + 1} # ESC [ Z
+        when 117                                                  # 'u' — kitty CSI-u: ESC [ <codepoint> [; <mods>[:<event>]] u
+          # Terminals with the kitty keyboard protocol report Ctrl+V as
+          # ESC [ 118 ; 5 u instead of the legacy 0x16 byte. Without this
+          # branch the paste hotkey silently dies in those terminals.
+          # The mods field may carry an event-type sub-parameter
+          # (<mods>:<event>) — releases (:3) must be dropped since the
+          # protocol is pushed with the report-event-types flag.
+          return {KeyEvent.new(Key::Unknown), final_idx + 1} if params.empty?
+          parts = params.join(&.chr).split(';')
+          codepoint = parts[0]?.try(&.to_i?)
+          return {KeyEvent.new(Key::Unknown), final_idx + 1} if codepoint.nil?
+          mods_field = parts[1]? || "1"
+          mods, event_type = parse_mods_field(mods_field)
+          return {nil, final_idx + 1} if event_type == 3 # key release
+          key_event_for_codepoint(codepoint, mods, final_idx)
         when 126
           return {KeyEvent.new(Key::Unknown), final_idx + 1} if params.empty?
 
-          param = params.join(&.chr).to_i? || 0
+          param_str = params.join(&.chr)
+
+          # xterm modifyOtherKeys: ESC [ 27 ; <mods> ; <codepoint> ~ —
+          # another Ctrl+<letter> encoding some terminals emit.
+          if param_str.starts_with?("27;")
+            parts = param_str.split(';')
+            if parts.size == 3
+              mods = (parts[1].to_i? || 1) - 1
+              codepoint = parts[2].to_i?
+              return key_event_for_codepoint(codepoint, mods, final_idx) if codepoint
+            end
+            return {KeyEvent.new(Key::Unknown), final_idx + 1}
+          end
+
+          param = param_str.to_i? || 0
           case param
           when 1, 7, 8 then {KeyEvent.new(Key::Home), final_idx + 1}
           when 2       then {KeyEvent.new(Key::Unknown), final_idx + 1} # Insert
@@ -284,6 +340,68 @@ module H2code
         else
           {KeyEvent.new(Key::Unknown), final_idx + 1}
         end
+      end
+
+      # Parse a kitty mods field: "<mods>" or "<mods>:<event-type>".
+      # Modifier value is 1-based (1 = none); event-type 1 = press,
+      # 2 = repeat, 3 = release.
+      private def parse_mods_field(field : String) : {Int32, Int32}
+        sub = field.split(':')
+        mods = ((sub[0]?.try(&.to_i?)) || 1) - 1
+        event_type = (sub[1]?.try(&.to_i?)) || 1
+        {mods, event_type}
+      end
+
+      # Build a KeyEvent from a kitty/xterm codepoint+modifier encoding.
+      # Modifier bitmask: 1 = shift, 2 = alt, 4 = ctrl. Ctrl+letter maps to
+      # the Key enum's Ctrl members (unmapped combos are Unknown, matching
+      # the legacy raw-byte path); alt/shift fall back to a flagged char
+      # event like the ESC- prefixed legacy path does.
+      private def key_event_for_codepoint(codepoint : Int32, mods : Int32,
+                                          final_idx : Int32) : {KeyEvent?, Int32}
+        ctrl = mods & 4 > 0
+        alt = mods & 2 > 0
+        shift = mods & 1 > 0
+
+        # Control keys arrive as CSI-u under the disambiguate flag
+        # (e.g. Esc as ESC [ 27 u).
+        unless ctrl || alt
+          key = case codepoint
+                when  27 then Key::Escape
+                when  13 then shift ? Key::ShiftEnter : Key::Enter
+                when   9 then shift ? Key::ShiftTab : Key::Tab
+                when 127 then Key::Backspace
+                else          nil
+                end
+          return {KeyEvent.new(key), final_idx + 1} if key
+        end
+
+        if ctrl && !alt
+          char = (32..0x10FFFF).includes?(codepoint) ? codepoint.chr : nil
+          if char && char.letter?
+            key = case char.downcase
+                  when 'c' then Key::CtrlC
+                  when 'd' then Key::CtrlD
+                  when 'l' then Key::CtrlL
+                  when 's' then Key::CtrlS
+                  when 'g' then Key::CtrlG
+                  when 'b' then Key::CtrlB
+                  when 'e' then Key::CtrlE
+                  when 'r' then Key::CtrlR
+                  when 'v' then Key::CtrlV
+                  else          return {KeyEvent.new(Key::Unknown), final_idx + 1}
+                  end
+            return {KeyEvent.new(key), final_idx + 1}
+          end
+          return {KeyEvent.new(Key::Unknown), final_idx + 1}
+        end
+
+        char = (32..0x10FFFF).includes?(codepoint) ? codepoint.chr : nil
+        return {KeyEvent.new(Key::Unknown), final_idx + 1} if char.nil?
+        event = KeyEvent.char(char)
+        event.alt = true if alt
+        event.shift = true if shift
+        {event, final_idx + 1}
       end
 
       private def parse_paste(bytes : Array(UInt8)) : {KeyEvent?, Int32}

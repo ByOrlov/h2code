@@ -72,7 +72,10 @@ module H2code
       @dispatch_pending : Bool = false
       # The turn callback normally installed by `run`; a property so tests
       # and embedded drivers can install one without entering the event loop.
-      property run_turn_cb : (String, Bool -> Nil)? = nil
+      property run_turn_cb : (String, Bool, Array(LLM::ContentPart)? -> Nil)? = nil
+      # Media pasted into the input box (Ctrl+V). Placeholders in the editor
+      # text resolve against this store on submit — see MediaAttachmentStore.
+      property media_store : MediaAttachmentStore = MediaAttachmentStore.new
       # Plan mode mirrors TS: while on, tools that mutate state are blocked
       # and the agent only researches. Toggled via `/plan` or `EnterPlanMode`.
       property? plan_mode : Bool = false
@@ -449,7 +452,8 @@ module H2code
         @running = false
       end
 
-      def run(initial_prompt : String? = nil, &run_turn : String, Bool -> Nil) : Nil
+      def run(initial_prompt : String? = nil,
+              &run_turn : String, Bool, Array(LLM::ContentPart)? -> Nil) : Nil
         @terminal.raw!
         @terminal.refresh_size
         @run_turn_cb = run_turn

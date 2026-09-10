@@ -115,7 +115,7 @@ private def voice_app(mock : GatedVoiceMock) : H2code::TUI::App
   config.transcription = H2code::Config::TranscriptionConfig.new(
     enabled: true, socket: mock.socket_path, engine: "auto", language: "ru")
   app.app_config = config
-  app.run_turn_cb = ->(_text : String, _persisted : Bool) { nil }
+  app.run_turn_cb = ->(_text : String, _persisted : Bool, _parts : Array(H2code::LLM::ContentPart)?) { nil }
   app
 end
 

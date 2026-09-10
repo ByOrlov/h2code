@@ -17,6 +17,7 @@ module H2code
         else
           @on_new_session.try(&.call)
           @messages.clear
+          @media_store.clear
           @show_welcome = true
           emit_to_log(Message.new("system", H2code.t("ui.new_session_started")))
         end
@@ -192,6 +193,7 @@ module H2code
         else
           @on_clear.try(&.call)
           @messages.clear
+          @media_store.clear
           @show_welcome = true
           emit_to_log(Message.new("system", H2code.t("ui.conversation_cleared")))
         end

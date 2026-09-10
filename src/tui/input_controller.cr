@@ -254,6 +254,15 @@ module H2code
           @last_space_at = nil
         end
 
+        # Alt+V pastes clipboard media on Windows terminals (where Ctrl+V is
+        # usually intercepted for text paste). Arrives as ESC v — an
+        # alt-flagged char event.
+        if key.key.char? && (key.char == 'v' || key.char == 'V') && key.alt?
+          paste_clipboard_media
+          @dirty = true
+          return
+        end
+
         case key.key
         when .ctrl_c?
           if @agent_busy
@@ -288,6 +297,8 @@ module H2code
           end
         when .ctrl_r?
           toggle_voice_recording
+        when .ctrl_v?
+          paste_clipboard_media
         when .ctrl_g?
           handle_external_editor
         when .up?
@@ -1457,6 +1468,58 @@ module H2code
         else
           # ↑/↓, Backspace, and typed characters drive the fuzzy filter.
           @model_list.handle_input(key)
+          @dirty = true
+        end
+      end
+
+      # Paste clipboard media into the input box (Ctrl+V / Alt+V). Port of the
+      # JS paste-image flow: read the clipboard via ImagePastePort, compress
+      # oversized images to the delivery budget, register the payload in the
+      # media store and insert the user-visible placeholder. Runs in a fiber —
+      # clipboard helpers (xclip/wl-paste/powershell) shell out with timeouts
+      # and must not block the render loop.
+      private def paste_clipboard_media : Nil
+        spawn do
+          media = ImagePastePort.new.read_clipboard_media
+          if media.nil?
+            @status = "No supported image in clipboard"
+            @dirty = true
+            next
+          end
+
+          attachment = case media.kind
+                       in .image?
+                         bytes = media.bytes
+                         mime = media.mime
+                         dims = Tools.sniff_image_dimensions(bytes)
+                         # Paste-time compression: keep oversized pastes
+                         # within the image byte budget where a processor is
+                         # available (ImageMagick); otherwise pass through.
+                         if bytes.size > Tools::Media::IMAGE_BYTE_BUDGET
+                           if processor = Tools::Media.image_processor
+                             outcome = processor.compress(
+                               bytes, mime,
+                               byte_budget: Tools::Media::IMAGE_BYTE_BUDGET,
+                               max_edge: Tools::Media::MAX_IMAGE_EDGE_PX,
+                             )
+                             if outcome.data.size < bytes.size
+                               bytes = outcome.data
+                               mime = outcome.mime_type
+                             end
+                           end
+                         end
+                         @media_store.add_image(
+                           bytes, mime,
+                           dims.try(&.width) || 0, dims.try(&.height) || 0,
+                         )
+                       in .video_file?
+                         source_path = media.source_path
+                         next if source_path.nil?
+                         @media_store.add_video(source_path, media.mime)
+                       end
+
+          @editor.insert_text("#{attachment.placeholder} ")
+          @status = ""
           @dirty = true
         end
       end

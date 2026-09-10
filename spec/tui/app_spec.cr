@@ -32,6 +32,14 @@ class SearchApp < H2code::TUI::App
   end
 end
 
+# Spec-only wrapper exposing the private submit path (placeholder → parts
+# resolution → turn callback) for end-to-end paste-pipeline tests.
+class SubmitApp < H2code::TUI::App
+  def submit(text : String) : Nil
+    submit_message(text)
+  end
+end
+
 describe H2code::TUI::App do
   it "routes parallel tool results to the correct messages" do
     app = H2code::TUI::App.new
@@ -152,7 +160,7 @@ describe H2code::TUI::App do
   # turn_end cleanup so the user can keep typing.
   it "resets busy and surfaces the error when the turn fiber crashes" do
     app = H2code::TUI::App.new
-    app.run_turn_cb = ->(_text : String, _persisted : Bool) { raise "boom" }
+    app.run_turn_cb = ->(_text : String, _persisted : Bool, _parts : Array(H2code::LLM::ContentPart)?) { raise "boom" }
 
     app.deliver_external_prompt("hello")
     app.agent_busy?.should be_true
@@ -164,6 +172,33 @@ describe H2code::TUI::App do
 
     app.agent_busy?.should be_false
     app.@messages.any? { |m| m.role == "error" && m.content.includes?("boom") }.should be_true
+  end
+
+  # End-to-end paste pipeline: a submitted message carrying a media
+  # placeholder resolves against the app's media store and the turn callback
+  # receives native image content parts alongside the display text.
+  it "delivers pasted media placeholders to the turn callback as parts" do
+    app = SubmitApp.new
+
+    png = Bytes.new(24, 0)
+    png[0] = 0x89
+    png[1] = 0x50
+    app.media_store.add_image(png, "image/png", 800, 600)
+
+    received = Channel({String, Array(H2code::LLM::ContentPart)?}).new
+    app.run_turn_cb = ->(text : String, _persisted : Bool, parts : Array(H2code::LLM::ContentPart)?) : Nil do
+      received.send({text, parts})
+    end
+
+    app.submit("look at [image #1 (800×600)]")
+
+    text, parts = received.receive
+    text.should contain("[image #1")
+    parts.should_not be_nil
+    if p = parts
+      p.any?(H2code::LLM::ImageContent).should be_true
+      p.any? { |part| part.is_a?(H2code::LLM::TextContent) && part.as(H2code::LLM::TextContent).text.includes?("look at") }.should be_true
+    end
   end
 
   # Regression: assistant_text delivered without preceding text_delta must still
