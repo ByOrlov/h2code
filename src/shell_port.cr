@@ -19,6 +19,22 @@ module H2code
     # argv (excluding the program) that runs *command* through the interpreter.
     abstract def shell_args(command : String) : Array(String)
 
+    # Runs *command* through the interpreter with piped stdio; the caller
+    # owns the pipes and the wait. Adapters may override this when
+    # `Process.new(program, shell_args)` is not enough — see
+    # `Win32ShellPort#spawn` for why Windows needs a verbatim command line.
+    def spawn(command : String, env : Hash(String, String?), chdir : String) : Process
+      Process.new(
+        program,
+        shell_args(command),
+        env: env,
+        chdir: chdir,
+        input: Process::Redirect::Pipe,
+        output: Process::Redirect::Pipe,
+        error: Process::Redirect::Pipe,
+      )
+    end
+
     # Default value for the SHELL environment variable of spawned children
     # (used unless the user configured an explicit one).
     abstract def env_shell : String

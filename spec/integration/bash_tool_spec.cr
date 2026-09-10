@@ -26,6 +26,14 @@ def cmd(posix : String, powershell : String = "") : String
   integration_shell.name == "powershell" ? powershell : %(powershell -NoProfile -Command "#{powershell}")
 end
 
+# JSON payload for the Bash tool. Always built via `Hash#to_json`: commands
+# contain `"` (the documented `powershell -NoProfile -Command "..."` pattern)
+# and Windows paths contain backslashes — both are invalid escape sequences
+# inside a raw interpolated JSON literal.
+def bash_input(command : String, **extra) : String
+  ({"command" => command}.merge(extra.to_h)).to_json
+end
+
 # A headless Bash instance: default abort check, no sudo approval, no
 # terminal-exec, no delivery callback — nothing that could wait on a user.
 def headless_bash(work_dir : String)
@@ -36,7 +44,7 @@ describe "Bash tool, headless integration", tags: "integration" do
   it "runs a command through the resolved system interpreter" do
     with_tmpdir do |dir|
       bash = headless_bash(dir)
-      result = bash.execute(JSON.parse(%({"command":"#{cmd("printf hello", "Write-Output hello")}"})))
+      result = bash.execute(JSON.parse(bash_input(cmd("printf hello", "Write-Output hello"))))
       result.is_error?.should be_false
       result.content.should contain("hello")
     end
@@ -49,7 +57,7 @@ describe "Bash tool, headless integration", tags: "integration" do
         "echo hello | tr a-z A-Z",
         "Write-Output hello | ForEach-Object { $_.ToUpper() }",
       )
-      result = bash.execute(JSON.parse(%({"command":"#{command}"})))
+      result = bash.execute(JSON.parse(bash_input(command)))
       result.is_error?.should be_false
       result.content.should contain("HELLO")
     end
@@ -62,7 +70,7 @@ describe "Bash tool, headless integration", tags: "integration" do
         "printf one; printf two",
         "Write-Output one; Write-Output two",
       )
-      result = bash.execute(JSON.parse(%({"command":"#{command}"})))
+      result = bash.execute(JSON.parse(bash_input(command)))
       result.is_error?.should be_false
       result.content.should contain("one")
       result.content.should contain("two")
@@ -87,7 +95,7 @@ describe "Bash tool, headless integration", tags: "integration" do
     with_tmpdir do |dir|
       if integration_shell.name == "cmd"
         bash = headless_bash(dir)
-        result = bash.execute(JSON.parse(%({"command":"echo hello | find \"hello\""})))
+        result = bash.execute(JSON.parse(bash_input(%(echo hello | find "hello"))))
         result.is_error?.should be_false
         result.content.should contain("hello")
       end
@@ -101,7 +109,7 @@ describe "Bash tool, headless integration", tags: "integration" do
         "echo shell-write > out.txt",
         "Set-Content out.txt shell-write",
       )
-      result = bash.execute(JSON.parse(%({"command":"#{command}"})))
+      result = bash.execute(JSON.parse(bash_input(command)))
       result.is_error?.should be_false
       File.read(File.join(dir, "out.txt")).should contain("shell-write")
     end
@@ -112,10 +120,7 @@ describe "Bash tool, headless integration", tags: "integration" do
       target = File.join(dir, "nested")
       Dir.mkdir_p(target)
       bash = headless_bash(dir)
-      # Build the payload via Hash#to_json: a Windows cwd contains backslashes
-      # (D:\a\...), which are invalid escape sequences when interpolated into
-      # a raw JSON literal.
-      input = {"command" => cmd("pwd", "Get-Location"), "cwd" => target}.to_json
+      input = bash_input(cmd("pwd", "Get-Location"), cwd: target)
       result = bash.execute(JSON.parse(input))
       result.is_error?.should be_false
       result.content.should contain("nested")
@@ -129,7 +134,7 @@ describe "Bash tool, headless integration", tags: "integration" do
         "printenv NO_COLOR; printenv TERM",
         "$env:NO_COLOR; $env:TERM",
       )
-      result = bash.execute(JSON.parse(%({"command":"#{command}"})))
+      result = bash.execute(JSON.parse(bash_input(command)))
       result.is_error?.should be_false
       # Windows shells emit CRLF; strip per-line before exact matching.
       lines = result.content.strip.split('\n').map(&.strip)
@@ -142,7 +147,7 @@ describe "Bash tool, headless integration", tags: "integration" do
     with_tmpdir do |dir|
       bash = headless_bash(dir)
       command = cmd("cat", "[Console]::In.ReadToEnd()")
-      result = bash.execute(JSON.parse(%({"command":"#{command}"})))
+      result = bash.execute(JSON.parse(bash_input(command)))
       result.is_error?.should be_false
       result.content.strip.should eq("")
     end
@@ -162,7 +167,7 @@ describe "Bash tool, headless integration", tags: "integration" do
       bash = headless_bash(dir)
       command = cmd("sleep 30", "Start-Sleep -Seconds 30")
       started = Time.monotonic
-      result = bash.execute(JSON.parse(%({"command":"#{command}","timeout":1})))
+      result = bash.execute(JSON.parse(bash_input(command, timeout: 1)))
       (Time.monotonic - started).should be < 10.seconds
       result.is_error?.should be_true
       result.content.should contain("timed out after 1s")
@@ -175,7 +180,7 @@ describe "Bash tool, headless integration", tags: "integration" do
       bash.abort_check = -> { true }
       command = cmd("sleep 30", "Start-Sleep -Seconds 30")
       started = Time.monotonic
-      result = bash.execute(JSON.parse(%({"command":"#{command}","timeout":60})))
+      result = bash.execute(JSON.parse(bash_input(command, timeout: 60)))
       (Time.monotonic - started).should be < 10.seconds
       result.is_error?.should be_true
       result.content.should contain("interrupted by user")
@@ -190,7 +195,7 @@ describe "Bash tool, headless integration", tags: "integration" do
       bash = H2code::Tools::Bash.new(dir, task_svc, session_dir)
 
       command = cmd("echo bg-headless", "Write-Output bg-headless")
-      result = bash.execute(JSON.parse(%({"command":"#{command}","run_in_background":true})))
+      result = bash.execute(JSON.parse(bash_input(command, run_in_background: true)))
       result.is_error?.should be_false
       result.content.should contain("task_id:")
 

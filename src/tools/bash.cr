@@ -234,15 +234,7 @@ For long-running commands, pass run_in_background: true. The tool returns immedi
           end
         end
 
-        process = Process.new(
-          SHELL_PORT.program,
-          SHELL_PORT.shell_args(command),
-          env: spawn_env,
-          input: Process::Redirect::Pipe,
-          output: Process::Redirect::Pipe,
-          error: Process::Redirect::Pipe,
-          chdir: effective_cwd,
-        )
+        process = SHELL_PORT.spawn(command, spawn_env, effective_cwd)
         # Close stdin immediately so interactive commands (`cat`, `read`,
         # `python -c 'input()'`) receive EOF instead of hanging the tool.
         process.input.close
@@ -369,15 +361,7 @@ For long-running commands, pass run_in_background: true. The tool returns immedi
         spawn_env = build_env
 
         # Spawn the process.
-        process = Process.new(
-          SHELL_PORT.program,
-          SHELL_PORT.shell_args(command),
-          env: spawn_env,
-          input: Process::Redirect::Pipe,
-          output: Process::Redirect::Pipe,
-          error: Process::Redirect::Pipe,
-          chdir: effective_cwd,
-        )
+        process = SHELL_PORT.spawn(command, spawn_env, effective_cwd)
         process.input.close
 
         now_ms = Time.utc.to_unix_ms

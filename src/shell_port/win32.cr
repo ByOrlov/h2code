@@ -31,7 +31,27 @@ module H2code
 
     def shell_args(command : String) : Array(String)
       # /d skips AutoRun registry hooks for a deterministic run.
-      ["/d", "/c", command]
+      ["/d", "/s", "/c", command]
+    end
+
+    # `Process.new(program, argv)` is unusable here: Crystal quotes argv with
+    # MSVCRT rules (`"` becomes `\"` inside a quoted arg), and cmd.exe does
+    # not understand backslash-escaped quotes — every command containing a
+    # quote, notably the documented `powershell -NoProfile -Command "..."`
+    # pattern, would reach the child mangled and echo its text back. Instead
+    # hand CreateProcessW the full command line verbatim (`shell: true`
+    # skips Crystal's quoting). `/s` forces cmd to strip exactly the outer
+    # quotes added here, so the command's own quotes survive byte-for-byte.
+    def spawn(command : String, env : Hash(String, String?), chdir : String) : Process
+      Process.new(
+        %(#{program} /d /s /c "#{command}"),
+        shell: true,
+        env: env,
+        chdir: chdir,
+        input: Process::Redirect::Pipe,
+        output: Process::Redirect::Pipe,
+        error: Process::Redirect::Pipe,
+      )
     end
 
     def env_shell : String
@@ -119,13 +139,13 @@ module H2code
       spawn { status_ch.send(process.wait) }
 
       status = select
-        when s = status_ch.receive
-          s
-        when timeout(3.seconds)
-          # On win32 both graceful and forceful termination map to
-          # TerminateProcess, so no port indirection is needed here.
-          process.terminate(graceful: false) rescue nil
-          nil
+      when s = status_ch.receive
+        s
+      when timeout(3.seconds)
+        # On win32 both graceful and forceful termination map to
+        # TerminateProcess, so no port indirection is needed here.
+        process.terminate(graceful: false) rescue nil
+        nil
       end
 
       process.output.close rescue nil
