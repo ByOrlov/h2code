@@ -3,6 +3,31 @@ require "../../src/tui/component"
 require "../../src/tui/editor"
 
 describe H2code::TUI::Editor do
+  it "reports blank? for an empty buffer" do
+    editor = H2code::TUI::Editor.new
+    editor.blank?.should be_true
+    editor.empty?.should be_true
+  end
+
+  it "reports blank? for whitespace-only content" do
+    editor = H2code::TUI::Editor.new
+    editor.set("   \t ")
+    editor.blank?.should be_true
+    editor.empty?.should be_false
+
+    editor.set("  \n\t\n  ")
+    editor.blank?.should be_true
+  end
+
+  it "does not report blank? when visible text is present" do
+    editor = H2code::TUI::Editor.new
+    editor.set("  hi  ")
+    editor.blank?.should be_false
+
+    editor.set("\n x \n")
+    editor.blank?.should be_false
+  end
+
   it "deletes one character on plain Backspace" do
     editor = H2code::TUI::Editor.new
     editor.set("hello world")

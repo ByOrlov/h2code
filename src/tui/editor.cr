@@ -54,6 +54,11 @@ module H2code
         @lines.size == 1 && @lines[0].empty?
       end
 
+      # Whitespace-only content (spaces, tabs, newlines): no visible text.
+      def blank? : Bool
+        @lines.all?(&.blank?)
+      end
+
       def profiled_bytes : Int64
         @history.sum(&.profiled_bytes)
       end

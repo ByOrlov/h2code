@@ -229,15 +229,16 @@ module H2code
         # discarded, no transcription) while Space stops it with
         # transcription (same as Ctrl+R) — both instead of their normal
         # editing behavior. Space stops the recording only when the editor
-        # is empty: mid-typing it must insert a space, otherwise input like
-        # "/tips off" loses the space and becomes an unknown command.
+        # is blank (empty or whitespace-only): mid-typing it must insert a
+        # space, otherwise input like "/tips off" loses the space and
+        # becomes an unknown command.
         if voice_recording? && key.key.escape?
           cancel_voice_recording
           @dirty = true
           return
         end
 
-        if voice_recording? && @editor.empty? && key.key.char? && key.char == ' '
+        if space_stops_recording?(key)
           toggle_voice_recording
           @dirty = true
           return
@@ -356,6 +357,15 @@ module H2code
         end
 
         @dirty = true
+      end
+
+      # Space handler while a voice recording is in flight: the press stops
+      # the capture only when the editor is blank — empty or whitespace-only,
+      # so stray spaces do not count as content. Otherwise the space must be
+      # typed normally (see handle_key). Public so specs can drive the same
+      # path as handle_key.
+      def space_stops_recording?(key : KeyEvent) : Bool
+        voice_recording? && @editor.blank? && key.key.char? && key.char == ' '
       end
 
       # Double-Space voice trigger: two plain Space presses within
