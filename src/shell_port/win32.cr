@@ -87,7 +87,7 @@ module H2code
       (ENV["PATH"]? || "").split(';').each do |dir|
         next if dir.empty?
         candidate = File.join(dir, "bash.exe")
-        candidates << candidate if File.file?(candidate)
+        candidates << candidate if readable_file?(candidate)
       end
       roots = [
         ENV["ProgramFiles"]?,
@@ -97,9 +97,20 @@ module H2code
       ].compact
       roots.each do |root|
         candidate = File.join(root, "Git", "bin", "bash.exe")
-        candidates << candidate if File.file?(candidate)
+        candidates << candidate if readable_file?(candidate)
       end
       candidates.reject { |c| stub?(c) }
+    end
+
+    # `File.file?` raises (instead of returning false) when file info is
+    # inaccessible — notably Microsoft Store app-execution aliases in
+    # ...\WindowsApps\: reparse points whose CreateFileW(FILE_READ_ATTRIBUTES)
+    # fails with ERROR_ACCESS_DENIED, surfacing as File::Error. A candidate
+    # we cannot stat is not a usable bash either way.
+    private def self.readable_file?(path : String) : Bool
+      File.file?(path)
+    rescue File::Error
+      false
     end
 
     # True for bash.exe look-alikes that are not Git Bash:

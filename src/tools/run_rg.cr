@@ -66,15 +66,24 @@ module H2code
             next if dir.empty?
             names.each do |name|
               candidate = File.join(dir, name)
-              return candidate if File.file?(candidate) && File.executable?(candidate)
+              return candidate if usable_binary?(candidate)
             end
           end
         end
         fallbacks.each do |candidate|
           expanded = candidate.starts_with?('~') ? File.expand_path(candidate, home: HomePort.home) : candidate
-          return expanded if File.file?(expanded) && File.executable?(expanded)
+          return expanded if usable_binary?(expanded)
         end
         "rg"
+      end
+
+      # Like File.file? && File.executable?, but tolerant of Windows Store
+      # app-execution aliases in ...\WindowsApps\: stat-ing those reparse
+      # points raises File::Error (access denied) instead of returning false.
+      private def self.usable_binary?(path : String) : Bool
+        File.file?(path) && File.executable?(path)
+      rescue File::Error
+        false
       end
 
       # Memoized binary used by `run`. `ENV["PATH"]` is read once — fine,
