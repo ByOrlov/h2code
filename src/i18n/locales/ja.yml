@@ -198,6 +198,8 @@ ja:
     send_a_message: "メッセージを送信..."
     press_to_exit: "%{btn} を押して終了"
     ci_waiting: "コミット %{sha} のCIを待機中 (%{elapsed})"
+    task_waiting: "バックグラウンドタスク %{id} 実行中 (%{elapsed}): %{label}"
+    task_finished: "バックグラウンドタスク %{id} 完了: %{detail}"
     ci_passed: "%{sha} の CI ビルドが成功しました (%{detail})"
     ci_failed: "%{sha} の CI ビルドが失敗しました (%{detail})"
     ci_error: "%{sha} の CI オブザーバーエラー: %{detail}"

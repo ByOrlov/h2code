@@ -198,6 +198,8 @@ ru:
     send_a_message: "Отправьте сообщение..."
     press_to_exit: "Нажмите %{btn} для выхода"
     ci_waiting: "Ожидание CI для коммита %{sha} (%{elapsed})"
+    task_waiting: "Фоновая задача %{id} выполняется (%{elapsed}): %{label}"
+    task_finished: "Фоновая задача %{id} завершена: %{detail}"
     ci_passed: "Сборка CI успешно пройдена для %{sha} (%{detail})"
     ci_failed: "Сборка CI НЕ пройдена для %{sha} (%{detail})"
     ci_error: "Ошибка наблюдения CI для %{sha}: %{detail}"

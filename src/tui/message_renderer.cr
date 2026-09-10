@@ -135,10 +135,10 @@ module H2code
             lines << "#{ANSI.color(@theme.colors.dim, nil)}#{ANSI.italic}#{l}#{ANSI.reset}"
           end
           lines << ""
-        when "ci_success"
-          # CI success outcome — the only system line that is good news, so it
-          # is rendered bright green (bold success color) instead of the dim
-          # italic gray used for regular system messages.
+        when "ci_success", "task_success"
+          # Good-news system lines (CI success outcome, completed background
+          # task) — rendered bright green (bold success color) instead of the
+          # dim italic gray used for regular system messages.
           msg.content.split('\n').each do |l|
             lines << "#{ANSI.bold}#{ANSI.color(@theme.colors.success, nil)}#{l}#{ANSI.reset}"
           end

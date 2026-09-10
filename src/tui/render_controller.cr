@@ -229,6 +229,12 @@ module H2code
           active_lines.concat(ci_lines)
         end
 
+        # Background-task wait lines — same pulsing-circle treatment as CI
+        # observers, one line per running task (Bash/Agent run_in_background).
+        # Fed by refresh_bg_tasks!'s snapshot; empty unless @bg_tasks_active
+        # so the active zone never shows stale rows.
+        active_lines.concat(render_bg_task_lines)
+
         # AgentStatus line — always present (one row), never disappears.
         active_lines << render_agent_status_line
 
@@ -634,6 +640,33 @@ module H2code
             unless obs.actions_url.empty?
               s << "  link: " << obs.actions_url
             end
+            s << ANSI.reset
+          end
+        end
+      end
+
+      # Background-task wait lines: pulsing circle (Spinner::CI_BULLET_FRAMES)
+      # while a Bash/Agent run_in_background task is running. One line per
+      # task, oldest first — description (or command) plus elapsed time.
+      # Rendered only while @bg_tasks_active with a non-empty
+      # @bg_running_tasks snapshot (taken by refresh_bg_tasks!, which the main
+      # loop calls ~4x/sec — tasks have no push events into the TUI, unlike
+      # CI observers); returns an empty Array otherwise so the active zone
+      # never shows stale rows.
+      private def render_bg_task_lines : Array(String)
+        return [] of String unless @bg_tasks_active
+        return [] of String if @bg_running_tasks.empty?
+        frame = Spinner::CI_BULLET_FRAMES[(@spin_phase // 2) % Spinner::CI_BULLET_FRAMES.size]
+        now_ms = Time.utc.to_unix_ms
+        @bg_running_tasks.map do |t|
+          elapsed_s = ((now_ms - t.started_at) // 1000).clamp(0..)
+          label = t.description
+          label = t.command.to_s if label.empty?
+          String.build do |s|
+            s << ANSI.color(@theme.colors.warning, nil)
+            s << ' ' << frame << ' '
+            s << H2code.t("ui.task_waiting",
+              id: t.task_id, elapsed: DurationFormat.hms(elapsed_s), label: label)
             s << ANSI.reset
           end
         end

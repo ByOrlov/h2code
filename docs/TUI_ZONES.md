@@ -59,6 +59,12 @@ changes between frames. It contains:
   `:ci` active-zone key (`declare_active`/`release_active`); on completion
   the outcome is appended to the log, satisfying the release invariant. See
   features.md ("Full CI integration").
+- **Background-task wait lines** — same pulsing-circle treatment, one line
+  per running background task (Bash/Agent `run_in_background`). Bracketed by
+  the `:bg_tasks` active-zone key; fed by `refresh_bg_tasks!`, which polls
+  the task registry from the main loop (~4x/sec — tasks have no push events
+  into the TUI). When a task leaves the running snapshot, a one-line summary
+  is appended to the log, satisfying the release invariant.
 - **Editor box** — the input field, cursor, command hints.
 
 The active zone is bounded: 5–15 lines depending on state. Because it is
