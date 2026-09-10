@@ -133,6 +133,16 @@ def build_miniaudio_bridge(release: false)
   end
 end
 
+# Run `crystal spec` for *path* (the whole suite when nil), building the
+# miniaudio bridge first and wiring its link flags in — the single place that
+# knows how to assemble a working spec invocation.
+def run_specs(path = nil)
+  build_miniaudio_bridge
+  link_flags = miniaudio_link_flags
+  target = path ? "spec #{path}" : "spec"
+  sh "crystal #{target} --warnings none --no-color --link-flags \"#{link_flags}\""
+end
+
 # Print a blue "building X" banner before each build step.
 def building(name)
   puts "▶ Building #{name}".colorize(:blue)
@@ -234,9 +244,7 @@ task :run => "run:default"
 
 desc "Run the test suite"
 task :spec do
-  build_miniaudio_bridge
-  link_flags = miniaudio_link_flags
-  sh "crystal spec --warnings none --no-color --link-flags \"#{link_flags}\""
+  run_specs
 end
 
 # ---------------------------------------------------------------------------
@@ -293,6 +301,16 @@ task :coverage do
   end
   puts "HTML report: #{File.join(COVERAGE_DIR, "index.html")}"
 end
+namespace :spec do  desc "Run integration specs only: tools executed headlessly (no user input) " \
+       "against the real system — used by the CI integration matrix"
+  task :integration do
+    run_specs("spec/integration")
+  end
+end
+
+# Dash-spelled alias, mirroring i18n_check/tips_check conventions.
+desc "Run integration specs only (alias of spec:integration)"
+task :spec_integration => "spec:integration"
 
 namespace :mock do
   desc "Run TUI with mock provider — default self-test script (parallel tools)"

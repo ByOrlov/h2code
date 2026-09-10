@@ -86,7 +86,7 @@ module H2code
       # ------------------------------------------------------------------
 
       private def self.cache_path : String
-        home = ENV["HOME"]? || "/tmp"
+        home = HomePort.home
         h2code_home = ENV["H2CODE_HOME"]? || File.join(home, ".h2code")
         File.join(h2code_home, "mcp_cache.json")
       end

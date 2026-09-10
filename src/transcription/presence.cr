@@ -34,7 +34,7 @@ module H2code
       # The server's data directory (~/.h2voice, created on first run on
       # both platforms - HOME on Unix, USERPROFILE on Windows).
       private def voice_dir_present? : Bool
-        home = ENV["HOME"]? || ENV["USERPROFILE"]? || "."
+        home = HomePort.home
         Dir.exists?(File.join(home, ".h2voice"))
       end
 

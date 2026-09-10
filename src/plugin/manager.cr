@@ -412,7 +412,9 @@ module H2code
       end
 
       private def tmpdir : String
-        @tmp_dir || "/tmp"
+        # Dir.tempdir resolves /tmp on Unix and %TEMP% on Windows; a hardcoded
+        # "/tmp" does not exist on Windows and broke plugin extraction.
+        @tmp_dir || Dir.tempdir
       end
 
       private def source_from_string(s : String) : PluginSource

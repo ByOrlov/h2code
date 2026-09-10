@@ -20,7 +20,7 @@ module H2code
     end
 
     def self.exceptions_dir : String
-      base = @@home || ENV["H2CODE_HOME"]? || File.join(ENV["HOME"]? || "/tmp", ".h2code")
+      base = @@home || ENV["H2CODE_HOME"]? || File.join(HomePort.home, ".h2code")
       File.join(base, "exceptions")
     end
 
@@ -60,9 +60,7 @@ module H2code
     end
 
     private def self.os_name : String
-      `uname -s 2>/dev/null`.strip
-    rescue
-      "unknown"
+      OS_NAME
     end
 
     private def self.build_report(ex : Exception, context : String) : String

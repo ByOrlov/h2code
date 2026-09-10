@@ -123,6 +123,7 @@ module H2code
         registry.register(Tools::Read.new(work_dir)) if allowed.includes?(Tools::Names::READ)
         registry.register(Tools::Write.new(work_dir)) if allowed.includes?(Tools::Names::WRITE)
         registry.register(Tools::Edit.new(work_dir)) if allowed.includes?(Tools::Names::EDIT)
+        registry.register(Tools::ApplyPatchTool.new(work_dir)) if allowed.includes?(Tools::Names::APPLY_PATCH)
         registry.register(Tools::Glob.new(work_dir)) if allowed.includes?(Tools::Names::GLOB)
         registry.register(Tools::Grep.new(work_dir)) if allowed.includes?(Tools::Names::GREP)
 

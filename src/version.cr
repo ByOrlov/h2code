@@ -9,6 +9,20 @@ module H2code
   # builds set this); otherwise fall back to "dev".
   BUILD_DATE = (::ENV["SOURCE_DATE_EPOCH"]?).try { |s| Time.unix(s.to_i).to_s("%Y-%m-%d") } || "dev"
 
+  # Compile-time OS identity — the single source of truth for "which system
+  # is this build for". Replaces the former `uname -s` shell spawn (no shell
+  # is guaranteed to exist on Windows, and spawning one from a crash handler
+  # is a liability on every platform).
+  OS_NAME = {% if flag?(:linux) %}
+              "Linux"
+            {% elsif flag?(:darwin) %}
+              "macOS"
+            {% elsif flag?(:win32) %}
+              "Windows"
+            {% else %}
+              "Unknown"
+            {% end %}
+
   def self.build_date : String?
     BUILD_DATE == "dev" ? nil : BUILD_DATE
   end

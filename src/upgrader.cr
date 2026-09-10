@@ -59,7 +59,7 @@ module H2code
 
     # Path to the cache file storing the timestamp of the last check.
     private def self.cache_file_path : String
-      home = ENV["HOME"]? || "/tmp"
+      home = HomePort.home
       h2code_home = ENV["H2CODE_HOME"]? || File.join(home, ".h2code")
       File.join(h2code_home, "update_check.json")
     end

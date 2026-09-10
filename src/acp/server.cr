@@ -512,8 +512,14 @@ module H2code
         memory = Context::Memory.new
         memory.max_context_tokens = @config.max_context_tokens
 
+        # Interactive shell sessions are process-global (one registry
+        # shared across ACP sessions, killed when the server stops).
+        unless H2code::Tools::InteractiveShell.service
+          H2code::Tools::InteractiveShell.service = H2code::Tools::InteractiveShellService.new
+        end
+
         # Build tools
-        tools = build_tools(cwd)
+        tools = build_tools(cwd, memory)
 
         # Connect configured MCP servers (config + IDE-provided via ACP)
         all_mcp = @config.mcp_servers + mcp_servers
@@ -589,7 +595,7 @@ module H2code
         acp_session
       end
 
-      private def build_tools(work_dir : String) : Tools::Registry
+      private def build_tools(work_dir : String, memory : Context::Memory) : Tools::Registry
         tools = Tools::Registry.new
         # App-wide sudo mode from config (mirrors the TUI `/sudo` setting).
         Tools::Bash.default_sudo_mode = Tools::Bash::SudoMode.parse?(@config.sudo_mode) || Tools::Bash::SudoMode::Off
@@ -638,6 +644,10 @@ module H2code
           gitlab_token: @config.gitlab_token,
           gitlab_endpoint: @config.gitlab_endpoint,
         )
+        tools.register(Tools::CurrentTime.new)
+        tools.register(Tools::GetContextRemaining.new(memory))
+        tools.register(Tools::ApplyPatchTool.new)
+        tools.register(Tools::InteractiveShellTool.new)
         tools
       end
 

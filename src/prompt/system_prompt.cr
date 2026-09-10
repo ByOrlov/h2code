@@ -80,8 +80,7 @@ module H2code
 
       You are running on **{{H2CODE_OS}}**. The Bash tool executes commands using **{{H2CODE_SHELL}}**.
       {% if H2CODE_OS == "Windows" %}
-
-      IMPORTANT: You are on Windows. The Bash tool runs through Git Bash, so use Unix shell syntax inside Bash commands — `/dev/null` not `NUL`, and forward slashes in paths. For file operations, always prefer the built-in tools (Read, Write, Edit, Glob, Grep) over Bash commands — they work reliably across all platforms.
+      {{H2CODE_WINDOWS_NOTE}}
       {% endif %}
 
       The operating environment is not in a sandbox. Any actions you do will immediately affect the user's system. So you MUST be extremely cautious. Unless being explicitly instructed to do so, you should never access (read/write/execute) files outside of the working directory.
@@ -162,6 +161,7 @@ module H2code
 
         vars["H2CODE_OS"] = os_name
         vars["H2CODE_SHELL"] = shell_name(shell)
+        vars["H2CODE_WINDOWS_NOTE"] = windows_note
         vars["H2CODE_NOW"] = Time.utc.to_rfc3339
         vars["H2CODE_WORK_DIR"] = work_dir
         vars["H2CODE_WORK_DIR_LS"] = directory_listing(work_dir)
@@ -188,21 +188,27 @@ module H2code
       end
 
       private def self.os_name : String
-        {% if flag?(:linux) %}
-          "Linux"
-        {% elsif flag?(:darwin) %}
-          "macOS"
-        {% elsif flag?(:win32) %}
-          "Windows"
-        {% else %}
-          "Unknown"
-        {% end %}
+        OS_NAME
       end
 
+      # Default to the interpreter the Bash tool actually resolves
+      # (ShellPort). The former hardcoded "/bin/bash" lied on Windows, where
+      # the port may have picked PowerShell.
       private def self.shell_name(shell : String? = nil) : String
-        shell = shell || "/bin/bash"
+        shell = shell || ::H2code::Tools::Tool::SHELL_PORT.program
         name = File.basename(shell)
         "#{name} (`#{shell}`)"
+      end
+
+      # Windows-specific guidance built from the resolved shell: the old text
+      # unconditionally claimed Git Bash, which is wrong when Git for Windows
+      # is not installed and the port fell back to PowerShell.
+      private def self.windows_note : String
+        if ::H2code::Tools::Tool::SHELL_PORT.name == "bash"
+          "IMPORTANT: You are on Windows. The Bash tool runs through Git Bash, so use Unix shell syntax inside Bash commands — `/dev/null` not `NUL`, and forward slashes in paths. For file operations, always prefer the built-in tools (Read, Write, Edit, Glob, Grep) over Bash commands — they work reliably across all platforms."
+        else
+          "IMPORTANT: You are on Windows and no bash is installed — the Bash tool runs through PowerShell. Use PowerShell syntax; `&&`/`||` chaining is unavailable in Windows PowerShell 5.1 (use `;` separators or separate tool calls). For file operations, always prefer the built-in tools (Read, Write, Edit, Glob, Grep) over Bash commands — they work reliably across all platforms."
+        end
       end
 
       private def self.additional_dirs_info(additional_dirs : Array(String)) : String

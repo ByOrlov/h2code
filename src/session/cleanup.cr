@@ -42,7 +42,7 @@ module H2code
 
       getter home : String
 
-      def initialize(@home : String = (ENV["HOME"]? || "/tmp"))
+      def initialize(@home : String = HomePort.home)
       end
 
       def self.period_days(period : String) : Int32?

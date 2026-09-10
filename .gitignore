@@ -21,3 +21,6 @@ vendor/miniaudio/*.o
 vendor/miniaudio/*.a
 vendor/miniaudio/*.obj
 vendor/miniaudio/*.lib
+
+# scratch space for cloned reference repos (codex/opencode/grok-cli)
+/temp/

@@ -118,7 +118,13 @@ module H2code
                          else
                            "a command that hits its timeout is killed"
                          end
-        %(Execute a `bash` command. Use this for shell semantics — pipes, env, processes, git, package managers, build/test runners, anything genuinely interactive or multi-step.
+        # The tool's *name* is fixed platform-independent ("Bash" — it is
+        # matched against in permission rules, dedup tracking, the TUI), but
+        # the interpreter actually behind it is OS-specific (ShellPort). The
+        # description is the only channel the model has to learn which syntax
+        # is safe, so it names the resolved interpreter and carries the
+        # port's guidance verbatim.
+        %(Execute a `#{SHELL_PORT.name}` command. Use this for shell semantics — pipes, env, processes, git, package managers, build/test runners, anything genuinely interactive or multi-step.
 
 Translate these to a dedicated tool instead:
 - `cat` / `head` / `tail` (known path) → `Read`
@@ -147,7 +153,9 @@ Guidelines for efficiency:
 - Always quote file paths containing spaces with double quotes (e.g. cd "/path with spaces/").
 - Compose multi-step logic in a single call with `if` / `case` / `for` / `while` control flows.
 
-For long-running commands, pass run_in_background: true. The tool returns immediately with a task_id, and the full output is streamed to a file. Use TaskList / TaskOutput / TaskStop to inspect or control the background task; you will be automatically notified when it completes.)
+For long-running commands, pass run_in_background: true. The tool returns immediately with a task_id, and the full output is streamed to a file. Use TaskList / TaskOutput / TaskStop to inspect or control the background task; you will be automatically notified when it completes.
+
+#{SHELL_PORT.guidance})
       end
 
       def parameters : JSON::Any
@@ -244,8 +252,8 @@ For long-running commands, pass run_in_background: true. The tool returns immedi
         end
 
         process = Process.new(
-          command,
-          shell: true,
+          SHELL_PORT.program,
+          SHELL_PORT.shell_args(command),
           env: spawn_env,
           input: Process::Redirect::Pipe,
           output: Process::Redirect::Pipe,
@@ -593,8 +601,8 @@ For long-running commands, pass run_in_background: true. The tool returns immedi
 
         # Spawn the process.
         process = Process.new(
-          command,
-          shell: true,
+          SHELL_PORT.program,
+          SHELL_PORT.shell_args(command),
           env: spawn_env,
           input: Process::Redirect::Pipe,
           output: Process::Redirect::Pipe,
@@ -852,7 +860,7 @@ For long-running commands, pass run_in_background: true. The tool returns immedi
         # Default to '0' so git fails fast on private remotes if a TTY happens
         # to be inherited; honour an explicit ambient value when set.
         env["GIT_TERMINAL_PROMPT"] = Bash.git_terminal_prompt || "0"
-        env["SHELL"] = Bash.shell || "/bin/sh"
+        env["SHELL"] = Bash.shell || SHELL_PORT.env_shell
         env
       end
 

@@ -17,6 +17,8 @@ require "./duration_format"
 require "./upgrader"
 require "./exception_handler"
 require "./process_port"
+require "./home_port"
+require "./shell_port"
 require "./llm/types"
 require "./llm/token_counter"
 require "./llm/http_transport"
@@ -67,6 +69,10 @@ require "./tools/ci"
 require "./tools/wait_for_ci"
 require "./tools/read_media"
 require "./tools/select_tools"
+require "./tools/curr_time"
+require "./tools/get_context_remaining"
+require "./tools/apply_patch"
+require "./tools/interactive_shell"
 require "./mcp/types"
 require "./mcp/tool_naming"
 require "./mcp/transport"
@@ -285,7 +291,7 @@ module H2code
       end
       config.ensure_h2code_home
 
-      home = ENV["HOME"]? || "/tmp"
+      home = HomePort.home
 
       oauth_path = File.join(home, ".kimi-code", "credentials", "kimi-code.json")
       oauth = LLM::OAuthCredentials.load(oauth_path)
@@ -375,6 +381,10 @@ module H2code
         gitlab_token: config.gitlab_token,
         gitlab_endpoint: config.gitlab_endpoint,
       )
+      tools.register(Tools::CurrentTime.new)
+      tools.register(Tools::GetContextRemaining.new(memory))
+      tools.register(Tools::ApplyPatchTool.new)
+      tools.register(Tools::InteractiveShellTool.new)
 
       permission = Permission::Manager.new(Permission::Mode.parse(config.permission_mode))
 
@@ -403,7 +413,7 @@ module H2code
       mcp_manager.register_from_cache(merged_mcp, tools,
         active_provider: config.provider_name, blocking: prompt ? true : false)
 
-      home = ENV["HOME"]? || "/tmp"
+      home = HomePort.home
       lifecycle = H2code::Session::Lifecycle.new(home)
       store = begin
         if sid = session_id
@@ -660,6 +670,7 @@ module H2code
           agent.cancel
           # Kill any background processes spawned during this headless run.
           task_service.stop_all_on_exit("process interrupted")
+          H2code::Tools::InteractiveShell.service.try(&.stop_all)
           mcp_manager.shutdown
         end
       {% end %}
@@ -876,7 +887,7 @@ module H2code
         exit(2)
       end
 
-      home = ENV["HOME"]? || "/tmp"
+      home = HomePort.home
       oauth_path = File.join(home, ".kimi-code", "credentials", "kimi-code.json")
       oauth = LLM::OAuthCredentials.load(oauth_path)
 
@@ -1058,6 +1069,7 @@ module H2code
         no_stale: config.cron_no_stale?,
       )
       H2code::Tools::Cron.service = cron_service
+      H2code::Tools::InteractiveShell.service = H2code::Tools::InteractiveShellService.new
       ts.mark_lost_on_resume
       cron_service.start
 
@@ -1085,6 +1097,7 @@ module H2code
       app.on_exit = -> {
         cron_service.stop
         ts.stop_all_on_exit("process exited")
+        H2code::Tools::InteractiveShell.service.try(&.stop_all)
         control_socket.close
         mcp_manager.shutdown
         nil

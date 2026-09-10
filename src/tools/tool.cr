@@ -2,13 +2,17 @@
 # or via the centralized require chain) can reference `Names::*` without a
 # separate require. Idempotent with the explicit require in h2code.cr.
 require "./names"
+# Same for the shell port backing the Bash tool's SHELL_PORT constant.
+require "../shell_port"
 
 module H2code
   module Tools
     abstract class Tool
-      # Composition root for cross-platform process termination. Tools that
-      # spawn subprocesses use this instead of `LibC.kill` (POSIX-only).
+      # Composition roots for cross-platform process termination and command
+      # interpretation. Tools that spawn subprocesses use these instead of
+      # `LibC.kill` (POSIX-only) and hardcoded `/bin/sh`/`bash` assumptions.
       PROCESS_PORT = ::H2code::ProcessPort.default
+      SHELL_PORT   = ::H2code::ShellPort.default
 
       abstract def name : String
       abstract def description : String

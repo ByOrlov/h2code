@@ -1426,3 +1426,65 @@ are interchangeable.
 4. Config file shared between both versions without conflicts
 5. 10 concurrent agents (separate processes) use < 150 MB total RSS
 6. All Phase 3 features working and tested
+
+---
+
+## New Tools Roadmap (competitive comparison, 2026-09)
+
+Gap analysis against codex (`temp/codex`), opencode (`temp/opencode`), and
+grok-cli (`temp/grok-cli`). Ordered by value; each item notes the reference
+implementation.
+
+### Done
+
+| Tool | Notes |
+|------|-------|
+| CurrentTime | Ported from codex `curr_time` (clock namespace). Read-only, auto-approved. |
+| GetContextRemaining | Context-window budget introspection (codex `get_context_remaining`). Read-only, auto-approved. |
+| ApplyPatch | Multi-file V4A diff editing: add/update/move/delete hunks, atomic validation (codex `apply_patch` format). |
+| InteractiveShell | Persistent sessions with writable stdin: REPLs, debuggers, dev servers (codex `unified_exec` + `write_stdin`). |
+
+### Next (highest value first)
+
+| Tool | What it does | Reference |
+|------|--------------|-----------|
+| LSP tool | goToDefinition, findReferences, hover, documentSymbol, workspaceSymbol, call hierarchy | opencode `tool/lsp.ts`, grok-cli `src/lsp` |
+| MCP resources | `resources/list` + `resources/read` in `src/mcp/client.cr` | codex `mcp_resource` handlers |
+| code-mode execute | Execute code in sandbox with structured return | opencode `tool/code-mode.ts` |
+| external-directory | Grant model access to paths outside cwd on request | opencode `tool/external-directory.ts` |
+| tool_search | Search over large MCP tool namespaces (relevant once MCP servers register 20+ tools) | codex `tool_search` |
+
+### Computer use (GUI screen control) — new feature track
+
+Automate applications through the screen instead of APIs/CLIs, like Anthropic
+computer use / OpenAI Operator. Reference: grok-cli `src/tools/computer.ts`
+(12 tools, macOS accessibility + screencapture under the hood).
+
+Tool set:
+
+- `computer_screenshot` — capture screen/window as image for the model
+- `computer_snapshot` — accessibility tree (windows, buttons, refs + coords)
+- `computer_click` / `computer_mouse_move` / `computer_scroll` — mouse control
+- `computer_type` / `computer_press` — keyboard input (text, hotkeys)
+- `computer_launch` / `computer_list_windows` / `computer_focus_window` — app/window management
+- `computer_wait` / `computer_get` — wait for and check UI state
+
+Implementation notes for h2code.cr:
+
+- macOS first (we already target it): `screencapture` for screenshots,
+  AppleScript / Accessibility API (via `osascript` subprocess, no native
+  bindings needed) for snapshots and input events.
+- Screenshots feed into the existing `ReadMediaFile` image pipeline.
+- Every computer tool requires explicit approval in manual/auto modes
+  (never auto-approved) — GUI control is inherently side-effectful.
+- Phase later: Linux (`xdotool`/`ydotool` + AT-SPI), Windows (UI Automation).
+
+### Explicitly not adopted
+
+| Feature | Why |
+|---------|-----|
+| x_search (grok) | X/Twitter search — provider lock-in, niche |
+| telegram_send_file, wallet/payments (grok) | Product-specific monetization |
+| sleep / wait_for_environment (codex) | Covered by background Task system |
+| request_user_input (codex) | Covered by AskUserQuestion |
+| send_message_to_user_async (codex) | Covered by TUI event flow |

@@ -20,7 +20,7 @@ module H2code
 
       # State dir: `$H2CODE_HOME/remote` (default `~/.h2code/remote`).
       def self.state_dir : String
-        home = ENV["H2CODE_HOME"]? || File.join(ENV["HOME"]? || "/tmp", ".h2code")
+        home = ENV["H2CODE_HOME"]? || File.join(HomePort.home, ".h2code")
         dir = File.join(home, "remote")
         Dir.mkdir_p(dir)
         dir
