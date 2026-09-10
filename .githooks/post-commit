@@ -1,11 +1,17 @@
 #!/bin/bash
-# Auto-tag every commit as YYYY.MM.DD-<seconds since start of day>
+# Auto-tag every commit on master as YYYY.MM.DD-<seconds since start of day>
 # (commit's local time). On collision (two commits in the same second)
-# appends .2, .3, ... to keep tags unique.
+# appends .2, .3, ... to keep tags unique. Commits on other branches are
+# left untagged.
 #
 # Install (one of):
 #   git config core.hooksPath .githooks
 #   cp .githooks/post-commit .git/hooks/post-commit && chmod +x .git/hooks/post-commit
+
+branch=$(git rev-parse --abbrev-ref HEAD)
+if [ "$branch" != "master" ]; then
+  exit 0
+fi
 
 info=$(git log -1 --pretty=format:%cd --date=format-local:'%Y.%m.%d %H%M%S')
 date_part=${info%% *}
