@@ -136,6 +136,11 @@ module H2code
       property? is_error : Bool = false
       property? truncated : Bool = false
       property display : ToolDisplay? = nil
+      # Media payloads (full `data:<mime>;base64,...` URLs) delivered to the
+      # model as native multimodal content parts instead of inline text, so
+      # base64 never flows through the textual context. Mirrors the JS
+      # multi-part ToolResult output (see md-tools/read-media-file.md §5.5).
+      property media : Array(String) = [] of String
 
       def initialize(@content : String, @is_error : Bool = false, *, truncated : Bool = false)
         @truncated = truncated

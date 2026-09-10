@@ -28,6 +28,13 @@ module H2code
         update_token_count
       end
 
+      # User message with explicit content parts — the pasted-media path
+      # (interleaved text + image parts resolved from editor placeholders).
+      def add_user_parts(parts : Array(LLM::ContentPart)) : Nil
+        @history << ContextMessage.new(LLM::Message.user(parts))
+        update_token_count
+      end
+
       def add_assistant(text : String, tool_calls : Array(LLM::ToolCall)? = nil) : Nil
         msg = LLM::Message.assistant(text, tool_calls)
         @history << ContextMessage.new(msg)
@@ -42,6 +49,14 @@ module H2code
 
       def add_tool_result(tool_call_id : String, content : String) : Nil
         msg = LLM::Message.tool(content, tool_call_id)
+        @history << ContextMessage.new(msg)
+        update_token_count
+      end
+
+      # Multi-part tool result (text + media content parts). Stores the same
+      # parts structure the loop sends on the wire.
+      def add_tool_result_parts(tool_call_id : String, parts : Array(LLM::ContentPart)) : Nil
+        msg = LLM::Message.tool_parts(parts, tool_call_id)
         @history << ContextMessage.new(msg)
         update_token_count
       end

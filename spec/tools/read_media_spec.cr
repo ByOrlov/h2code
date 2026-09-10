@@ -234,7 +234,7 @@ describe H2code::Tools::ReadMediaFile do
     result.content.should contain("apply only to image files")
   end
 
-  it "reads PNG image as base64 data URL with <system> note" do
+  it "reads PNG image into media channel with <system> note" do
     fs = H2code::Tools::Media.fs.as(FakeMediaFS)
     fs.add("img.png", make_png(100, 200))
     tool = H2code::Tools::ReadMediaFile.new
@@ -242,7 +242,10 @@ describe H2code::Tools::ReadMediaFile do
     result.is_error?.should be_false
     result.content.should contain("<image path=\"img.png\">")
     result.content.should contain("</image>")
-    result.content.should contain("data:image/png;base64,")
+    # Media payload rides in the media channel, not inline base64 text.
+    result.content.should_not contain("base64")
+    result.media.size.should eq(1)
+    result.media[0].should start_with("data:image/png;base64,")
     result.content.should contain("<system>")
     result.content.should contain("Mime type: image/png.")
     result.content.should contain("Original dimensions: 100x200 pixels.")
