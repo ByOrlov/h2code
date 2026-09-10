@@ -144,9 +144,12 @@ be:
   ui:
     fork_busy: "Нельга форкнуць падчас выканання ходу. Дачакайцеся заканчэння або перарвіце."
     fork_not_wired: "Форк сесіі не падключаны."
-    fork_usage: "Выкарыстанне: /fork [list|clean]"
+    fork_usage: "Выкарыстанне: /fork [list|clean|go <id>]"
     fork_failed: "/fork не ўдаўся: %{error}"
     fork_created: "Форк у ізоляваны worktree (галіна %{branch}, %{path}). Агент цяпер працуе ўнутры worktree — выкарыстайце /merge, каб уліць змены назад."
+    fork_go_not_found: "Форк «%{id}» не знойдзены. Выкарыстайце /fork list, каб убачыць даступныя id."
+    fork_go_ambiguous: "Id форка «%{id}» неадназначны (супадзенні: %{branches})."
+    fork_go_done: "Пераход на форк %{branch} (%{path}). Агент цяпер працуе ўнутры worktree — выкарыстайце /merge, каб уліць змены назад."
     fork_list_empty: "Worktree h2code адсутнічаюць."
     fork_list_header: "Worktree h2code:"
     fork_wt_merged: "ўлітая"

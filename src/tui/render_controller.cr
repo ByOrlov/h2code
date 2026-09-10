@@ -302,6 +302,7 @@ module H2code
             @messages.size, @queue.size))
         else
           active_lines.concat(render_editor_box(cols))
+          active_lines.concat(render_clone_dir_line(cols))
 
           if @show_command_hints && @command_hints.size > 0
             start, count = command_hint_window

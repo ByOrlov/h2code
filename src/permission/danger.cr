@@ -26,6 +26,24 @@ module H2code
         Pattern.new(Regex.new("\\bsudo\\b", Regex::Options::IGNORE_CASE), "elevated privileges"),
         # Windows elevation vectors: runas, PowerShell Start-Process -Verb RunAs.
         Pattern.new(Regex.new("(\\brunas\\b|-Verb\\s+RunAs)", Regex::Options::IGNORE_CASE), "elevated privileges"),
+        # Destructive git: these rewrite shared history (refs, reflog,
+        # objects) and can poison the repository or other branches — the
+        # fork sandbox isolates its own clone, but the main checkout is
+        # still reachable from bash, so surface these loudly.
+        # `git push --force/-f` or a forced refspec (`+branch:branch`).
+        Pattern.new(Regex.new("\\bgit\\b[^|;]*\\bpush\\b[^|;]*(\\s--force\\b|\\s-f\\b|\\s\\+[\\w./-]+:)", Regex::Options::IGNORE_CASE), "force push"),
+        # `git push --delete/-d` removes a remote branch.
+        Pattern.new(Regex.new("\\bgit\\b[^|;]*\\bpush\\b[^|;]*\\s(-d|--delete)\\b", Regex::Options::IGNORE_CASE), "remote branch delete"),
+        # `git branch -D` (or --delete --force) drops a local branch.
+        # Case-sensitive on purpose: `-d` (delete-only-if-merged) is safe,
+        # `-D` (force) is not, and IGNORE_CASE would conflate them.
+        Pattern.new(Regex.new("\\bgit\\b[^|;]*\\sbranch\\b[^|;]*\\s(-D\\b|--delete\\b[^|;]*--force|--force\\b[^|;]*--delete)"), "branch delete"),
+        # `git reflog expire` destroys the recovery history for refs.
+        Pattern.new(Regex.new("\\bgit\\b[^|;]*\\breflog\\b[^|;]*\\bexpire\\b", Regex::Options::IGNORE_CASE), "reflog wipe"),
+        # `git gc --prune` / `git prune` can drop unreachable objects.
+        Pattern.new(Regex.new("\\bgit\\s+(gc\\b[^|;]*--prune|prune\\b)", Regex::Options::IGNORE_CASE), "object prune"),
+        # `git update-ref` rewrites refs directly, bypassing safety checks.
+        Pattern.new(Regex.new("\\bgit\\s+update-ref\\b", Regex::Options::IGNORE_CASE), "ref rewrite"),
         Pattern.new(Regex.new("\\b(curl|wget)\\b[^|]*\\|\\s*(sh|bash|zsh)\\b", Regex::Options::IGNORE_CASE), "pipe to shell"),
         # PowerShell download cradles — iex wrapping a download, or a
         # downloaded script piped into iex.

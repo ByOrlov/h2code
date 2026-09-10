@@ -646,8 +646,8 @@ module H2code
         )
         tools.register(Tools::CurrentTime.new)
         tools.register(Tools::GetContextRemaining.new(memory))
-        tools.register(Tools::ApplyPatchTool.new)
-        tools.register(Tools::InteractiveShellTool.new)
+        tools.register(Tools::ApplyPatchTool.new(work_dir))
+        tools.register(Tools::InteractiveShellTool.new(work_dir))
         tools
       end
 

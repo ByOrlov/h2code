@@ -19,6 +19,7 @@ require "./exception_handler"
 require "./process_port"
 require "./home_port"
 require "./worktree"
+require "./sandbox"
 require "./shell_port"
 require "./llm/types"
 require "./llm/token_counter"
@@ -386,8 +387,8 @@ module H2code
       )
       tools.register(Tools::CurrentTime.new)
       tools.register(Tools::GetContextRemaining.new(memory))
-      tools.register(Tools::ApplyPatchTool.new)
-      tools.register(Tools::InteractiveShellTool.new)
+      tools.register(Tools::ApplyPatchTool.new(work_dir))
+      tools.register(Tools::InteractiveShellTool.new(work_dir))
 
       permission = Permission::Manager.new(Permission::Mode.parse(config.permission_mode))
 
@@ -463,6 +464,21 @@ module H2code
         STDERR.puts H2code.t("errors.session_busy", id: session_id || File.basename(e.session_dir))
         STDERR.puts e.message
         exit(1)
+      end
+
+      # Session↔sandbox link: a resumed session born from /fork records its
+      # sandbox folder in state.json — switch the whole run (system prompt,
+      # skills, path-bound tools) back into it. An empty or missing folder
+      # means a plain checkout session: no switch. A vanished sandbox
+      # (merged and cleaned elsewhere) falls back to the given work dir.
+      if (sandbox = store.read_state.try(&.sandbox_folder)) && !sandbox.empty? && Dir.exists?(sandbox)
+        work_dir = sandbox
+        {Tools::Names::READ, Tools::Names::WRITE, Tools::Names::EDIT,
+         Tools::Names::GLOB, Tools::Names::GREP, Tools::Names::WAIT_FOR_CI}.each do |name|
+          tools.get(name).try do |tool|
+            tool.work_dir = sandbox if tool.responds_to?(:work_dir=)
+          end
+        end
       end
 
       # TodoList persistence: todos survive restarts via
@@ -946,7 +962,8 @@ module H2code
     private def self.rebind_path_tools(agent, agent_runner, swarm_runner, new_work_dir : String) : Nil
       {Tools::Names::READ, Tools::Names::WRITE, Tools::Names::EDIT,
        Tools::Names::GLOB, Tools::Names::GREP, Tools::Names::BASH,
-       Tools::Names::WAIT_FOR_CI, Tools::Names::APPLY_PATCH}.each do |name|
+       Tools::Names::WAIT_FOR_CI, Tools::Names::APPLY_PATCH,
+       Tools::Names::INTERACTIVE_SHELL}.each do |name|
         agent.tools.get(name).try do |tool|
           tool.work_dir = new_work_dir if tool.responds_to?(:work_dir=)
         end
@@ -962,7 +979,7 @@ module H2code
                                      mcp_manager : Mcp::Manager = Mcp::Manager.new,
                                      plugin_manager : Plugin::Manager = Plugin::Manager.new(home))
       dispatcher = Notify::Dispatcher.from_config(config.notifications)
-      # Age-based worktree GC: drop fully merged, clean worktrees untouched
+      # Age-based sandbox GC: drop fully merged, clean sandboxes untouched
       # for two weeks. Unmerged work is never collected. Best-effort — a
       # failure here must not block startup.
       begin
@@ -998,6 +1015,13 @@ module H2code
       app.home = home
       app.work_dir = work_dir
       app.debug_zones = config.debug_zones?
+      # The session expects a /fork sandbox that no longer exists (merged
+      # and cleaned elsewhere): run() fell back to the given work dir —
+      # say so instead of silently switching directories.
+      if (sf = store.read_state.try(&.sandbox_folder)) && !sf.empty? && sf != work_dir
+        app.add_message("system",
+          "This session's sandbox (#{sf}) no longer exists; continuing in #{work_dir}.")
+      end
 
       # Wire subagent lifecycle events from the runners into the TUI so the
       # swarm progress panel animates live. Each event is routed to
@@ -1192,6 +1216,14 @@ module H2code
       app.on_new_session = -> {
         agent.context.clear
         new_store = lifecycle.create(work_dir)
+        # A /new started inside a sandbox keeps working there — record the
+        # link so a later resume switches into the sandbox as well.
+        if H2code::Worktree.fork_sandbox?(work_dir, home)
+          if meta = new_store.read_state
+            meta.sandbox_folder = work_dir
+            new_store.write_state(meta)
+          end
+        end
         store.adopt(new_store)
         store.ensure_wire
         app.session_id = store.read_state.try(&.id) || ""
@@ -1234,6 +1266,21 @@ module H2code
           store.adopt(resumed)
           app.session_id = resumed.read_state.try(&.id) || resumed.meta_id? || ""
           app.load_transcript_from(agent.context)
+          # Session↔sandbox link: a session that lives in a /fork sandbox
+          # resumes inside it; an empty sandbox_folder keeps the current
+          # work dir (no switch).
+          if (sandbox = resumed.read_state.try(&.sandbox_folder)) && !sandbox.empty?
+            if Dir.exists?(sandbox)
+              if sandbox != work_dir
+                rebind_path_tools(agent, agent_runner, swarm_runner, sandbox)
+                app.work_dir = sandbox
+                work_dir = sandbox
+              end
+            else
+              app.add_message("system",
+                "This session's sandbox (#{sandbox}) no longer exists; continuing in #{work_dir}.")
+            end
+          end
           H2code::Tools::PlanMode.plan_service = H2code::Tools::AgentPlanService.new(store.session_dir, "main")
           # Restart the cron scheduler against the resumed session store and
           # reconcile persisted task records (mark non-terminal as Lost).
@@ -1260,11 +1307,17 @@ module H2code
           app.add_message("error", H2code.t("ui.fork_failed", error: error))
           false
         elsif (path = result.path) && (branch = result.branch)
-          # Fork the conversation into the worktree: the fresh session's cwd
-          # is the worktree dir, so a later resume lands there as well.
+          # Fork the conversation into the sandbox: the fresh session's cwd
+          # is the sandbox dir, so a later resume lands there as well.
           forked = lifecycle.fork(store, cwd: path)
           store.adopt(forked)
           app.session_id = forked.read_state.try(&.id) || ""
+          # Persist the session↔sandbox link: resume switches back into the
+          # sandbox only when sandbox_folder is set.
+          if meta = forked.read_state
+            meta.sandbox_folder = path
+            forked.write_state(meta)
+          end
           rebind_path_tools(agent, agent_runner, swarm_runner, path)
           app.work_dir = path
           work_dir = path
@@ -1278,12 +1331,28 @@ module H2code
       end
       app.on_worktree_exit = ->(repo : String) do
         # /merge finished: retarget the tools and the session back at the
-        # original checkout.
+        # original checkout. The sandbox link is cleared — the session no
+        # longer lives in a sandbox, so resume must not switch.
         rebind_path_tools(agent, agent_runner, swarm_runner, repo)
         app.work_dir = repo
         work_dir = repo
         if meta = store.read_state
           meta.cwd = repo
+          meta.sandbox_folder = ""
+          meta.updated_at = Time.utc.to_rfc3339
+          store.write_state(meta)
+        end
+        nil
+      end
+      app.on_fork_go = ->(path : String) do
+        # /fork go: retarget the tools and the session at an existing fork
+        # sandbox (same plumbing as on_worktree_exit) and record the link.
+        rebind_path_tools(agent, agent_runner, swarm_runner, path)
+        app.work_dir = path
+        work_dir = path
+        if meta = store.read_state
+          meta.cwd = path
+          meta.sandbox_folder = path
           meta.updated_at = Time.utc.to_rfc3339
           store.write_state(meta)
         end

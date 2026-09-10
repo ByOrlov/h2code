@@ -34,8 +34,12 @@ if [ -x "bin/ameba" ]; then
   bin/ameba "${staged[@]}"
 fi
 
-# Run the test suite.
+# Run the test suite. Git invokes hooks with GIT_DIR / GIT_INDEX_FILE (and
+# friends) set for THIS repository; inherited by every git subprocess the
+# specs spawn, they override repo discovery (`git -C <tmp-repo> ...` would
+# resolve against the h2code checkout instead), so they are unset first.
 if command -v rake >/dev/null 2>&1; then
+  unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE GIT_OBJECT_DIRECTORY GIT_PREFIX
   rake spec
 else
   echo "pre-commit: rake not found, skipping tests" >&2

@@ -40,6 +40,18 @@ class SubmitApp < H2code::TUI::App
   end
 end
 
+# Spec-only wrapper toggling the busy flag so external-prompt queueing can be
+# exercised without driving a real turn first, plus the private submit path.
+class BusyApp < H2code::TUI::App
+  def set_busy(flag : Bool) : Nil
+    @agent_busy = flag
+  end
+
+  def submit(text : String) : Nil
+    submit_message(text)
+  end
+end
+
 describe H2code::TUI::App do
   it "routes parallel tool results to the correct messages" do
     app = H2code::TUI::App.new
@@ -172,6 +184,64 @@ describe H2code::TUI::App do
 
     app.agent_busy?.should be_false
     app.@messages.any? { |m| m.role == "error" && m.content.includes?("boom") }.should be_true
+  end
+
+  # Duplicate delivery of the same background-task notification must be
+  # dropped at the channel level (dedup by `<notification id="...">`), while
+  # distinct ids and id-less payloads (cron fires) pass through.
+  it "deliver_external_prompt deduplicates notifications by id" do
+    app = BusyApp.new
+    app.set_busy(true)
+
+    notif = ->(id : String) {
+      %(<notification id="#{id}" category="task_completion" type="completed">task #{id} done</notification>)
+    }
+    app.deliver_external_prompt(notif.call("task.t1.completed"))
+    app.deliver_external_prompt(notif.call("task.t1.completed")) # duplicate
+    app.deliver_external_prompt(notif.call("task.t2.completed"))
+    app.deliver_external_prompt("<cron-fire jobId=\"j1\">cron body</cron-fire>")
+
+    app.@queue.size.should eq(3)
+    app.@queue.count { |qm| qm.text.includes?("task.t1.completed") }.should eq(1)
+  end
+
+  # Consecutive external notifications queued while the agent was busy are
+  # drained as ONE coalesced turn, not one turn per notification; a user
+  # prompt queued behind them keeps its own turn.
+  it "drains consecutive external notifications coalesced into one turn" do
+    app = BusyApp.new
+    received = Channel(String).new
+    app.run_turn_cb = ->(text : String, _persisted : Bool, _parts : Array(H2code::LLM::ContentPart)?) : Nil do
+      received.send(text)
+      nil
+    end
+    app.set_busy(true)
+
+    app.deliver_external_prompt(%(<notification id="task.t1.completed">first result</notification>))
+    app.deliver_external_prompt(%(<notification id="task.t2.completed">second result</notification>))
+    app.submit("USER PROMPT") # queued behind the notifications
+
+    app.@queue.size.should eq(3)
+
+    # Turn ends → drain starts one coalesced turn for the two notifications.
+    app.on_event(H2code::Loop::Event.turn_end(false))
+
+    text = select
+    when t = received.receive
+      t
+    when timeout(2.seconds)
+      ""
+    end
+
+    text.should contain("first result")
+    text.should contain("second result")
+    text.should_not contain("USER PROMPT")
+    # The two envelopes were concatenated into one message.
+    text.should contain("</notification>\n\n<notification")
+
+    # The user prompt stays queued for its own turn.
+    app.@queue.size.should eq(1)
+    app.@queue.map(&.text).should eq(["USER PROMPT"])
   end
 
   # End-to-end paste pipeline: a submitted message carrying a media

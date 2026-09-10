@@ -144,9 +144,12 @@ es:
   ui:
     fork_busy: "No se puede bifurcar mientras se ejecuta un turno. Espera o interrumpe primero."
     fork_not_wired: "La bifurcación de sesión no está conectada."
-    fork_usage: "Uso: /fork [list|clean]"
+    fork_usage: "Uso: /fork [list|clean|go <id>]"
     fork_failed: "/fork falló: %{error}"
     fork_created: "Bifurcado en un worktree aislado (rama %{branch}, %{path}). El agente ahora trabaja dentro del worktree — usa /merge para reintegrar los cambios."
+    fork_go_not_found: "Ningún fork coincide con '%{id}'. Usa /fork list para ver los ids disponibles."
+    fork_go_ambiguous: "El id de fork '%{id}' es ambiguo (coincidencias: %{branches})."
+    fork_go_done: "Cambiado al fork %{branch} (%{path}). El agente ahora trabaja dentro del worktree — usa /merge para reintegrar los cambios."
     fork_list_empty: "No hay worktrees de h2code."
     fork_list_header: "Worktrees de h2code:"
     fork_wt_merged: "fusionada"

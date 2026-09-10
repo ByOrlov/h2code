@@ -144,9 +144,12 @@ ja:
   ui:
     fork_busy: "ターン実行中はフォークできません。完了を待つか中断してください。"
     fork_not_wired: "セッションフォークは接続されていません。"
-    fork_usage: "使い方: /fork [list|clean]"
+    fork_usage: "使い方: /fork [list|clean|go <id>]"
     fork_failed: "/fork に失敗しました: %{error}"
     fork_created: "分離された worktree にフォークしました（ブランチ %{branch}、%{path}）。エージェントは worktree 内で作業します — 変更を戻すには /merge を使ってください。"
+    fork_go_not_found: "'%{id}' に一致するフォークはありません。/fork list で利用可能な id を確認してください。"
+    fork_go_ambiguous: "フォーク id '%{id}' は曖昧です（該当: %{branches}）。"
+    fork_go_done: "フォーク %{branch}（%{path}）に切り替えました。エージェントは worktree 内で作業します — 変更を戻すには /merge を使ってください。"
     fork_list_empty: "h2code の worktree はありません。"
     fork_list_header: "h2code worktree:"
     fork_wt_merged: "マージ済み"

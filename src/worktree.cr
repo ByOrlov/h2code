@@ -2,20 +2,27 @@ require "file_utils"
 require "./home_port"
 
 module H2code
-  # Isolated feature worktrees for `/fork` + `/merge`.
+  # Isolated feature sandboxes for `/fork` + `/merge`.
   #
-  # `/fork` creates a git worktree plus a fresh branch `h2code-<session-id>`
-  # forked from the CURRENT branch (not master) and parked under
-  # `~/.h2code/worktree/<encoded-project-path>/<branch>`, so the agent can
-  # work on a feature without touching the main checkout:
+  # `/fork` creates a STANDALONE CLONE (`git clone --no-hardlinks`) plus a
+  # fresh branch `h2code-<session-id>` forked from the CURRENT branch (not
+  # master) and parked under `~/.h2code/worktree/<encoded-project-path>/<branch>`:
   #
   #   /home/oleg/project1  ->  ~/.h2code/worktree/home/oleg/project1/h2code-<id>
   #   C:\Users\oleg\p1     ->  ~/.h2code/worktree/c/users/oleg/p1/h2code-<id>
   #
-  # `/merge` asks the agent to merge the branch back into the original
-  # repository; on success the worktree and the branch are removed
-  # automatically. No registry is kept — `git worktree list` state and the
-  # deterministic directory layout are the source of truth.
+  # A standalone clone (unlike a linked worktree) owns its object database,
+  # refs, reflog and config outright, so destructive commands run inside the
+  # sandbox (`git branch -D`, `git update-ref`, `git gc --prune=now`, ...)
+  # cannot poison the original repository or its other branches. The origin
+  # remote (fetch and push alike) points at the original repo, so `/merge`
+  # can find it and `git push` of the session branch works from the sandbox.
+  #
+  # `/merge` asks the agent to fetch the branch from the sandbox into the
+  # original repository and merge it; on success the sandbox and the branch
+  # are removed automatically. No registry is kept — the deterministic
+  # directory layout is the source of truth. Legacy linked worktrees (`.git`
+  # file) created by older versions are still listed, merged and cleaned up.
   module Worktree
     BRANCH_PREFIX = "h2code-"
 
@@ -97,9 +104,27 @@ module H2code
       File.expand_path(gd[:out].strip, dir) != File.expand_path(cd[:out].strip, dir)
     end
 
-    # The main repository directory that a worktree belongs to (the parent
-    # of the shared `.git`), or nil when not resolvable.
+    # Is `dir` one of our fork sandboxes — a git repository (standalone
+    # clone or legacy linked worktree) parked under the worktree root?
+    # Gate for `/merge`.
+    def self.fork_sandbox?(dir : String, home : String = HomePort.home) : Bool
+      expanded = File.expand_path(dir)
+      return false unless expanded.starts_with?(File.expand_path(root(home)) + File::SEPARATOR)
+      git_repo?(expanded)
+    end
+
+    # The main repository a fork sandbox belongs to. For a standalone clone
+    # that is the origin remote's fetch URL (set to the source repo at clone
+    # time); for a legacy linked worktree it is the parent of the shared
+    # `.git`. Returns nil when not resolvable.
     def self.main_repo(dir : String) : String?
+      if File.directory?(File.join(dir, ".git"))
+        res = git(dir, "remote", "get-url", "origin")
+        return nil unless res[:code] == 0
+        url = res[:out].strip
+        return nil if url.empty?
+        return url
+      end
       res = git(dir, "rev-parse", "--git-common-dir")
       return nil unless res[:code] == 0
       common = File.expand_path(res[:out].strip, dir)
@@ -145,9 +170,11 @@ module H2code
       end
     end
 
-    # Create a worktree for `session_id` in `cwd`, branching
-    # `h2code-<session-id>` from the CURRENT branch's HEAD. The main
-    # checkout (including uncommitted changes) is left untouched.
+    # Create a sandbox for `session_id` in `cwd`: a standalone clone of the
+    # current repository with a fresh branch `h2code-<session-id>` cut from
+    # the CURRENT branch's HEAD. The main checkout (including uncommitted
+    # changes and every other branch) is left untouched — the clone shares
+    # no refs, objects, reflog or config with it.
     def self.create(cwd : String, session_id : String, home : String = HomePort.home) : CreateResult
       return CreateResult.failure("not a git repository") unless git_repo?(cwd)
       base = current_branch(cwd)
@@ -158,25 +185,45 @@ module H2code
       return CreateResult.failure("worktree already exists at #{dest}") if File.exists?(dest)
       Dir.mkdir_p(File.dirname(dest))
 
-      res = git(cwd, "worktree", "add", "-b", branch, dest, base)
+      # --no-hardlinks: full object copy, not a single shared inode with the
+      # original `.git` — the structural poisoning boundary.
+      res = git(cwd, "clone", "--no-hardlinks", cwd, dest)
       if res[:code] != 0
         FileUtils.rm_r(dest) if File.exists?(dest)
         message = res[:err].strip
-        message = "git worktree add failed" if message.empty?
+        message = "git clone failed" if message.empty?
         return CreateResult.failure(message)
       end
+      # The clone checked out the source's current branch at its HEAD; fork
+      # the session branch off that tip (exists only inside the clone).
+      res = git(dest, "checkout", "-b", branch)
+      if res[:code] != 0
+        FileUtils.rm_r(dest)
+        message = res[:err].strip
+        message = "git checkout -b failed" if message.empty?
+        return CreateResult.failure(message)
+      end
+      # The clone's origin (fetch and push) points at the source repo, so a
+      # `git push` of the session branch from the sandbox works out of the box.
       CreateResult.success(dest, branch)
     end
 
-    # Remove a worktree and delete its (fully merged) branch. A dirty
-    # worktree is never deleted — the caller is told why.
+    # Remove a fork sandbox and delete its (fully merged) branch from the
+    # main repository. A dirty sandbox is never deleted — the caller is told
+    # why. Standalone clones are plain directories (rm -r); legacy linked
+    # worktrees still go through `git worktree remove`.
     def self.remove(main_repo : String, path : String, branch : String | Nil) : String?
       if File.exists?(path) && dirty?(path)
         return "worktree has uncommitted changes: #{path}"
       end
       if File.exists?(path)
-        res = git(main_repo, "worktree", "remove", path)
-        return res[:err].strip if res[:code] != 0
+        if File.directory?(File.join(path, ".git"))
+          # Standalone sandbox clone: nothing shared to deregister.
+          FileUtils.rm_r(path)
+        else
+          res = git(main_repo, "worktree", "remove", path)
+          return res[:err].strip if res[:code] != 0
+        end
       end
       if branch
         # `-d` refuses to delete branches that are not fully merged.
@@ -202,8 +249,9 @@ module H2code
       end
     end
 
-    # Enumerate h2code worktrees below the root. Directories holding a
-    # `.git` file are linked worktrees; anything else is skipped.
+    # Enumerate h2code fork sandboxes below the root. Directories holding a
+    # `.git` entry are ours — a `.git` directory marks a standalone clone, a
+    # `.git` file marks a legacy linked worktree; anything else is skipped.
     def self.list(home : String = HomePort.home) : Array(Info)
       base = root(home)
       return [] of Info unless Dir.exists?(base)
@@ -225,7 +273,8 @@ module H2code
 
     private def self.walk_worktrees(dir : String, &block : String ->) : Nil
       return if File.symlink?(dir)
-      if File.file?(File.join(dir, ".git"))
+      dot_git = File.join(dir, ".git")
+      if File.file?(dot_git) || File.directory?(dot_git)
         block.call(dir)
         return
       end

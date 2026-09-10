@@ -133,24 +133,47 @@ jobs:
           # openssl@3's post-install (c_rehash) fails on this runner, which makes
           # brew exit 1 even though the keg — and the libs/pkg-config files the
           # build needs — poured fine. Only fail if those are actually missing.
-          if ! /usr/local/bin/brew install libyaml pcre2 openssl@3; then
-            /usr/local/bin/brew list --versions libyaml pcre2 openssl@3
-            for pc in /usr/local/opt/openssl@3/lib/pkgconfig/openssl.pc \
-                      /usr/local/lib/pkgconfig/yaml-0.1.pc \
-                      /usr/local/lib/pkgconfig/libpcre2-8.pc; do
-              [ -f "$pc" ] || { echo "::error::missing $pc after brew install"; exit 1; }
-            done
-            echo "::warning::brew install exited non-zero (post-install step), required libs present — continuing"
+          # Since Homebrew dropped Intel macOS support (Sept 2026) there are no
+          # bottles at all: openssl@3 builds from source and its TEST binaries
+          # crash under Rosetta. In that case build the libraries ourselves
+          # from brew's cached tarball — Configure no-tests + make build_sw
+          # skip the crashing part — into $HOME/openssl-x86_64. The dylib rebind
+          # step later matches any absolute libssl/libcrypto path, so the
+          # custom prefix is picked up there automatically.
+          OPENSSL_PC=/usr/local/opt/openssl@3/lib/pkgconfig/openssl.pc
+          if ! /usr/local/bin/brew install libyaml pcre2 openssl@3 && [ ! -f "$OPENSSL_PC" ]; then
+            src="$(find "$(/usr/local/bin/brew --cache)/downloads" -name 'openssl-*.tar.gz' -print -quit)"
+            if [ -z "$src" ]; then
+              echo "::error::brew install failed and no cached openssl source tarball found"
+              exit 1
+            fi
+            rm -rf "$HOME/openssl-x86_64"
+            mkdir -p "$HOME/openssl-x86_64/src"
+            tar xzf "$src" -C "$HOME/openssl-x86_64/src" --strip-components=1
+            (
+              cd "$HOME/openssl-x86_64/src"
+              arch -x86_64 ./Configure darwin64-x86_64-cc \
+                --prefix="$HOME/openssl-x86_64" --libdir=lib no-tests no-docs
+              arch -x86_64 make -j"$(sysctl -n hw.ncpu)" build_sw
+              arch -x86_64 make install_sw
+            )
+            OPENSSL_PC="$HOME/openssl-x86_64/lib/pkgconfig/openssl.pc"
           fi
-          echo "PKG_CONFIG_PATH=/usr/local/opt/openssl@3/lib/pkgconfig:/usr/local/lib/pkgconfig" >> "$GITHUB_ENV"
+          OPENSSL_LIB="$(cd "$(dirname "$OPENSSL_PC")/.." && pwd)"
+          for pc in "$OPENSSL_PC" \
+                    /usr/local/lib/pkgconfig/yaml-0.1.pc \
+                    /usr/local/lib/pkgconfig/libpcre2-8.pc; do
+            [ -f "$pc" ] || { echo "::error::missing $pc after brew install"; exit 1; }
+          done
+          echo "PKG_CONFIG_PATH=$OPENSSL_LIB/pkgconfig:/usr/local/lib/pkgconfig" >> "$GITHUB_ENV"
           # CC wrapper: skip -arch x86_64 for macro programs (compiled for host arch)
           cat > /tmp/cc-wrapper << 'WRAPPER'
           #!/bin/bash
           for arg in "$@"; do
             case "$arg" in */.cache/crystal/*) exec /usr/bin/cc "$@" ;; esac
           done
-          exec /usr/bin/cc -arch x86_64 -L/usr/local/lib -L/usr/local/opt/openssl@3/lib "$@"
           WRAPPER
+          echo "exec /usr/bin/cc -arch x86_64 -L/usr/local/lib -L$OPENSSL_LIB \"\$@\"" >> /tmp/cc-wrapper
           chmod +x /tmp/cc-wrapper
           echo "CC=/tmp/cc-wrapper" >> "$GITHUB_ENV"
 

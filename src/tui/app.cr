@@ -80,6 +80,11 @@ module H2code
       # and the agent only researches. Toggled via `/plan` or `EnterPlanMode`.
       property? plan_mode : Bool = false
       @queue : Array(QueuedMessage) = [] of QueuedMessage
+      # Notification ids (`<notification id="...">`) already delivered or
+      # queued via `deliver_external_prompt`. Each background task/CI
+      # completion notifies exactly once — mirrors the TS
+      # `deliveredNotificationKeys` set in the background task manager.
+      @delivered_notification_ids : Set(String) = Set(String).new
       @spin_phase : Int32 = 0
       @dirty : Bool = true
       # When true, a terminal-exec (sudo) session owns the screen — skip TUI
@@ -183,6 +188,9 @@ module H2code
       # `/merge` completion: the host retargets the path-bound tools and the
       # session cwd back to the original repository directory.
       @on_worktree_exit : (String -> Nil)? = nil
+      # `/fork go <id>`: the host retargets the path-bound tools and the
+      # session cwd into an existing fork sandbox directory.
+      @on_fork_go : (String -> Nil)? = nil
       # In-flight `/merge`: checked when the merge turn ends to decide
       # whether the worktree is removed and the tools switched back.
       @pending_merge : Worktree::PendingMerge? = nil
@@ -311,6 +319,7 @@ module H2code
       property on_resume_session : (String -> Nil)?
       property on_fork : (-> Bool)?
       property on_worktree_exit : (String -> Nil)?
+      property on_fork_go : (String -> Nil)?
       property pending_merge : Worktree::PendingMerge?
       property on_archive : (-> Nil)?
       property on_rename : (String -> Nil)?

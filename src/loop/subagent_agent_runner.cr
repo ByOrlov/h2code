@@ -258,8 +258,10 @@ module H2code
       end
 
       # Inject a `<notification>` XML block into the parent agent's context so
-      # the model sees the background result as a synthetic user-role message
-      # on its next turn — mirrors the JS task-completion delivery path.
+      # the model sees the background result as a synthetic message on its
+      # next step — mirrors the JS task-completion delivery path. Uses the
+      # `Notification` origin (not `Injection`) so the per-step
+      # `prune_injections` sweep keeps it in the context.
       private def inject_completion_notification(entry : SubagentEntry, task_id : String,
                                                  summary : String?, type : String?) : Nil
         status_str = case type
@@ -283,7 +285,7 @@ module H2code
         } of String => JSON::Any
 
         xml = Tools.render_notification_xml(data)
-        @parent_agent.context.add_injection(xml)
+        @parent_agent.context.add_notification(xml)
       end
 
       # ----------------------------------------------------------------

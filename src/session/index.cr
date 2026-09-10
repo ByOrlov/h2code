@@ -11,6 +11,11 @@ module H2code
       property id : String
       property title : String = ""
       property cwd : String = ""
+      # Fork sandbox (`/fork`) this session lives in — the worktree path
+      # under `~/.h2code/worktree/...`. Empty for plain checkout sessions:
+      # resume must not switch work dirs. Set when the session enters a
+      # sandbox, cleared when `/merge` folds it back.
+      property sandbox_folder : String = ""
       @[JSON::Field(emit_null: false)]
       property archived : Bool? = nil
       property created_at : String = Time.utc.to_rfc3339
