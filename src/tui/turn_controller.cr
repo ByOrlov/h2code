@@ -306,9 +306,32 @@ module H2code
         CharWidth.visible_width(s)
       end
 
+      # Cached branch shown in the status bar. The value is recomputed only
+      # at cheap, bounded moments — `work_dir=` and turn end — never from
+      # the render loop, so reactivity costs one small file read per turn.
+      private def refresh_git_branch! : Nil
+        branch = detect_git_branch
+        return if branch == @git_branch
+        @git_branch = branch
+        @dirty = true
+      end
+
       private def detect_git_branch : String
-        head_path = File.join(@work_dir, ".git", "HEAD")
-        return "" unless File.exists?(head_path)
+        dot_git = File.join(@work_dir, ".git")
+        head_path =
+          if File.file?(dot_git)
+            # Linked worktree: `.git` is a `gitdir: <path>` pointer and HEAD
+            # lives in that git dir, not below the checkout.
+            pointer = File.read(dot_git).strip
+            if pointer.starts_with?("gitdir:")
+              File.join(pointer["gitdir:".size..].strip, "HEAD")
+            else
+              ""
+            end
+          else
+            File.join(dot_git, "HEAD")
+          end
+        return "" if head_path.empty? || !File.exists?(head_path)
         head = File.read(head_path).strip
         if head.starts_with?("ref: refs/heads/")
           head["ref: refs/heads/".size..]
