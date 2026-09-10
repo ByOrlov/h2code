@@ -37,6 +37,42 @@ describe H2code::Permission::Danger do
     H2code::Permission::Danger.detect_command(":(){ :|:& };").should eq("fork bomb")
   end
 
+  describe "git patterns" do
+    it "detects force push" do
+      H2code::Permission::Danger.detect_command("git push --force origin main").should eq("force push")
+      H2code::Permission::Danger.detect_command("git push -f origin main").should eq("force push")
+      H2code::Permission::Danger.detect_command("git -C /repo push origin +main:main").should eq("force push")
+      H2code::Permission::Danger.detect_command("git push --force-with-lease").should eq("force push")
+    end
+
+    it "detects remote branch delete" do
+      H2code::Permission::Danger.detect_command("git push origin --delete feature").should eq("remote branch delete")
+      H2code::Permission::Danger.detect_command("git push -d origin feature").should eq("remote branch delete")
+    end
+
+    it "detects local branch delete" do
+      H2code::Permission::Danger.detect_command("git branch -D feature").should eq("branch delete")
+      H2code::Permission::Danger.detect_command("git -C /repo branch -D feature").should eq("branch delete")
+    end
+
+    it "detects reflog wipe and object prune" do
+      H2code::Permission::Danger.detect_command("git reflog expire --expire=now --all").should eq("reflog wipe")
+      H2code::Permission::Danger.detect_command("git gc --prune=now").should eq("object prune")
+      H2code::Permission::Danger.detect_command("git prune").should eq("object prune")
+    end
+
+    it "detects ref rewrite" do
+      H2code::Permission::Danger.detect_command("git update-ref refs/heads/main deadbeef").should eq("ref rewrite")
+    end
+
+    it "does not flag safe git commands" do
+      H2code::Permission::Danger.detect_command("git push origin main").should be_nil
+      H2code::Permission::Danger.detect_command("git branch -d merged-feature").should be_nil
+      H2code::Permission::Danger.detect_command("git merge feature --no-edit").should be_nil
+      H2code::Permission::Danger.detect_command("git status --porcelain").should be_nil
+    end
+  end
+
   describe "Windows patterns" do
     it "detects cmd/PowerShell recursive deletes" do
       H2code::Permission::Danger.detect_command("rd /s /q C:\\temp\\stuff").should eq("recursive delete")

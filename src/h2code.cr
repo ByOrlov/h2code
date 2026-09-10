@@ -19,6 +19,7 @@ require "./exception_handler"
 require "./process_port"
 require "./home_port"
 require "./worktree"
+require "./sandbox"
 require "./shell_port"
 require "./llm/types"
 require "./llm/token_counter"
@@ -386,8 +387,8 @@ module H2code
       )
       tools.register(Tools::CurrentTime.new)
       tools.register(Tools::GetContextRemaining.new(memory))
-      tools.register(Tools::ApplyPatchTool.new)
-      tools.register(Tools::InteractiveShellTool.new)
+      tools.register(Tools::ApplyPatchTool.new(work_dir))
+      tools.register(Tools::InteractiveShellTool.new(work_dir))
 
       permission = Permission::Manager.new(Permission::Mode.parse(config.permission_mode))
 
@@ -961,7 +962,8 @@ module H2code
     private def self.rebind_path_tools(agent, agent_runner, swarm_runner, new_work_dir : String) : Nil
       {Tools::Names::READ, Tools::Names::WRITE, Tools::Names::EDIT,
        Tools::Names::GLOB, Tools::Names::GREP, Tools::Names::BASH,
-       Tools::Names::WAIT_FOR_CI, Tools::Names::APPLY_PATCH}.each do |name|
+       Tools::Names::WAIT_FOR_CI, Tools::Names::APPLY_PATCH,
+       Tools::Names::INTERACTIVE_SHELL}.each do |name|
         agent.tools.get(name).try do |tool|
           tool.work_dir = new_work_dir if tool.responds_to?(:work_dir=)
         end
@@ -1216,7 +1218,7 @@ module H2code
         new_store = lifecycle.create(work_dir)
         # A /new started inside a sandbox keeps working there — record the
         # link so a later resume switches into the sandbox as well.
-        if H2code::Worktree.worktree?(work_dir)
+        if H2code::Worktree.fork_sandbox?(work_dir, home)
           if meta = new_store.read_state
             meta.sandbox_folder = work_dir
             new_store.write_state(meta)
