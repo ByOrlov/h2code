@@ -144,9 +144,12 @@ fa:
   ui:
     fork_busy: "در حین اجرای نوبت نمی‌توان انشعاب داد. اول صبر کنید یا قطع کنید."
     fork_not_wired: "انشعاب نشست پیکربندی نشده است."
-    fork_usage: "استفاده: /fork [list|clean]"
+    fork_usage: "استفاده: /fork [list|clean|go <id>]"
     fork_failed: "/fork ناموفق بود: %{error}"
     fork_created: "در یک worktree ایزوله انشعاب شد (شاخه %{branch}، %{path}). عامل اکنون داخل worktree کار می‌کند — برای بازگرداندن تغییرات از /merge استفاده کنید."
+    fork_go_not_found: "فورکی مطابق '%{id}' یافت نشد. برای دیدن idهای موجود از /fork list استفاده کنید."
+    fork_go_ambiguous: "id فورک '%{id}' مبهم است (تطبیق‌ها: %{branches})."
+    fork_go_done: "به فورک %{branch} (%{path}) تغییر کرد. عامل اکنون داخل worktree کار می‌کند — برای بازگرداندن تغییرات از /merge استفاده کنید."
     fork_list_empty: "هیچ worktree از h2code وجود ندارد."
     fork_list_header: "worktreeهای h2code:"
     fork_wt_merged: "ادغام‌شده"

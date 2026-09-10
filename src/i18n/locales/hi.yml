@@ -144,9 +144,12 @@ hi:
   ui:
     fork_busy: "टर्न चल रहा हो तो फोर्क नहीं कर सकते। पहले प्रतीक्षा करें या बाधित करें।"
     fork_not_wired: "सत्र फोर्क वायर्ड नहीं है।"
-    fork_usage: "उपयोग: /fork [list|clean]"
+    fork_usage: "उपयोग: /fork [list|clean|go <id>]"
     fork_failed: "/fork विफल: %{error}"
     fork_created: "अलग worktree में फोर्क हो गया (ब्रांच %{branch}, %{path})। एजेंट अब worktree के अंदर काम करता है — परिवर्तन वापस लाने के लिए /merge का उपयोग करें।"
+    fork_go_not_found: "'%{id}' से मेल खाता कोई फोर्क नहीं मिला। उपलब्ध id देखने के लिए /fork list का उपयोग करें।"
+    fork_go_ambiguous: "फोर्क id '%{id}' अस्पष्ट है (मिलान: %{branches})।"
+    fork_go_done: "फोर्क %{branch} (%{path}) पर स्विच हो गया। एजेंट अब worktree के अंदर काम करता है — परिवर्तन वापस लाने के लिए /merge का उपयोग करें।"
     fork_list_empty: "कोई h2code worktree नहीं।"
     fork_list_header: "h2code worktree:"
     fork_wt_merged: "मर्ज हो गई"

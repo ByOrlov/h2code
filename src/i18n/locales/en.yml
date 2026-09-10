@@ -144,9 +144,12 @@ en:
   ui:
     fork_busy: "Cannot fork while a turn is running. Wait or interrupt first."
     fork_not_wired: "Session fork is not wired up."
-    fork_usage: "Usage: /fork [list|clean]"
+    fork_usage: "Usage: /fork [list|clean|go <id>]"
     fork_failed: "/fork failed: %{error}"
     fork_created: "Forked into isolated worktree (branch %{branch}, %{path}). The agent now works inside the worktree — use /merge to fold changes back."
+    fork_go_not_found: "No fork matches '%{id}'. Use /fork list to see the available ids."
+    fork_go_ambiguous: "Fork id '%{id}' is ambiguous (matches: %{branches})."
+    fork_go_done: "Switched to fork %{branch} (%{path}). The agent now works inside the worktree — use /merge to fold changes back."
     fork_list_empty: "No h2code worktrees."
     fork_list_header: "h2code worktrees:"
     fork_wt_merged: "merged"

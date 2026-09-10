@@ -183,6 +183,9 @@ module H2code
       # `/merge` completion: the host retargets the path-bound tools and the
       # session cwd back to the original repository directory.
       @on_worktree_exit : (String -> Nil)? = nil
+      # `/fork go <id>`: the host retargets the path-bound tools and the
+      # session cwd into an existing fork sandbox directory.
+      @on_fork_go : (String -> Nil)? = nil
       # In-flight `/merge`: checked when the merge turn ends to decide
       # whether the worktree is removed and the tools switched back.
       @pending_merge : Worktree::PendingMerge? = nil
@@ -311,6 +314,7 @@ module H2code
       property on_resume_session : (String -> Nil)?
       property on_fork : (-> Bool)?
       property on_worktree_exit : (String -> Nil)?
+      property on_fork_go : (String -> Nil)?
       property pending_merge : Worktree::PendingMerge?
       property on_archive : (-> Nil)?
       property on_rename : (String -> Nil)?

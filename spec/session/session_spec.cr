@@ -393,6 +393,34 @@ describe H2code::Session::Lifecycle do
     end
   end
 
+  it "persists sandbox_folder in state.json and defaults it to empty" do
+    home = temp_home
+    begin
+      lc = H2code::Session::Lifecycle.new(home)
+      store = lc.create("/repo")
+      store.read_state.try(&.sandbox_folder).should eq("")
+
+      # Record the session↔sandbox link (as /fork does) and read it back.
+      meta = store.read_state.not_nil!
+      meta.sandbox_folder = "/sandbox/h2code-abc123"
+      store.write_state(meta)
+      store.read_state.try(&.sandbox_folder).should eq("/sandbox/h2code-abc123")
+
+      # Clearing the link (/merge) round-trips as empty.
+      meta = store.read_state.not_nil!
+      meta.sandbox_folder = ""
+      store.write_state(meta)
+      store.read_state.try(&.sandbox_folder).should eq("")
+
+      # state.json written before the field existed parses with "".
+      parsed = H2code::Session::StateMeta.from_json(
+        %({"id":"x","title":"t","cwd":"/repo"}))
+      parsed.sandbox_folder.should eq("")
+    ensure
+      FileUtils.rm_rf(home)
+    end
+  end
+
   it "archive hides a session, restore brings it back" do
     home = temp_home
     begin

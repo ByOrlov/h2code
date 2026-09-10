@@ -49,19 +49,27 @@ module H2code
         end
       end
 
-      # `/fork` — fork the session into an isolated git worktree: a fresh
+      # `/fork` — fork the session into an isolated sandbox clone: a fresh
       # branch `h2code-<session-id>` is cut from the CURRENT branch and
       # checked out under `~/.h2code/worktree/<project-path>/<branch>`.
-      # The host callback creates the worktree, forks the session and
+      # The host callback creates the sandbox clone, forks the session and
       # retargets the path-bound tools; it reports success/failure itself.
-      # `/fork list` and `/fork clean` manage existing worktrees instead.
+      # `/fork list` and `/fork clean` manage existing sandboxes instead,
+      # `/fork go <id>` switches the session into an existing one.
       private def cmd_fork(args : String) : Nil
-        case args.strip
+        parts = args.strip.split(/\s+/, limit: 2, remove_empty: true)
+        case parts[0]?
         when "list"
           cmd_fork_list
         when "clean"
           cmd_fork_clean
-        when ""
+        when "go"
+          if (id = parts[1]?.try(&.strip)) && !id.empty?
+            cmd_fork_go(id)
+          else
+            emit_to_log(Message.new("error", H2code.t("ui.fork_usage")))
+          end
+        when nil, ""
           if @agent_busy
             emit_to_log(Message.new("error", H2code.t("ui.fork_busy")))
           elsif cb = @on_fork
@@ -74,23 +82,57 @@ module H2code
         end
       end
 
-      # `/fork list` — every h2code worktree with its merge/dirty status.
+      # `/fork` — every h2code sandbox with its merge/dirty status. Rows are
+      # numbered so `/fork go <n>` can address them by index.
       private def cmd_fork_list : Nil
         infos = H2code::Worktree.list(@home)
         if infos.empty?
           emit_to_log(Message.new("system", H2code.t("ui.fork_list_empty")))
           return
         end
-        rows = infos.map do |info|
+        rows = infos.map_with_index do |info, i|
           status = info.merged? ? H2code.t("ui.fork_wt_merged") : H2code.t("ui.fork_wt_unmerged")
           status += ", #{H2code.t("ui.fork_wt_dirty")}" if info.dirty?
           age_days = ((Time.utc - info.last_used) / 1.day).to_i
-          "  #{info.branch}  [#{status}]  #{age_days}d  #{info.path}"
+          "  #{i + 1}. #{info.branch}  [#{status}]  #{age_days}d  #{info.path}"
         end
         emit_to_log(Message.new("system", "#{H2code.t("ui.fork_list_header")}\n#{rows.join("\n")}"))
       end
 
-      # `/fork clean` — remove fully merged, clean worktrees; keep (and
+      # `/fork go <id>` — switch the session into an existing fork sandbox.
+      # `<id>` is the 1-based index from `/fork list`, the full branch name
+      # (`h2code-<session-id>`) or the bare session id. The host callback
+      # retargets the path-bound tools and the session cwd.
+      private def cmd_fork_go(id : String) : Nil
+        if @agent_busy
+          emit_to_log(Message.new("error", H2code.t("ui.fork_busy")))
+          return
+        end
+        infos = H2code::Worktree.list(@home)
+        candidates = infos.select do |info|
+          info.branch == id || info.branch == "#{H2code::Worktree::BRANCH_PREFIX}#{id}"
+        end
+        if candidates.empty? && (index = id.to_i?) && index >= 1 && (info = infos[index - 1]?)
+          candidates << info
+        end
+        case candidates.size
+        when 0
+          emit_to_log(Message.new("error", H2code.t("ui.fork_go_not_found", id: id)))
+        when 1
+          info = candidates.first
+          if cb = @on_fork_go
+            cb.call(info.path)
+            emit_to_log(Message.new("system", H2code.t("ui.fork_go_done", branch: info.branch, path: info.path)))
+          else
+            emit_to_log(Message.new("error", H2code.t("ui.fork_not_wired")))
+          end
+        else
+          branches = candidates.map(&.branch).join(", ")
+          emit_to_log(Message.new("error", H2code.t("ui.fork_go_ambiguous", id: id, branches: branches)))
+        end
+      end
+
+      # `/fork clean` — remove fully merged, clean sandboxes; keep (and
       # report) the unmerged or dirty ones.
       private def cmd_fork_clean : Nil
         result = H2code::Worktree.clean(@home)
@@ -101,9 +143,9 @@ module H2code
       end
 
       # `/merge` — inject a prompt asking the agent to fold the current
-      # worktree branch back into the original repository. When that turn
-      # ends, `finish_pending_merge` removes the worktree (if fully merged)
-      # and retargets the tools back to the main checkout.
+      # fork sandbox branch back into the original repository. When that
+      # turn ends, `finish_pending_merge` removes the sandbox (if fully
+      # merged) and retargets the tools back to the main checkout.
       private def cmd_merge : Nil
         if @agent_busy
           emit_to_log(Message.new("error", H2code.t("ui.merge_busy")))
@@ -136,12 +178,12 @@ module H2code
         3. If there are conflicts, resolve them carefully — the worktree branch holds the feature work, the original branch may have moved on; preserve the intent of both sides — then commit.
         4. When the project has a test suite or build, run it and report the merge result.
 
-        Do NOT delete the worktree or the branch: cleanup happens automatically after this turn.
+        Do NOT delete the sandbox or the branch: cleanup happens automatically after this turn.
         PROMPT
       end
 
       # Called from the TurnEnd handler: fold the just-finished `/merge`
-      # back into the session — auto-remove a fully merged worktree and
+      # back into the session — auto-remove a fully merged sandbox and
       # switch the tools home, or keep it and tell the user why.
       private def finish_pending_merge : Nil
         pm = @pending_merge

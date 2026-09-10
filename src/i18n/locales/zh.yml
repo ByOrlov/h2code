@@ -144,9 +144,12 @@ zh:
   ui:
     fork_busy: "回合运行期间无法分叉。请先等待或中断。"
     fork_not_wired: "会话分叉未接入。"
-    fork_usage: "用法：/fork [list|clean]"
+    fork_usage: "用法：/fork [list|clean|go <id>]"
     fork_failed: "/fork 失败：%{error}"
     fork_created: "已分叉到隔离的 worktree（分支 %{branch}，%{path}）。代理现在在 worktree 内工作 — 使用 /merge 将更改合回。"
+    fork_go_not_found: "没有匹配「%{id}」的 fork。使用 /fork list 查看可用的 id。"
+    fork_go_ambiguous: "fork id「%{id}」有歧义（匹配：%{branches}）。"
+    fork_go_done: "已切换到 fork %{branch}（%{path}）。代理现在在 worktree 内工作 — 使用 /merge 将更改合回。"
     fork_list_empty: "没有 h2code worktree。"
     fork_list_header: "h2code worktree："
     fork_wt_merged: "已合并"
