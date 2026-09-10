@@ -43,7 +43,7 @@ describe "clone dir notice" do
       stripped = lines.first.gsub(/\e\[[0-9;]*m/, "")
       # Long temp paths are truncated to the terminal width; the label and
       # the head of the path must survive.
-      stripped.should start_with(" Clone: ")
+      stripped.should start_with("Clone: ")
       stripped.should contain(sandbox[0, 30])
       # Bold + theme warning colour: the line must stand out as a
       # "not on the main checkout" signal.
