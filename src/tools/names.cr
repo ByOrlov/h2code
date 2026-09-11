@@ -43,6 +43,7 @@ module H2code
       CRON_LIST             = "CronList"
       CRON_DELETE           = "CronDelete"
       WAIT_FOR_CI           = "WaitForCI"
+      MERGE_REQUEST         = "MergeRequest"
       CURRENT_TIME          = "CurrentTime"
       GET_CONTEXT_REMAINING = "GetContextRemaining"
       APPLY_PATCH           = "ApplyPatch"

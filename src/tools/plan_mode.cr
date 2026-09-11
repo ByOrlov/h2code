@@ -426,7 +426,7 @@ module H2code
         nil
       end
 
-      MUTATING_TOOLS = Set{Names::TASK_STOP, Names::CRON_CREATE, Names::CRON_DELETE, Names::APPLY_PATCH}
+      MUTATING_TOOLS = Set{Names::TASK_STOP, Names::CRON_CREATE, Names::CRON_DELETE, Names::APPLY_PATCH, Names::MERGE_REQUEST}
 
       # Whether this call is a Write/Edit targeting the current plan file —
       # such calls are always approved without a prompt (the plan-mode guard

@@ -302,6 +302,10 @@ module H2code
       property context_tokens : Int32
       property max_context_tokens : Int32
       property session_id : String
+      # Web URL of the session's merge request (set by the MergeRequest
+      # tool, restored from state.json on resume). Rendered as a one-line
+      # link under the input box; empty when the session has no MR.
+      property merge_request_url : String = ""
       # Read-only accessor; the setter refreshes the cached branch below.
       getter work_dir : String
       property additional_dirs : Array(String)

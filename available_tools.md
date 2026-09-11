@@ -135,6 +135,22 @@ pace long tasks (targeted reads instead of whole files, trimmed outputs).
 
 - **Approval:** auto-approved (read-only).
 
+### MergeRequest
+Create a merge request (GitLab) or pull request (GitHub) for the current
+branch via the REST API. The web URL is persisted in the session state
+(`merge_request_url`), shown as a `MR: <url>` line under the input box, and
+recorded as a `session.merge_request` event in the wire log. The link
+survives `/merge`.
+
+Rules: exactly one MR per session (a second call is refused); the branch
+must already be pushed to origin (the tool never pushes); the target is the
+repository's default branch; needs `github.token` / `gitlab.token`
+(or `GITHUB_TOKEN` / `GITLAB_TOKEN`) configured. Works in `/fork` sandboxes
+— the sandbox's `origin` is the shared remote.
+
+- **Approval:** ask; permission rules can match per-tool (`MergeRequest`).
+- **Plan mode:** blocked.
+
 ### select_tools
 Progressive disclosure: dynamically load tool subsets into the session
 (lowercase name by convention). Reduces prompt size when only a few tools

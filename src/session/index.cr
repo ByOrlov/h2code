@@ -16,6 +16,11 @@ module H2code
       # resume must not switch work dirs. Set when the session enters a
       # sandbox, cleared when `/merge` folds it back.
       property sandbox_folder : String = ""
+      # Web URL of the session's merge request, set by the MergeRequest
+      # tool when it creates one (one MR per session). Empty when the
+      # session has no MR. Not cleared by `/merge` — the MR outlives the
+      # sandbox, and the link keeps showing under the input box.
+      property merge_request_url : String = ""
       @[JSON::Field(emit_null: false)]
       property archived : Bool? = nil
       property created_at : String = Time.utc.to_rfc3339

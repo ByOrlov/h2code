@@ -84,6 +84,18 @@ module H2code
         ["#{ANSI.color(@theme.colors.warning, nil)}#{ANSI.bold}#{line}#{ANSI.reset}"]
       end
 
+      # One-line notice with the session's merge request link: `MR: <url>`.
+      # Set by the MergeRequest tool when it creates an MR (persisted as
+      # state.json's `merge_request_url`), restored on resume. Unlike the
+      # clone line it survives `/merge` — the MR outlives the sandbox.
+      # Rendered bold in the theme's link colour.
+      private def render_merge_request_line(cols : Int32) : Array(String)
+        url = @merge_request_url
+        return [] of String if url.empty?
+        line = CharWidth.truncate_to_width("MR: #{url}", {cols - 2, 1}.max)
+        ["#{ANSI.color(@theme.colors.link, nil)}#{ANSI.bold}#{line}#{ANSI.reset}"]
+      end
+
       private def render_editor_box(cols : Int32) : Array(String)
         # Use cols-1 so border lines are never exactly cols wide — a full-width
         # line triggers a terminal pending-wrap state that corrupts incremental

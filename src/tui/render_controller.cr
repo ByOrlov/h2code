@@ -309,6 +309,7 @@ module H2code
         else
           active_lines.concat(render_editor_box(cols))
           active_lines.concat(render_clone_dir_line(cols))
+          active_lines.concat(render_merge_request_line(cols))
 
           if @show_command_hints && @command_hints.size > 0
             start, count = command_hint_window

@@ -13,7 +13,8 @@ module H2code
     #   1. The Bash tool detects a successful `git push` (sudo-detect style)
     #      and calls `Ci.service.try_observe_push`.
     #   2. If the repo has GitHub Actions workflows and a github.com remote,
-    #      an `Observer` starts polling every 30 s (gives up after 60 min).
+    #      an `Observer` polls right away and then every 30 s (gives up
+    #      after 60 min).
     #      With a GitHub token
     #      configured (config `github.token` / GITHUB_TOKEN / GH_TOKEN)
     #      the observer polls api.github.com directly via `GithubApi` —
@@ -408,10 +409,10 @@ module H2code
         on = on_value(doc)
         return nil if on.nil?
         push = case raw = on.raw
-               when Hash     then on["push"]?
-               when Array    then raw.any?(&.to_s.==("push")) ? true : nil
-               when String   then raw == "push" ? true : nil
-               else               nil
+               when Hash   then on["push"]?
+               when Array  then raw.any?(&.to_s.==("push")) ? true : nil
+               when String then raw == "push" ? true : nil
+               else             nil
                end
         return nil if push.nil?
         return {nil, nil} if push.is_a?(Bool) # bare push trigger — no filters
@@ -429,8 +430,8 @@ module H2code
           return v
         end
         if h = doc.raw.as?(Hash)
-          h.each do |k, v|
-            return v if k.raw.as?(Bool) == true
+          h.each do |k, true_val|
+            return true_val if k.raw.as?(Bool) == true
           end
         end
         nil
@@ -591,8 +592,9 @@ module H2code
         end
 
         # GitLab hosts whose remotes are observed: gitlab.com plus the host
-        # of the configured self-hosted endpoint.
-        private def gitlab_hosts : Array(String)
+        # of the configured self-hosted endpoint. Public for the
+        # MergeRequest tool's remote detection.
+        def gitlab_hosts : Array(String)
           hosts = ["gitlab.com"]
           if ep = @gitlab_endpoint.presence
             begin
@@ -606,8 +608,9 @@ module H2code
 
         # API base URL for the GitLab host of `info`: the configured
         # endpoint when its host matches (keeps scheme / port), otherwise
-        # https://<remote host>.
-        private def gitlab_api_base(info : RepoInfo) : String
+        # https://<remote host>. Public for the MergeRequest tool's API
+        # calls against self-hosted instances.
+        def gitlab_api_base(info : RepoInfo) : String
           if ep = @gitlab_endpoint.presence
             begin
               uri = URI.parse(ep.starts_with?("http") ? ep : "https://#{ep}")
@@ -770,8 +773,15 @@ module H2code
           @mutex.synchronize { @observers.any?(&.pending?) }
         end
 
+        # The poll loop: check immediately, then every POLL_INTERVAL_S. The
+        # first poll runs right away (a manual `/ci` or a WaitForCI wait must
+        # not sit idle for a full interval — a commit whose CI already
+        # finished settles instantly); a fresh push just reports "no runs
+        # yet" and keeps waiting.
         def poll_loop(obs : Observer, cwd : String) : Nil
           while obs.pending?
+            poll_once(obs, cwd)
+            break unless obs.pending?
             sleep POLL_INTERVAL_S.seconds
             if obs.elapsed_s >= MAX_WAIT_S
               obs.status = Status::Timeout
@@ -779,7 +789,6 @@ module H2code
               settle(obs)
               return
             end
-            poll_once(obs, cwd)
           end
         end
 

@@ -594,6 +594,10 @@ module H2code
         # request_question`): without a QuestionService the tool fails with
         # "connected client does not support interactive questions".
         H2code::Tools::AskUserQuestion.service = QuestionHandler.new(@rpc, session_id)
+        # MergeRequest tool session store (same GLOBAL class-property
+        # simplification as PlanMode above): one-MR-per-session guard and
+        # `merge_request_url` persistence into the ACP session's state.
+        H2code::Tools::MergeRequest.store = store
 
         acp_session
       end
@@ -628,6 +632,7 @@ module H2code
         tools.register(Tools::CronList.new)
         tools.register(Tools::CronDelete.new)
         tools.register(Tools::WaitForCI.new(work_dir))
+        tools.register(Tools::MergeRequest.new(work_dir))
         # Media runtime wiring (same defaults as the main agent path).
         Tools::Media.fs ||= Tools::LocalMediaFileSystem.new
         Tools::Media.capabilities ||= Tools::ModelCapabilities.new(image_in: true, video_in: false)

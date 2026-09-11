@@ -69,6 +69,7 @@ require "./remote/sync"
 require "./tools/cron"
 require "./tools/ci"
 require "./tools/wait_for_ci"
+require "./tools/merge_request"
 require "./tools/read_media"
 require "./tools/select_tools"
 require "./tools/curr_time"
@@ -362,6 +363,7 @@ module H2code
       tools.register(Tools::CronList.new)
       tools.register(Tools::CronDelete.new)
       tools.register(Tools::WaitForCI.new(work_dir))
+      tools.register(Tools::MergeRequest.new(work_dir))
       # Media runtime wiring: local FS, default capabilities (image input
       # on, video off until a provider needs it), and the ImageMagick
       # processor when available (pass-through fallback otherwise).
@@ -475,7 +477,8 @@ module H2code
       if (sandbox = store.read_state.try(&.sandbox_folder)) && !sandbox.empty? && Dir.exists?(sandbox)
         work_dir = sandbox
         {Tools::Names::READ, Tools::Names::WRITE, Tools::Names::EDIT,
-         Tools::Names::GLOB, Tools::Names::GREP, Tools::Names::WAIT_FOR_CI}.each do |name|
+         Tools::Names::GLOB, Tools::Names::GREP, Tools::Names::WAIT_FOR_CI,
+         Tools::Names::MERGE_REQUEST}.each do |name|
           tools.get(name).try do |tool|
             tool.work_dir = sandbox if tool.responds_to?(:work_dir=)
           end
@@ -488,6 +491,13 @@ module H2code
         todo_tool.session_dir = store.session_dir
         todo_tool.load_persisted
       end
+
+      # MergeRequest tool: session store for the one-MR-per-session guard
+      # and the `merge_request_url` persistence (both TUI and headless
+      # paths; the TUI attaches the bottom-panel callback in
+      # run_interactive). Session switches adopt in place, so the
+      # reference stays valid across /new, /resume and /fork.
+      Tools::MergeRequest.store = store
 
       if continue_session || session_id
         store.replay(memory)
@@ -503,7 +513,7 @@ module H2code
       agent.debug = config.debug?
       # Persist the per-model text-only mark when the agent intercepts the
       # "content.type is invalid, allowed values: ['text']" 400.
-      agent.on_text_only_detected = ->(model : String) { config.mark_text_only_model!(model) }
+      agent.on_text_only_detected = ->(model_name : String) { config.mark_text_only_model!(model_name) }
       merged_hooks = config.hooks + plugin_hooks
       agent.hooks = Hooks::Engine.new(merged_hooks, cwd: work_dir, session_id: store.meta_id?) unless merged_hooks.empty?
 
@@ -970,7 +980,7 @@ module H2code
       {Tools::Names::READ, Tools::Names::WRITE, Tools::Names::EDIT,
        Tools::Names::GLOB, Tools::Names::GREP, Tools::Names::BASH,
        Tools::Names::WAIT_FOR_CI, Tools::Names::APPLY_PATCH,
-       Tools::Names::INTERACTIVE_SHELL}.each do |name|
+       Tools::Names::INTERACTIVE_SHELL, Tools::Names::MERGE_REQUEST}.each do |name|
         agent.tools.get(name).try do |tool|
           tool.work_dir = new_work_dir if tool.responds_to?(:work_dir=)
         end
@@ -1021,6 +1031,13 @@ module H2code
       app.max_context_tokens = agent.context.max_context_tokens
       app.home = home
       app.work_dir = work_dir
+      # MergeRequest link: restored from the session state, updated live
+      # when the MergeRequest tool creates an MR (bottom panel line).
+      app.merge_request_url = store.read_state.try(&.merge_request_url) || ""
+      Tools::MergeRequest.on_created = ->(url : String) {
+        app.merge_request_url = url
+        nil
+      }
       app.debug_zones = config.debug_zones?
       # The session expects a /fork sandbox that no longer exists (merged
       # and cleaned elsewhere): run() fell back to the given work dir —
@@ -1234,6 +1251,7 @@ module H2code
         store.adopt(new_store)
         store.ensure_wire
         app.session_id = store.read_state.try(&.id) || ""
+        app.merge_request_url = ""
         # `/new` — same immediate daemon ping as at TUI startup (see run):
         # the new session must appear in the PWA at once, not on rescan.
         if config.sync.enabled? && !app.session_id.empty?
@@ -1272,6 +1290,7 @@ module H2code
           resumed.replay(agent.context)
           store.adopt(resumed)
           app.session_id = resumed.read_state.try(&.id) || resumed.meta_id? || ""
+          app.merge_request_url = resumed.read_state.try(&.merge_request_url) || ""
           app.load_transcript_from(agent.context)
           # Session↔sandbox link: a session that lives in a /fork sandbox
           # resumes inside it; an empty sandbox_folder keeps the current
@@ -1319,6 +1338,7 @@ module H2code
           forked = lifecycle.fork(store, cwd: path)
           store.adopt(forked)
           app.session_id = forked.read_state.try(&.id) || ""
+          app.merge_request_url = ""
           # Persist the session↔sandbox link: resume switches back into the
           # sandbox only when sandbox_folder is set.
           if meta = forked.read_state
