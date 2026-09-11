@@ -381,6 +381,69 @@ module H2code
       result
     end
 
+    # `/fork forceclean` backend: remove EVERY fork sandbox — merged or
+    # not, dirty or not — force-deleting its branch (`-D`) in the main
+    # repository. The sandbox `skip` (the one the current session works
+    # in, if any) is kept and reported. Empty parent directories left
+    # below the worktree root after the removals are pruned as well.
+    def self.forceclean(home : String = HomePort.home, skip : String? = nil) : CleanResult
+      result = CleanResult.new
+      list(home).each do |info|
+        if skip && File.expand_path(info.path) == File.expand_path(skip)
+          result.kept << "#{info.path} (current sandbox)"
+          next
+        end
+        error = force_remove(info.main_repo, info.path, info.branch)
+        error ? result.kept << "#{info.path} (#{error})" : result.removed << info.path
+      end
+      prune_empty_below(root(home)) unless result.removed.empty?
+      result
+    end
+
+    # `remove` without the guards: delete the sandbox even when it holds
+    # uncommitted or unmerged work (that is forceclean's contract) and
+    # force-delete (`-D`) its branch in the main repository.
+    private def self.force_remove(main_repo : String, path : String, branch : String | Nil) : String?
+      if File.exists?(path)
+        if File.directory?(File.join(path, ".git"))
+          # Standalone sandbox clone: nothing shared to deregister.
+          FileUtils.rm_r(path)
+        else
+          res = git(main_repo, "worktree", "remove", "--force", path)
+          return res[:err].strip if res[:code] != 0
+        end
+      end
+      # `-D`: the branch may hold unmerged work.
+      git(main_repo, "branch", "-D", branch) if branch
+      nil
+    end
+
+    # Remove now-empty directories below the worktree root (left behind
+    # after sandbox removals), so no empty <project-path> skeleton
+    # lingers. The root itself is kept. Best-effort: a concurrent writer
+    # that repopulates a directory wins.
+    private def self.prune_empty_below(base : String) : Nil
+      return if File.symlink?(base) || !Dir.exists?(base)
+      Dir.each_child(base) do |child|
+        path = File.join(base, child)
+        prune_dir(path) if File.directory?(path) && !File.symlink?(path)
+      end
+    rescue File::NotFoundError
+      # Root vanished mid-prune (concurrent clean) — nothing left to do.
+    end
+
+    # Depth-first removal of `dir`: recurse into subdirectories first,
+    # then drop `dir` itself once it became empty.
+    private def self.prune_dir(dir : String) : Nil
+      Dir.each_child(dir) do |child|
+        path = File.join(dir, child)
+        prune_dir(path) if File.directory?(path) && !File.symlink?(path)
+      end
+      Dir.delete(dir) if Dir.empty?(dir)
+    rescue File::NotFoundError
+      # Vanished mid-prune (concurrent clean) — fine.
+    end
+
     # Age-based GC for startup: remove fully merged, clean worktrees whose
     # directory has not been touched for `max_age_days`. Unmerged work is
     # never collected.

@@ -445,6 +445,52 @@ describe H2code::Session::Lifecycle do
     end
   end
 
+  it "unlink_sandboxes clears the link but keeps the sessions" do
+    home = temp_home
+    begin
+      lc = H2code::Session::Lifecycle.new(home)
+      gone = File.join(home, "wt", "h2code-gone")
+      kept = File.join(home, "wt", "h2code-kept")
+      FileUtils.mkdir_p(gone)
+      FileUtils.mkdir_p(kept)
+
+      link = ->(path : String, folder : String) do
+        store = lc.create(path)
+        meta = store.read_state.not_nil!
+        meta.sandbox_folder = folder
+        store.write_state(meta)
+        store
+      end
+
+      in_removed = link.call("/repo", gone)      # sandbox removed by forceclean
+      dangling = link.call("/repo", "/wt/vanished") # sandbox already gone
+      in_kept = link.call("/repo", kept)         # sandbox still there
+      plain = lc.create("/repo")                 # no sandbox link at all
+      in_removed.append("turn.prompt", {"prompt" => JSON::Any.new("hello")})
+
+      unlinked = lc.unlink_sandboxes([gone])
+      unlinked.should eq(2)
+
+      # The removed-sandbox and dangling sessions are unlinked...
+      in_removed.read_state.not_nil!.sandbox_folder.should eq("")
+      dangling.read_state.not_nil!.sandbox_folder.should eq("")
+      # ...the live sandbox link and plain sessions stay as they were.
+      in_kept.read_state.not_nil!.sandbox_folder.should eq(kept)
+      plain.read_state.not_nil!.sandbox_folder.should eq("")
+
+      # The sessions themselves survive: wire log, title and index entry.
+      File.exists?(File.join(in_removed.session_dir, "wire.jsonl")).should be_true
+      id = in_removed.read_state.not_nil!.id
+      lc.index.list(include_archived: true, include_empty: true)
+        .any?(&.id.==(id)).should be_true
+
+      # Idempotent: nothing left to unlink.
+      lc.unlink_sandboxes([gone]).should eq(0)
+    ensure
+      FileUtils.rm_rf(home)
+    end
+  end
+
   it "archive hides a session, restore brings it back" do
     home = temp_home
     begin

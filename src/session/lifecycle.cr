@@ -106,6 +106,29 @@ module H2code
         rename(entry, title)
       end
 
+      # Clear the sandbox link (`sandbox_folder`) of every session that
+      # lived in one of *folders* — or whose recorded sandbox has already
+      # vanished (a dangling link from an earlier removal). The sessions
+      # themselves are kept untouched; only their tie to the folder is
+      # dropped, so resume falls back to the session cwd instead of a
+      # deleted worktree. Returns the number of sessions unlinked.
+      def unlink_sandboxes(folders : Enumerable(String)) : Int32
+        gone = folders.map { |f| File.expand_path(f) }.to_set
+        unlinked = 0
+        @index.list(include_archived: true, include_empty: true).each do |entry|
+          next if entry.sandbox_folder.empty?
+          folder = File.expand_path(entry.sandbox_folder)
+          next unless gone.includes?(folder) || !Dir.exists?(folder)
+          store = Store.new(entry.path)
+          if meta = store.read_state
+            meta.sandbox_folder = ""
+            store.write_state(meta)
+            unlinked += 1
+          end
+        end
+        unlinked
+      end
+
       # ---- helpers --------------------------------------------------------
 
       private def toggle_archive(entry : SessionEntry, archived : Bool) : Nil

@@ -145,7 +145,7 @@ hi:
   ui:
     fork_busy: "टर्न चल रहा हो तो फोर्क नहीं कर सकते। पहले प्रतीक्षा करें या बाधित करें।"
     fork_not_wired: "सत्र फोर्क वायर्ड नहीं है।"
-    fork_usage: "उपयोग: /fork [list|clean|go <id>]"
+    fork_usage: "उपयोग: /fork [list|clean|forceclean|go <id>]"
     fork_failed: "/fork विफल: %{error}"
     fork_created: "अलग worktree में फोर्क हो गया (ब्रांच %{branch}, %{path})। एजेंट अब worktree के अंदर काम करता है — परिवर्तन वापस लाने के लिए /merge का उपयोग करें।"
     fork_go_not_found: "'%{id}' से मेल खाता कोई फोर्क नहीं मिला। उपलब्ध id देखने के लिए /fork list का उपयोग करें।"
@@ -158,6 +158,7 @@ hi:
     fork_wt_dirty: "अनकमिटेड परिवर्तन"
     fork_wt_session_archived: "संग्रहित"
     fork_clean_done: "%{removed} worktree हटाए गए, %{kept} रखे गए:"
+    fork_forceclean_done: "%{removed} worktree हटाए गए, %{unlinked} सत्र अनलिंक किए गए, %{kept} रखे गए:"
     merge_busy: "टर्न चल रहा हो तो मर्ज नहीं कर सकते। पहले प्रतीक्षा करें या बाधित करें।"
     merge_not_in_worktree: "यह सत्र worktree में नहीं है। पहले /fork का उपयोग करें।"
     merge_no_repo: "इस worktree के लिए मूल रिपॉज़िटरी हल नहीं हो सकी।"

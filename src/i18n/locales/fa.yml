@@ -145,7 +145,7 @@ fa:
   ui:
     fork_busy: "در حین اجرای نوبت نمی‌توان انشعاب داد. اول صبر کنید یا قطع کنید."
     fork_not_wired: "انشعاب نشست پیکربندی نشده است."
-    fork_usage: "استفاده: /fork [list|clean|go <id>]"
+    fork_usage: "استفاده: /fork [list|clean|forceclean|go <id>]"
     fork_failed: "/fork ناموفق بود: %{error}"
     fork_created: "در یک worktree ایزوله انشعاب شد (شاخه %{branch}، %{path}). عامل اکنون داخل worktree کار می‌کند — برای بازگرداندن تغییرات از /merge استفاده کنید."
     fork_go_not_found: "فورکی مطابق '%{id}' یافت نشد. برای دیدن idهای موجود از /fork list استفاده کنید."
@@ -158,6 +158,7 @@ fa:
     fork_wt_dirty: "تغییرات commit نشده"
     fork_wt_session_archived: "بایگانی‌شده"
     fork_clean_done: "%{removed} worktree حذف شد، %{kept} نگه داشته شد:"
+    fork_forceclean_done: "%{removed} worktree حذف شد، %{unlinked} نشست unlink شد، %{kept} نگه داشته شد:"
     merge_busy: "در حین اجرای نوبت نمی‌توان ادغام کرد. اول صبر کنید یا قطع کنید."
     merge_not_in_worktree: "این نشست در worktree نیست. اول /fork را اجرا کنید."
     merge_no_repo: "مخزن اصلی این worktree قابل تشخیص نیست."

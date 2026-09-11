@@ -229,6 +229,11 @@ When that turn ends (`EventController` TurnEnd handler):
   age and path.
 - `/fork clean` — removes fully merged, clean sandboxes; reports and
   keeps the unmerged or dirty ones.
+- `/fork forceclean` — removes EVERY sandbox (merged or not, dirty or
+  not; branches force-deleted) and unlinks — never deletes — the sessions
+  that lived in them: each linked session's `sandbox_folder` is cleared,
+  so it survives and resumes in its plain checkout cwd. The sandbox the
+  current session works in is kept.
 - Age-based GC at TUI startup: fully merged, clean sandboxes untouched
   for 14 days are removed; unmerged work is never collected.
 - Legacy linked worktrees created by older versions (marked by a `.git`

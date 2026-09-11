@@ -145,7 +145,7 @@ ja:
   ui:
     fork_busy: "ターン実行中はフォークできません。完了を待つか中断してください。"
     fork_not_wired: "セッションフォークは接続されていません。"
-    fork_usage: "使い方: /fork [list|clean|go <id>]"
+    fork_usage: "使い方: /fork [list|clean|forceclean|go <id>]"
     fork_failed: "/fork に失敗しました: %{error}"
     fork_created: "分離された worktree にフォークしました（ブランチ %{branch}、%{path}）。エージェントは worktree 内で作業します — 変更を戻すには /merge を使ってください。"
     fork_go_not_found: "'%{id}' に一致するフォークはありません。/fork list で利用可能な id を確認してください。"
@@ -158,6 +158,7 @@ ja:
     fork_wt_dirty: "未コミットの変更"
     fork_wt_session_archived: "アーカイブ済み"
     fork_clean_done: "%{removed} 件の worktree を削除、%{kept} 件を保持:"
+    fork_forceclean_done: "%{removed} 件の worktree を削除、%{unlinked} 件のセッションのリンクを解除、%{kept} 件を保持:"
     merge_busy: "ターン実行中はマージできません。完了を待つか中断してください。"
     merge_not_in_worktree: "このセッションは worktree 内にありません。先に /fork を使ってください。"
     merge_no_repo: "この worktree の元リポジトリを解決できません。"

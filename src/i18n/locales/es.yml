@@ -145,7 +145,7 @@ es:
   ui:
     fork_busy: "No se puede bifurcar mientras se ejecuta un turno. Espera o interrumpe primero."
     fork_not_wired: "La bifurcación de sesión no está conectada."
-    fork_usage: "Uso: /fork [list|clean|go <id>]"
+    fork_usage: "Uso: /fork [list|clean|forceclean|go <id>]"
     fork_failed: "/fork falló: %{error}"
     fork_created: "Bifurcado en un worktree aislado (rama %{branch}, %{path}). El agente ahora trabaja dentro del worktree — usa /merge para reintegrar los cambios."
     fork_go_not_found: "Ningún fork coincide con '%{id}'. Usa /fork list para ver los ids disponibles."
@@ -158,6 +158,7 @@ es:
     fork_wt_dirty: "cambios sin confirmar"
     fork_wt_session_archived: "archivada"
     fork_clean_done: "Eliminados %{removed} worktree(s), conservados %{kept}:"
+    fork_forceclean_done: "Eliminados %{removed} worktree(s), desvinculadas %{unlinked} sesión(es), conservados %{kept}:"
     merge_busy: "No se puede fusionar mientras se ejecuta un turno. Espera o interrumpe primero."
     merge_not_in_worktree: "Esta sesión no está en un worktree. Usa /fork primero."
     merge_no_repo: "No se puede resolver el repositorio original de este worktree."
