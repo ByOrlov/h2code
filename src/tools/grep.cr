@@ -204,7 +204,11 @@ module H2code
 
       private def resolve_search_path(raw : String?) : String
         path = raw || @work_dir
-        path.starts_with?('/') ? path : File.join(@work_dir, path)
+        # Windows absolute paths (`C:\f`, `C:/f`, `\\srv\f`, `\f`) don't
+        # start with '/', so a bare separator test would join them onto
+        # work_dir and produce `C:\work\C:\file` — use the shared
+        # cross-platform absoluteness check instead.
+        PathAccess.absolute_path?(path) ? path : File.join(@work_dir, path)
       end
 
       private def build_rg_args(input : JSON::Any, pattern : String, mode : String, search_path : String) : Array(String)
@@ -633,7 +637,10 @@ module H2code
         abs = File.expand_path(path, @work_dir)
         work = File.expand_path(@work_dir)
         return "." if abs == work
-        prefix = work.ends_with?('/') ? work : work + "/"
+        # rg on Windows reports paths with backslashes, so the work_dir
+        # prefix must be matched with the native separator.
+        sep = {% if flag?(:win32) %} "\\" {% else %} "/" {% end %}
+        prefix = work.ends_with?(sep) ? work : work + sep
         return abs[prefix.size..] if abs.starts_with?(prefix)
         abs
       end

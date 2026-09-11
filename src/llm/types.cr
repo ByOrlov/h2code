@@ -439,7 +439,10 @@ module H2code
       # round-trip the thinking. A single text-only part serializes `content`
       # as a plain string (the pre-multimodal shape); otherwise it is an array
       # of typed parts. An assistant message whose only content is empty text
-      # alongside tool_calls omits `content` entirely.
+      # alongside tool_calls omits `content` entirely. A user / system / tool
+      # message whose parts list is empty (e.g. a tool result with no output)
+      # still emits `content` as an empty string — strict backends (LM Studio)
+      # reject the request with HTTP 400 when the field is missing.
       def to_wire_json(json : JSON::Builder) : Nil
         reasoning_content = String.build do |io|
           @content.each do |part|
@@ -468,6 +471,10 @@ module H2code
                   non_think_parts.each(&.to_wire_json(json))
                 end
               end
+            elsif @role != "assistant"
+              # Empty content for user / system / tool — the field must be
+              # present on the wire even when there is nothing to say.
+              json.field "content", ""
             end
           end
 

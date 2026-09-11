@@ -166,6 +166,23 @@ describe "Message wire serialization" do
     json["tool_call_id"].should eq("call_42")
   end
 
+  it "emits an empty-string content for tool messages with no output" do
+    # LM Studio rejects the whole request with HTTP 400 when a
+    # user/system/tool message lacks the content field entirely.
+    msg = H2code::LLM::Message.tool("", "call_43")
+    json = JSON.parse(JSON.build { |b| msg.to_wire_json(b) })
+    json["role"].should eq("tool")
+    json["content"].as_s.should eq("")
+    json["tool_call_id"].should eq("call_43")
+  end
+
+  it "emits an empty-string content for an empty user message" do
+    msg = H2code::LLM::Message.user("")
+    json = JSON.parse(JSON.build { |b| msg.to_wire_json(b) })
+    json["role"].should eq("user")
+    json["content"].as_s.should eq("")
+  end
+
   it "serializes multiple non-text parts as a content array" do
     img = H2code::LLM::ImageContent.new(H2code::LLM::ImageRef.new("data:image/png;base64,abc"))
     parts = [

@@ -27,3 +27,9 @@ vendor/miniaudio/.bridge_stamp
 /temp/
 # Vagrant machine-local state (contains private_key)
 .vagrant/
+*.dll
+*.exe
+*.exe.old
+*.exe.prev
+*.pdb
+tmp_lmstudio_test.json

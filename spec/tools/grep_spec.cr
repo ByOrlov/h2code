@@ -196,4 +196,17 @@ describe H2code::Tools::Grep do
     result2 = grep.execute(JSON.parse(%({"pattern": "ignored_content_here", "include_ignored": true})))
     result2.content.should contain("ignored_file.txt")
   end
+
+  it "accepts a native absolute path without joining it onto work_dir" do
+    # Regression: Windows drive-absolute paths (`C:\f`) don't start with
+    # '/', so they used to be treated as relative and joined onto the
+    # work_dir, producing a bogus `C:\work\C:\file` search path.
+    sub = File.expand_path(File.join(test_dir, "abs_sub"))
+    FileUtils.mkdir_p(sub)
+    File.write(File.join(sub, "abs.txt"), "absolute_target\n")
+    grep = H2code::Tools::Grep.new(File.expand_path(test_dir))
+    result = grep.execute(JSON.parse(%({"pattern": "absolute_target", "path": #{sub.to_json}})))
+    result.is_error?.should be_false
+    result.content.should contain("abs.txt")
+  end
 end
