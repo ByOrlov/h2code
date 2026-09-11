@@ -1,0 +1,74 @@
+# GitLab CI analog of .github/workflows/ci.yml + release.yml (Linux only for
+# now; macOS/Windows jobs will be added on self-hosted runners later).
+#
+# Runner requirements: a runner with the Docker executor (the image below is
+# pulled per job). With a shell executor inside a container that already ships
+# Crystal 1.21 + build-essential, the image key is ignored and the job runs in
+# that container directly.
+
+stages:
+  - check
+  - integration
+  - build
+
+default:
+  # Matches `crystal: 1.21.0` in shard.yml.
+  image: crystallang/crystal:1.21.0
+  # Cache installed shards between pipelines; keyed by shard.lock so a
+  # dependency bump gets a fresh key.
+  cache:
+    key:
+      files:
+        - shard.lock
+    paths:
+      - lib/
+      - .shards/
+
+variables:
+  # Full clone with tags so the Rakefile's `git describe` version fallback
+  # (h2code_build_version) works on branch builds.
+  GIT_DEPTH: "0"
+
+# The image ships Crystal/shards/cc but neither ripgrep (specs expect `rg`) nor
+# ruby/rake (the Rakefile assembles spec/build invocations).
+.install_ci_deps:
+  before_script:
+    - apt-get update && apt-get install -y --no-install-recommends ripgrep rake
+
+check:
+  stage: check
+  extends: .install_ci_deps
+  script:
+    - shards install
+    - rake spec
+
+integration:
+  stage: integration
+  extends: .install_ci_deps
+  script:
+    - shards install
+    - rake spec:integration
+
+# Release build, mirroring the Linux leg of the GitHub release matrix. Unlike
+# GitHub, the pushed tag is used as the version verbatim (no YYYY.MM.DD →
+# YYYY.MM.DD.N auto-increment — pass the full version when tagging).
+build:x86_64-linux:
+  stage: build
+  extends: .install_ci_deps
+  rules:
+    - if: $CI_COMMIT_TAG
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  script:
+    - shards install
+    - export H2CODE_VERSION="${CI_COMMIT_TAG:-0.0.0-ci}"
+    - LINK_FLAGS="$(./scripts/build_miniaudio.sh x86_64-linux)"
+    - crystal build src/h2code.cr -o h2code --release --no-debug --warnings none --link-flags "$LINK_FLAGS"
+    - ./h2code --version
+    - tar -czf h2code-x86_64-linux.tar.gz h2code
+    - sha256sum h2code-x86_64-linux.tar.gz > h2code-x86_64-linux.tar.gz.sha256
+    - cat h2code-x86_64-linux.tar.gz.sha256
+  artifacts:
+    name: h2code-x86_64-linux
+    paths:
+      - h2code-x86_64-linux.tar.gz
+      - h2code-x86_64-linux.tar.gz.sha256

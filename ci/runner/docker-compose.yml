@@ -1,0 +1,17 @@
+# Self-hosted GitLab runner for this repo (Docker executor: job containers are
+# started on the host Docker via the socket mount; the Crystal image is
+# specified per job in .gitlab-ci.yml).
+#
+# Start:      docker compose up -d
+# Register:   ./register.sh <gitlab-url> <runner-token>   (see README.md)
+# Logs:       docker compose logs -f runner
+services:
+  runner:
+    image: gitlab/gitlab-runner:ubuntu
+    container_name: h2code-gitlab-runner
+    restart: unless-stopped
+    volumes:
+      # Runner state incl. config.toml with the registration token — gitignored.
+      - ./data:/etc/gitlab-runner
+      # Docker executor: job containers run as siblings on the host Docker.
+      - /var/run/docker.sock:/var/run/docker.sock
