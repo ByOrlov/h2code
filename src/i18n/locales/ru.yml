@@ -145,7 +145,7 @@ ru:
   ui:
     fork_busy: "Нельзя форкнуть во время выполнения хода. Дождитесь окончания или прервите."
     fork_not_wired: "Форк сессии не подключён."
-    fork_usage: "Использование: /fork [list|clean|go <id>]"
+    fork_usage: "Использование: /fork [list|clean|forceclean|go <id>]"
     fork_failed: "/fork не удался: %{error}"
     fork_created: "Форк в изолированный worktree (ветка %{branch}, %{path}). Агент теперь работает внутри worktree — используйте /merge, чтобы влить изменения обратно."
     fork_go_not_found: "Форк «%{id}» не найден. Используйте /fork list, чтобы увидеть доступные id."
@@ -158,6 +158,7 @@ ru:
     fork_wt_dirty: "незакоммиченные изменения"
     fork_wt_session_archived: "архив"
     fork_clean_done: "Удалено worktree: %{removed}, оставлено: %{kept}:"
+    fork_forceclean_done: "Удалено worktree: %{removed}, отвязано сессий: %{unlinked}, оставлено: %{kept}:"
     merge_busy: "Нельзя мержить во время выполнения хода. Дождитесь окончания или прервите."
     merge_not_in_worktree: "Эта сессия не в worktree. Сначала используйте /fork."
     merge_no_repo: "Не удалось определить исходный репозиторий для этого worktree."

@@ -54,8 +54,9 @@ module H2code
       # checked out under `~/.h2code/worktree/<project-path>/<branch>`.
       # The host callback creates the sandbox clone, forks the session and
       # retargets the path-bound tools; it reports success/failure itself.
-      # `/fork list` and `/fork clean` manage existing sandboxes instead,
-      # `/fork go <id>` switches the session into an existing one.
+      # `/fork list`, `/fork clean` and `/fork forceclean` manage existing
+      # sandboxes instead, `/fork go <id>` switches the session into an
+      # existing one.
       private def cmd_fork(args : String) : Nil
         parts = args.strip.split(/\s+/, limit: 2, remove_empty: true)
         case parts[0]?
@@ -63,6 +64,8 @@ module H2code
           cmd_fork_list
         when "clean"
           cmd_fork_clean
+        when "forceclean"
+          cmd_fork_forceclean
         when "go"
           if (id = parts[1]?.try(&.strip)) && !id.empty?
             cmd_fork_go(id)
@@ -197,6 +200,21 @@ module H2code
       private def cmd_fork_clean : Nil
         result = H2code::Worktree.clean(@home)
         lines = [H2code.t("ui.fork_clean_done", removed: result.removed.size, kept: result.kept.size)]
+        result.removed.each { |path| lines << "  ✓ #{path}" }
+        result.kept.each { |entry| lines << "  • #{entry}" }
+        emit_to_log(Message.new("system", lines.join("\n")))
+      end
+
+      # `/fork forceclean` — remove EVERY sandbox, merged or not, dirty or
+      # not, and unlink (never delete) the sessions that lived in them:
+      # each linked session's `sandbox_folder` is cleared, so the session
+      # survives and resumes in its plain checkout cwd. The sandbox the
+      # current session works in is kept.
+      private def cmd_fork_forceclean : Nil
+        result = H2code::Worktree.forceclean(@home, skip: @work_dir)
+        unlinked = Session::Lifecycle.new(@home).unlink_sandboxes(result.removed)
+        lines = [H2code.t("ui.fork_forceclean_done",
+          removed: result.removed.size, unlinked: unlinked, kept: result.kept.size)]
         result.removed.each { |path| lines << "  ✓ #{path}" }
         result.kept.each { |entry| lines << "  • #{entry}" }
         emit_to_log(Message.new("system", lines.join("\n")))
