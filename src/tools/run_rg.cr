@@ -92,6 +92,32 @@ module H2code
         @@rg_binary ||= resolve_rg_binary(ENV["PATH"]?)
       end
 
+      # Type names ripgrep knows about (`rg --type-list`), memoized. Lets
+      # Grep distinguish a real type (e.g. `crystal`) from an extension
+      # shorthand (e.g. `cr`) that rg would reject with
+      # "unrecognized file type". Empty when rg can't be queried — callers
+      # should then fall back to their own handling.
+      @@type_names : Set(String)?
+
+      def self.type_names : Set(String)
+        @@type_names ||= begin
+          process = Process.new(rg_binary, {"--type-list"},
+            input: Process::Redirect::Close,
+            output: Process::Redirect::Pipe,
+            error: Process::Redirect::Close)
+          names = Set(String).new
+          process.output.each_line do |line|
+            # Format: `<name>: <glob>, <glob>, ...`
+            name = line.split(':').first?.to_s.strip
+            names << name unless name.empty?
+          end
+          process.wait
+          names
+        rescue
+          Set(String).new
+        end
+      end
+
       # Run `rg` with `args`. Returns the captured stdout/stderr (capped at
       # MAX_OUTPUT_BYTES / MAX_STDERR_BYTES) and an `exit_code`. On timeout the
       # process is SIGTERM'd, then SIGKILL'd after `SIGTERM_GRACE_S`. When

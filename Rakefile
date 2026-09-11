@@ -182,13 +182,66 @@ def run_specs(path = nil)
   sh "crystal #{target}#{fail_fast} --warnings none --no-color --link-flags \"#{link_flags}\""
 end
 
+# Invocation path for a binary built into the repo. On Windows Crystal appends
+# .exe to the -o name and cmd.exe does not resolve a Unix-style "./name"
+# prefix, so use a backslash-relative path with the suffix there.
+def bin_path(name)
+  windows? ? ".\\#{name}.exe" : "./#{name}"
+end
+
+# Run the built h2code with extra environment variables. The Unix
+# `VAR=value cmd` prefix syntax is not understood by cmd.exe (the shell treats
+# the whole assignment as the command name and fails with exit 127), so the
+# variables are exported in-process around the sh call instead.
+def run_h2code(env = {}, args = "")
+  saved = env.to_h { |k, _v| [k, ENV[k]] }
+  begin
+    env.each { |k, v| ENV[k] = v }
+    sh "#{bin_path("h2code")} #{args}".strip
+  ensure
+    saved.each { |k, v| v.nil? ? ENV.delete(k) : ENV[k] = v }
+  end
+end
+
 # Print a blue "building X" banner before each build step.
 def building(name)
   puts "▶ Building #{name}".colorize(:blue)
 end
 
+# Windows locks a running executable against overwrites: linking over an
+# h2code.exe that is currently running fails (on Linux/macOS the running
+# process keeps the old inode and the path is simply replaced). Renaming a
+# locked exe IS allowed on Windows, so move it aside before the link step to
+# free the name; the stale copy is deleted on a later build once its process
+# has exited. The matching .pdb is removed outright: a pdb left behind by an
+# interrupted/failed link makes every later link die with LNK1201 ("error
+# writing to program database") until it is deleted. No-op on non-Windows.
+def rotate_windows_output(output)
+  return unless windows?
+  exe = File.file?("#{output}.exe") ? "#{output}.exe" : (File.file?(output) ? output : nil)
+  rm_f "#{output}.pdb"
+  return unless exe
+  [".old", ".prev"].each do |suffix|
+    slot = "#{exe}#{suffix}"
+    begin
+      rm_f slot
+    rescue StandardError
+      nil
+    end
+    next if File.exist?(slot) # slot still locked by an older running copy
+    begin
+      File.rename(exe, slot)
+      return
+    rescue SystemCallError
+      nil
+    end
+  end
+  warn "warning: could not move #{exe} aside — close running h2code instances and rebuild."
+end
+
 def build_h2code(output = "h2code", release: false)
   build_miniaudio_bridge(release: release)
+  rotate_windows_output(output)
   link_flags = crystal_link_flags
   flags = ["--warnings none", "--no-color"]
   flags << "--release" if release
@@ -268,12 +321,12 @@ end
 namespace :run do
   desc "Build (debug) and run the TUI"
   task :default => :build do
-    sh "./h2code --yolo"
+    run_h2code({}, "--yolo")
   end
 
   desc "Build with --release and run the TUI"
   task :release => :build_release do
-    sh "./h2code --yolo"
+    run_h2code({}, "--yolo")
   end
 end
 
@@ -354,32 +407,37 @@ task :spec_integration => "spec:integration"
 namespace :mock do
   desc "Run TUI with mock provider — default self-test script (parallel tools)"
   task :default => :build do
-    sh "H2CODE_PROVIDER=mock NO_SANDBOX=1 ./h2code --tui-prompt 'mock' --yolo"
+    run_h2code({"H2CODE_PROVIDER" => "mock", "NO_SANDBOX" => "1"}, "--tui-prompt 'mock' --yolo")
   end
 
   desc "Run TUI with mock provider — thinking streaming demo (~5s)"
   task :thinking => :build do
-    sh "H2CODE_PROVIDER=mock NO_SANDBOX=1 H2CODE_MOCK_SCRIPT=thinking ./h2code --tui-prompt 'mock' --yolo"
+    run_h2code({"H2CODE_PROVIDER" => "mock", "NO_SANDBOX" => "1", "H2CODE_MOCK_SCRIPT" => "thinking"},
+      "--tui-prompt 'mock' --yolo")
   end
 
   desc "Run TUI with mock provider — thinking + tool call demo"
   task :thinking_tools => :build do
-    sh "H2CODE_PROVIDER=mock NO_SANDBOX=1 H2CODE_MOCK_SCRIPT=thinking-tools ./h2code --tui-prompt 'mock' --yolo"
+    run_h2code({"H2CODE_PROVIDER" => "mock", "NO_SANDBOX" => "1", "H2CODE_MOCK_SCRIPT" => "thinking-tools"},
+      "--tui-prompt 'mock' --yolo")
   end
 
   desc "Run TUI with mock provider — markdown rendering demo"
   task :markdown => :build do
-    sh "H2CODE_PROVIDER=mock NO_SANDBOX=1 H2CODE_MOCK_SCRIPT=markdown ./h2code --tui-prompt 'mock' --yolo"
+    run_h2code({"H2CODE_PROVIDER" => "mock", "NO_SANDBOX" => "1", "H2CODE_MOCK_SCRIPT" => "markdown"},
+      "--tui-prompt 'mock' --yolo")
   end
 
   desc "Run TUI with mock provider — broken-token markdown list streaming bug repro"
   task :markdown_tokens => :build do
-    sh "H2CODE_PROVIDER=mock NO_SANDBOX=1 H2CODE_MOCK_SCRIPT=markdown_tokens ./h2code --tui-prompt 'mock' --yolo"
+    run_h2code({"H2CODE_PROVIDER" => "mock", "NO_SANDBOX" => "1", "H2CODE_MOCK_SCRIPT" => "markdown_tokens"},
+      "--tui-prompt 'mock' --yolo")
   end
 
   desc "Run TUI with mock provider — sound notification on turn completion"
   task :sound => :build do
-    sh "H2CODE_PROVIDER=mock NO_SANDBOX=1 H2CODE_SOUND=1 ./h2code --tui-prompt 'mock' --yolo"
+    run_h2code({"H2CODE_PROVIDER" => "mock", "NO_SANDBOX" => "1", "H2CODE_SOUND" => "1"},
+      "--tui-prompt 'mock' --yolo")
   end
 
   desc "Run TUI with mock provider — sudo terminal exec demo (requires bin/mocksudo on PATH)"
@@ -389,7 +447,8 @@ namespace :mock do
 
   desc "Run TUI with mock provider — TodoList completion → log migration demo"
   task :todos => :build do
-    sh "H2CODE_PROVIDER=mock NO_SANDBOX=1 H2CODE_MOCK_SCRIPT=todos ./h2code --tui-prompt 'mock' --yolo"
+    run_h2code({"H2CODE_PROVIDER" => "mock", "NO_SANDBOX" => "1", "H2CODE_MOCK_SCRIPT" => "todos"},
+      "--tui-prompt 'mock' --yolo")
   end
 
   desc "Run TUI with mock provider — long-plan review (EnterPlanMode → Write → ExitPlanMode)"
@@ -397,7 +456,8 @@ namespace :mock do
     # NO_SANDBOX=1 disables the tool write confinement for mock demos:
     # the plan file lives inside the session store (~/.h2code/sessions),
     # which the sandbox guard otherwise blocks (see src/sandbox.cr).
-    sh "H2CODE_PROVIDER=mock NO_SANDBOX=1 H2CODE_MOCK_SCRIPT=plan ./h2code --tui-prompt 'mock' --yolo"
+    run_h2code({"H2CODE_PROVIDER" => "mock", "NO_SANDBOX" => "1", "H2CODE_MOCK_SCRIPT" => "plan"},
+      "--tui-prompt 'mock' --yolo")
   end
 
   desc "Run TUI with mock provider — ReadMediaFile multi-part image delivery demo"
@@ -409,16 +469,16 @@ namespace :mock do
     mkdir_p File.dirname(img)
     text = "Hello H2Code, this is image text"
     bin = %w[magick convert].find { |b| system(b, "-version", out: File::NULL, err: File::NULL) }
+    env = {"H2CODE_PROVIDER" => "mock", "NO_SANDBOX" => "1", "H2CODE_MOCK_SCRIPT" => "image"}
     if bin && system(bin, "-size", "800x300", "xc:white", "-fill", "black",
                      "-pointsize", "48", "-gravity", "center",
                      "-annotate", "+0+0", text, img)
       puts "▶ Generated #{img} (#{text.bytesize} chars of text rendered)".colorize(:blue)
-      env = "H2CODE_MOCK_IMAGE=#{img} "
+      env["H2CODE_MOCK_IMAGE"] = img
     else
       puts "▶ ImageMagick not found — falling back to logo.png".colorize(:yellow)
-      env = ""
     end
-    sh "H2CODE_PROVIDER=mock NO_SANDBOX=1 H2CODE_MOCK_SCRIPT=image #{env}./h2code --tui-prompt 'mock' --yolo"
+    run_h2code(env, "--tui-prompt 'mock' --yolo")
   end
 
   desc "Run TUI with mock provider — clipboard image paste demo (Ctrl+V inserts a placeholder; press Enter to send)"
@@ -432,24 +492,25 @@ namespace :mock do
                      "-annotate", "+0+0", text, img)
       puts "▶ Generated #{img} — it acts as the clipboard image".colorize(:blue)
     end
-    sh "H2CODE_PROVIDER=mock NO_SANDBOX=1 H2CODE_MOCK_SCRIPT=imagepaste H2CODE_CLIPBOARD_FILE=#{img} ./h2code --tui-prompt 'mock' --yolo"
+    run_h2code({"H2CODE_PROVIDER" => "mock", "NO_SANDBOX" => "1", "H2CODE_MOCK_SCRIPT" => "imagepaste",
+                "H2CODE_CLIPBOARD_FILE" => img}, "--tui-prompt 'mock' --yolo")
   end
 
   # --- standalone mock binaries (built by build:mock_h2code / build:mockfast_h2code) ---
 
   desc "Build and run bin/mock_h2code (simulated 100-tool LLM output for render testing)"
   task :run => "build:mock_h2code" do
-    sh "./bin/mock_h2code"
+    sh bin_path("bin/mock_h2code")
   end
 
   desc "Build and run bin/mockfast_h2code (big plan + couple of tools for quick render check)"
   task :fast => "build:mockfast_h2code" do
-    sh "./bin/mockfast_h2code"
+    sh bin_path("bin/mockfast_h2code")
   end
 
   desc "Build and run bin/mockshort_h2code (short 10-line streamed answer + couple of tools)"
   task :short => "build:mockshort_h2code" do
-    sh "./bin/mockshort_h2code"
+    sh bin_path("bin/mockshort_h2code")
   end
 
   # Simulate a first run with no config so the setup wizard launches. H2CODE_HOME
@@ -463,7 +524,7 @@ namespace :mock do
     welcome_home = File.expand_path("tmp/h2code_welcome_home", __dir__)
     rm_rf welcome_home
     mkdir_p welcome_home
-    sh "H2CODE_HOME=#{welcome_home} ./h2code"
+    run_h2code({"H2CODE_HOME" => welcome_home})
   end
 end
 
@@ -535,7 +596,7 @@ task :precommit => ["i18n:check", "tips:check"]
 
 desc "Remove build artifacts"
 task :clean do
-  rm_f "h2code"
+  rm_f(windows? ? Dir.glob("h2code.exe{,.old,.prev}") : "h2code")
   rm_f Dir.glob("#{MINIAUDIO_DIR}/miniaudio_bridge.{o,a,obj,lib}")
   rm_f File.join(MINIAUDIO_DIR, ".bridge_stamp")
 end

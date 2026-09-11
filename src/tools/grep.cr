@@ -48,7 +48,7 @@ module H2code
             },
             "type": {
               "type": "string",
-              "description": "Optional ripgrep file type filter, such as ts or py."
+              "description": "Optional file type filter, such as ts, py, or crystal. Known ripgrep types are passed to rg directly; anything else (e.g. cr) is treated as a file extension and translated to a glob (*.cr)."
             },
             "output_mode": {
               "type": "string",
@@ -262,7 +262,16 @@ module H2code
           cmd << "--glob"; cmd << g
         end
         if t = input["type"]?.try(&.to_s)
-          cmd << "--type"; cmd << t
+          unless t.empty?
+            if RunRg.type_names.includes?(t)
+              cmd << "--type"; cmd << t
+            else
+              # Not a ripgrep type (e.g. `cr` — rg's Crystal type is
+              # `crystal`): treat it as a file extension so the search
+              # works instead of dying with "unrecognized file type".
+              cmd << "--glob"; cmd << "*.#{t}"
+            end
+          end
         end
         if input["multiline"]?.try(&.as_bool?)
           cmd << "-U"; cmd << "--multiline-dotall"

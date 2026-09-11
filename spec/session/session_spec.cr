@@ -462,10 +462,10 @@ describe H2code::Session::Lifecycle do
         store
       end
 
-      in_removed = link.call("/repo", gone)      # sandbox removed by forceclean
+      in_removed = link.call("/repo", gone)         # sandbox removed by forceclean
       dangling = link.call("/repo", "/wt/vanished") # sandbox already gone
-      in_kept = link.call("/repo", kept)         # sandbox still there
-      plain = lc.create("/repo")                 # no sandbox link at all
+      in_kept = link.call("/repo", kept)            # sandbox still there
+      plain = lc.create("/repo")                    # no sandbox link at all
       in_removed.append("turn.prompt", {"prompt" => JSON::Any.new("hello")})
 
       unlinked = lc.unlink_sandboxes([gone])
