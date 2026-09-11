@@ -128,44 +128,62 @@ jobs:
         shell: bash
         run: |
           sudo softwareupdate --install-rosetta --agree-to-license || true
-          NONINTERACTIVE=1 arch -x86_64 /bin/bash -c \
-            "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-          # openssl@3's post-install (c_rehash) fails on this runner, which makes
-          # brew exit 1 even though the keg — and the libs/pkg-config files the
-          # build needs — poured fine. Only fail if those are actually missing.
-          # Since Homebrew dropped Intel macOS support (Sept 2026) there are no
-          # bottles at all: openssl@3 builds from source and its TEST binaries
-          # crash under Rosetta. In that case build the libraries ourselves
-          # from brew's cached tarball — Configure no-tests + make build_sw
-          # skip the crashing part — into $HOME/openssl-x86_64. The dylib rebind
-          # step later matches any absolute libssl/libcrypto path, so the
-          # custom prefix is picked up there automatically.
-          OPENSSL_PC=/usr/local/opt/openssl@3/lib/pkgconfig/openssl.pc
-          if ! /usr/local/bin/brew install libyaml pcre2 openssl@3 && [ ! -f "$OPENSSL_PC" ]; then
-            src="$(find "$(/usr/local/bin/brew --cache)/downloads" -name 'openssl-*.tar.gz' -print -quit)"
-            if [ -z "$src" ]; then
-              echo "::error::brew install failed and no cached openssl source tarball found"
-              exit 1
-            fi
-            rm -rf "$HOME/openssl-x86_64"
-            mkdir -p "$HOME/openssl-x86_64/src"
-            tar xzf "$src" -C "$HOME/openssl-x86_64/src" --strip-components=1
-            (
-              cd "$HOME/openssl-x86_64/src"
-              arch -x86_64 ./Configure darwin64-x86_64-cc \
-                --prefix="$HOME/openssl-x86_64" --libdir=lib no-tests no-docs
-              arch -x86_64 make -j"$(sysctl -n hw.ncpu)" build_sw
-              arch -x86_64 make install_sw
-            )
-            OPENSSL_PC="$HOME/openssl-x86_64/lib/pkgconfig/openssl.pc"
-          fi
-          OPENSSL_LIB="$(cd "$(dirname "$OPENSSL_PC")/.." && pwd)"
-          for pc in "$OPENSSL_PC" \
-                    /usr/local/lib/pkgconfig/yaml-0.1.pc \
-                    /usr/local/lib/pkgconfig/libpcre2-8.pc; do
-            [ -f "$pc" ] || { echo "::error::missing $pc after brew install"; exit 1; }
+          # Homebrew dropped Intel macOS support entirely (Sept 2026): the
+          # installer itself refuses to run under Rosetta, so there is no
+          # brew, no bottles and no brew cache to scavenge. Build the three
+          # link dependencies from source instead, under `arch -x86_64`
+          # (inside a Rosetta shell plain `cc` targets x86_64), into
+          # $HOME/x86_64-libs. The dylib rebind step later matches any
+          # absolute libssl/libcrypto path, so the custom prefix is picked
+          # up there automatically.
+          PREFIX="$HOME/x86_64-libs"
+          SRC="$PREFIX/src"
+          rm -rf "$PREFIX"
+          mkdir -p "$SRC"
+          JOBS="$(sysctl -n hw.ncpu)"
+
+          # openssl 3.x — Configure's darwin64-x86_64-cc target plus the
+          # build_sw / install_sw targets skip the test binaries that
+          # crash under Rosetta.
+          curl -fsSL --retry 3 -o "$SRC/openssl.tar.gz" \
+            "https://www.openssl.org/source/openssl-3.5.4.tar.gz"
+          mkdir "$SRC/openssl" && tar xzf "$SRC/openssl.tar.gz" -C "$SRC/openssl" --strip-components=1
+          (
+            cd "$SRC/openssl"
+            arch -x86_64 ./Configure darwin64-x86_64-cc \
+              --prefix="$PREFIX" --libdir=lib no-tests no-docs
+            arch -x86_64 make -j"$JOBS" build_sw
+            arch -x86_64 make install_sw
+          )
+
+          # libyaml — plain autotools build.
+          curl -fsSL --retry 3 -o "$SRC/libyaml.tar.gz" \
+            "https://github.com/yaml/libyaml/releases/download/0.2.5/yaml-0.2.5.tar.gz"
+          mkdir "$SRC/libyaml" && tar xzf "$SRC/libyaml.tar.gz" -C "$SRC/libyaml" --strip-components=1
+          (
+            cd "$SRC/libyaml"
+            arch -x86_64 ./configure --prefix="$PREFIX"
+            arch -x86_64 make -j"$JOBS"
+            arch -x86_64 make install
+          )
+
+          # pcre2 — plain autotools build (8-bit library is what Crystal links).
+          curl -fsSL --retry 3 -o "$SRC/pcre2.tar.gz" \
+            "https://github.com/PCRE2Project/pcre2/releases/download/pcre2-10.44/pcre2-10.44.tar.gz"
+          mkdir "$SRC/pcre2" && tar xzf "$SRC/pcre2.tar.gz" -C "$SRC/pcre2" --strip-components=1
+          (
+            cd "$SRC/pcre2"
+            arch -x86_64 ./configure --prefix="$PREFIX"
+            arch -x86_64 make -j"$JOBS"
+            arch -x86_64 make install
+          )
+
+          # Fail loudly (and early) when any of the .pc files the Crystal
+          # link needs is missing — not minutes later in the build step.
+          for pc in openssl.pc libcrypto.pc yaml-0.1.pc libpcre2-8.pc; do
+            [ -f "$PREFIX/lib/pkgconfig/$pc" ] || { echo "::error::missing $pc under $PREFIX/lib/pkgconfig"; exit 1; }
           done
-          echo "PKG_CONFIG_PATH=$OPENSSL_LIB/pkgconfig:/usr/local/lib/pkgconfig" >> "$GITHUB_ENV"
+          echo "PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig" >> "$GITHUB_ENV"
           # CC wrapper: skip -arch x86_64 for macro programs (compiled for host arch)
           cat > /tmp/cc-wrapper << 'WRAPPER'
           #!/bin/bash
@@ -173,7 +191,7 @@ jobs:
             case "$arg" in */.cache/crystal/*) exec /usr/bin/cc "$@" ;; esac
           done
           WRAPPER
-          echo "exec /usr/bin/cc -arch x86_64 -L/usr/local/lib -L$OPENSSL_LIB \"\$@\"" >> /tmp/cc-wrapper
+          echo "exec /usr/bin/cc -arch x86_64 -L$PREFIX/lib \"\$@\"" >> /tmp/cc-wrapper
           chmod +x /tmp/cc-wrapper
           echo "CC=/tmp/cc-wrapper" >> "$GITHUB_ENV"
 
