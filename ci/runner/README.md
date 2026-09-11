@@ -1,11 +1,15 @@
-# GitLab runner (self-hosted, Docker executor)
+# GitLab runners (self-hosted)
 
-Runs the `.gitlab-ci.yml` jobs of this repo on your own machine. The runner
-itself lives in a Docker container; every job then starts as a sibling
-container on the host Docker (via the socket mount), so the host only needs
-Docker — no Crystal install.
+Runs the `.gitlab-ci.yml` jobs of this repo on your own machines. The Linux
+runner uses the Docker executor (below); the macOS and Windows runners use
+shell executors directly on the host (see the sections further down).
 
-## Setup
+**Important:** when creating the macOS/Windows runners, keep "run untagged
+jobs" **off**. The Linux jobs (`check`, `integration`, `build:x86_64-linux`,
+`release`) are untagged and require the Docker executor — a shell runner
+with "run untagged" enabled would pick them up and fail.
+
+## Linux runner (Docker executor)
 
 1. Start the runner container:
 
@@ -35,6 +39,70 @@ Docker — no Crystal install.
    The script registers a Docker-executor runner with the default image
    `crystallang/crystal:1.21.0`, `pull_policy = if-not-present`, and
    `concurrent = 2` so the `check` and `integration` jobs run in parallel.
+
+## macOS runner (shell executor, tag `macos`)
+
+Runs `integration:macos`, `build:aarch64-darwin` (native) and
+`build:x86_64-darwin` (cross-compiled under Rosetta) on a Mac.
+
+Host requirements:
+
+- macOS on Apple Silicon (the x86_64 leg cross-compiles via Rosetta 2)
+- Xcode Command Line Tools: `xcode-select --install`
+- Crystal 1.21.x — `brew install crystal` or https://crystal-lang.org/install/
+- Homebrew (Crystal's libssl/libyaml/pcre2 link dependencies)
+- rake — bundled with the system Ruby, nothing to install
+- Rosetta 2: `sudo softwareupdate --install-rosetta --agree-to-license`
+  (the CI job also tries this, but it needs `sudo`; without passwordless
+  sudo, run it once manually)
+
+Setup:
+
+1. In GitLab: project → **Settings → CI/CD → Runners → New project runner**,
+   tag `macos`, "run untagged jobs" off. Copy the token (`glrt-…`).
+2. Install and register the runner (https://docs.gitlab.com/runner/install/osx/):
+
+   ```
+   brew install gitlab-runner
+   gitlab-runner register --url https://gitlab.com --token glrt-…   # executor: shell
+   brew services start gitlab-runner
+   ```
+
+Notes:
+
+- Until this runner is registered, the macOS jobs sit pending ("waiting for
+  a runner") in every pipeline; the Linux jobs are not blocked by them.
+- The `build:x86_64-darwin` job builds OpenSSL/libyaml/pcre2 from source
+  under `arch -x86_64` into `~/x86_64-libs` on first run (Homebrew has no
+  Intel bottles); later runs rebuild it from scratch, which takes a while.
+
+## Windows runner (shell executor, tag `windows`)
+
+Runs `integration:windows` and `build:x86_64-windows` on a Windows machine.
+
+Host requirements:
+
+- Crystal 1.21.x — the Windows installer from https://crystal-lang.org/install/
+- Visual Studio Build Tools with the "Desktop development with C++" workload
+  (MSVC + Windows SDK — Crystal's native toolchain on Windows)
+- Git for Windows (git + bash on PATH — the build job runs under bash)
+- Ruby + rake — RubyInstaller (https://rubyinstaller.org/); rake ships with it
+
+Setup:
+
+1. In GitLab: project → **Settings → CI/CD → Runners → New project runner**,
+   tag `windows`, "run untagged jobs" off. Copy the token (`glrt-…`).
+2. Install and register the runner
+   (https://docs.gitlab.com/runner/install/windows/), from an elevated shell:
+
+   ```
+   .\gitlab-runner.exe register --url https://gitlab.com --token glrt-…   # executor: shell
+   .\gitlab-runner.exe install
+   .\gitlab-runner.exe start
+   ```
+
+   The shell executor uses pwsh when installed, otherwise Windows PowerShell
+   (the job scripts are compatible with both).
 
 ## Operations
 
