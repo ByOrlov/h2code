@@ -513,6 +513,16 @@ module H2code
                   break if data == "[DONE]"
 
                   begin
+                    # Some backends (LM Studio) report failures mid-stream:
+                    # the HTTP status is 200, but the payload is a bare
+                    # `{"error":{...}}` object with no choices (e.g. the
+                    # prompt exceeds the loaded model's context). Surface it
+                    # instead of silently swallowing the whole stream.
+                    if data.starts_with?("{\"error\"")
+                      raise ApiError.new(400,
+                        ApiError.extract_message("Stream error", data),
+                        retryable: false)
+                    end
                     chunk = StreamChunk.from_json(data)
                     chunks.send(chunk)
                   rescue ex : JSON::ParseException

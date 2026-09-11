@@ -69,6 +69,24 @@ describe H2code::LLM::OpenAIChatProvider do
       result.stop_reason.should eq("end_turn")
     end
 
+    it "raises non-retryable ApiError when the stream carries a bare error event" do
+      transport = H2code::MockHttpTransport.new
+      transport.mode = H2code::MockHttpTransport::Mode::NormalStream
+      # LM Studio answers 200 but streams `event: error` with a bare
+      # `{"error":{...}}` payload (e.g. prompt exceeds model context).
+      transport.stream_lines = [
+        %({"error":{"message":"request (19061 tokens) exceeds the available context size (8192 tokens), try increasing it"}}),
+      ]
+
+      provider = TestProvider.new("m", "http://localhost", transport: transport)
+
+      error = expect_raises(H2code::LLM::ApiError) do
+        provider.chat([H2code::LLM::Message.user("hi")], nil) { |p| }
+      end
+      error.message.to_s.should contain("exceeds the available context size")
+      error.retryable?.should be_false
+    end
+
     it "raises ApiError on non-200 status" do
       transport = H2code::MockHttpTransport.new
       transport.mode = H2code::MockHttpTransport::Mode::ErrorStatus
