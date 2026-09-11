@@ -52,11 +52,11 @@ Docker — no Crystal install.
 ## Reuse across runs
 
 - Job image: built once, reused (`if-not-present`) — no per-job `apt-get`.
-- `lib/` + `.shards/`: GitLab `cache:` keyed by `shard.lock` — `shards
-  install` becomes a quick local copy.
-- `CRYSTAL_CACHE_DIR` points into the project and is cached too, so `crystal
-  spec` / `crystal build` reuse macro and dependency artifacts instead of
-  recompiling from scratch.
+- Toolchain caches: the runner bind-mounts `~/gitlab-runner-cache` (host) into
+  every job container as `/cache`; jobs point `CRYSTAL_CACHE_DIR` (h2code) and
+  `GOMODCACHE`/`GOCACHE`/`CARGO_TARGET_DIR`/npm cache (hvoice) there. GitLab
+  server-side `cache:` is NOT used — this runner has no object storage, so
+  runner 19.x has no cache adapter at all.
 
 ## Notes
 

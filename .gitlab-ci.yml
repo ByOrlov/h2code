@@ -13,24 +13,15 @@ stages:
 
 default:
   image: h2code-ci:1.21.0
-  # Cache installed shards and the Crystal compiler cache between pipelines;
-  # keyed by shard.lock so a dependency bump gets a fresh key.
-  cache:
-    key:
-      files:
-        - shard.lock
-    paths:
-      - lib/
-      - .shards/
-      - .crystal-cache/
 
 variables:
   # Full clone with tags so the Rakefile's `git describe` version fallback
   # (h2code_build_version) works on branch builds.
   GIT_DEPTH: "0"
-  # Keep the compiler's macro/dependency artifacts inside the project dir so
-  # they ride the cache above instead of dying with the job container.
-  CRYSTAL_CACHE_DIR: "$CI_PROJECT_DIR/.crystal-cache"
+  # Compiler macro/dependency artifacts on the runner's persistent /cache
+  # bind mount (GitLab server-side `cache:` is unavailable on this runner —
+  # no object storage), so crystal spec/build don't recompile from scratch.
+  CRYSTAL_CACHE_DIR: "/cache/h2code/crystal"
 
 check:
   stage: check
