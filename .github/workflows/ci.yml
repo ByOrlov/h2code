@@ -4,6 +4,14 @@ on:
   push:
   pull_request:
 
+# Fail-fast policy: ANY first failure cancels the whole run (matrix siblings
+# and parallel jobs alike). Failures across jobs are almost always the same
+# root cause, so stop, fix, and re-push instead of waiting for every job to
+# fail identically.
+permissions:
+  contents: read
+  actions: write
+
 jobs:
   check:
     runs-on: ubuntu-latest
@@ -24,6 +32,18 @@ jobs:
       - name: Spec
         run: rake spec
 
+      - name: Cancel remaining jobs (first failure stops the run)
+        if: failure()
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.actions.cancelWorkflowRun({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.runId,
+            });
+
   # Integration: the tools run headlessly (no TTY, no user approval) against
   # the real system of each runner, exercising the platform ShellPort/HomePort
   # adapters. Windows runners have Git for Windows on PATH, so the win32
@@ -32,7 +52,7 @@ jobs:
   integration:
     name: Integration (${{ matrix.os }})
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
@@ -53,3 +73,15 @@ jobs:
 
       - name: Integration specs (headless tool execution)
         run: rake spec:integration
+
+      - name: Cancel remaining jobs (first failure stops the run)
+        if: failure()
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.actions.cancelWorkflowRun({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.runId,
+            });

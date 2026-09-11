@@ -175,7 +175,11 @@ def run_specs(path = nil)
   build_miniaudio_bridge
   link_flags = crystal_link_flags
   target = path ? "spec #{path}" : "spec"
-  sh "crystal #{target} --warnings none --no-color --link-flags \"#{link_flags}\""
+  # Fail-fast in CI (GitHub Actions sets CI=true): stop at the first failing
+  # example — the remaining failures are almost always cascades of the same
+  # root cause, so surface it immediately instead of collecting them all.
+  fail_fast = ENV["CI"] ? " --fail-fast" : ""
+  sh "crystal #{target}#{fail_fast} --warnings none --no-color --link-flags \"#{link_flags}\""
 end
 
 # Print a blue "building X" banner before each build step.
