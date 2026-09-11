@@ -132,6 +132,26 @@ describe H2code::Tools::Grep do
     result.content.should_not contain("g.txt")
   end
 
+  it "falls back to a glob for unknown type names like cr" do
+    # ripgrep's Crystal type is `crystal`, not `cr` — an unknown type used
+    # to fail the whole search with "unrecognized file type".
+    File.write(File.join(test_dir, "type_fb.cr"), "type_fallback_target\n")
+    File.write(File.join(test_dir, "type_fb.txt"), "type_fallback_target\n")
+    grep = H2code::Tools::Grep.new(test_dir)
+    result = grep.execute(JSON.parse(%({"pattern": "type_fallback_target", "type": "cr"})))
+    result.is_error?.should be_false
+    result.content.should contain("type_fb.cr")
+    result.content.should_not contain("type_fb.txt")
+  end
+
+  it "passes known type names to rg directly" do
+    File.write(File.join(test_dir, "type_known.cr"), "known_type_target\n")
+    grep = H2code::Tools::Grep.new(test_dir)
+    result = grep.execute(JSON.parse(%({"pattern": "known_type_target", "type": "crystal"})))
+    result.is_error?.should be_false
+    result.content.should contain("type_known.cr")
+  end
+
   it "filters sensitive files" do
     File.write(File.join(test_dir, ".env"), "SECRET_KEY=hunter2\n")
     grep = H2code::Tools::Grep.new(test_dir)
