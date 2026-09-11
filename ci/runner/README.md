@@ -14,20 +14,27 @@ Docker — no Crystal install.
    docker compose up -d
    ```
 
-2. Get a runner token from GitLab: project → **Settings → CI/CD → Runners →
+2. Build the CI job image (once per machine hosting a runner; jobs reference
+   it via `image:` in `.gitlab-ci.yml` and the runner reuses it with
+   `pull_policy = if-not-present`):
+
+   ```
+   ./build-image.sh          # → h2code-ci:1.21.0 (crystal + ripgrep + rake)
+   ```
+
+3. Get a runner token from GitLab: project → **Settings → CI/CD → Runners →
    New project runner** (leave "run untagged jobs" enabled), copy the
    authentication token (`glrt-…`).
 
-3. Register:
+4. Register:
 
    ```
    ./register.sh https://gitlab.com <token>        # or your self-hosted URL
    ```
 
    The script registers a Docker-executor runner with the default image
-   `crystallang/crystal:1.21.0`, `pull_policy = if-not-present` (the image is
-   pulled once and reused), and `concurrent = 2` so the `check` and
-   `integration` jobs run in parallel.
+   `crystallang/crystal:1.21.0`, `pull_policy = if-not-present`, and
+   `concurrent = 2` so the `check` and `integration` jobs run in parallel.
 
 ## Operations
 
@@ -38,8 +45,18 @@ Docker — no Crystal install.
 ## Files
 
 - `docker-compose.yml` — the runner service (socket mount + `./data` state).
+- `Dockerfile` + `build-image.sh` — the CI job image (`h2code-ci:1.21.0`).
 - `register.sh` — one-time registration helper.
 - `data/` — runner state incl. `config.toml` with the token; **gitignored**.
+
+## Reuse across runs
+
+- Job image: built once, reused (`if-not-present`) — no per-job `apt-get`.
+- `lib/` + `.shards/`: GitLab `cache:` keyed by `shard.lock` — `shards
+  install` becomes a quick local copy.
+- `CRYSTAL_CACHE_DIR` points into the project and is cached too, so `crystal
+  spec` / `crystal build` reuse macro and dependency artifacts instead of
+  recompiling from scratch.
 
 ## Notes
 
