@@ -354,47 +354,50 @@ task :spec_integration => "spec:integration"
 namespace :mock do
   desc "Run TUI with mock provider — default self-test script (parallel tools)"
   task :default => :build do
-    sh "H2CODE_PROVIDER=mock ./h2code --tui-prompt 'mock' --yolo"
+    sh "H2CODE_PROVIDER=mock NO_SANDBOX=1 ./h2code --tui-prompt 'mock' --yolo"
   end
 
   desc "Run TUI with mock provider — thinking streaming demo (~5s)"
   task :thinking => :build do
-    sh "H2CODE_PROVIDER=mock H2CODE_MOCK_SCRIPT=thinking ./h2code --tui-prompt 'mock' --yolo"
+    sh "H2CODE_PROVIDER=mock NO_SANDBOX=1 H2CODE_MOCK_SCRIPT=thinking ./h2code --tui-prompt 'mock' --yolo"
   end
 
   desc "Run TUI with mock provider — thinking + tool call demo"
   task :thinking_tools => :build do
-    sh "H2CODE_PROVIDER=mock H2CODE_MOCK_SCRIPT=thinking-tools ./h2code --tui-prompt 'mock' --yolo"
+    sh "H2CODE_PROVIDER=mock NO_SANDBOX=1 H2CODE_MOCK_SCRIPT=thinking-tools ./h2code --tui-prompt 'mock' --yolo"
   end
 
   desc "Run TUI with mock provider — markdown rendering demo"
   task :markdown => :build do
-    sh "H2CODE_PROVIDER=mock H2CODE_MOCK_SCRIPT=markdown ./h2code --tui-prompt 'mock' --yolo"
+    sh "H2CODE_PROVIDER=mock NO_SANDBOX=1 H2CODE_MOCK_SCRIPT=markdown ./h2code --tui-prompt 'mock' --yolo"
   end
 
   desc "Run TUI with mock provider — broken-token markdown list streaming bug repro"
   task :markdown_tokens => :build do
-    sh "H2CODE_PROVIDER=mock H2CODE_MOCK_SCRIPT=markdown_tokens ./h2code --tui-prompt 'mock' --yolo"
+    sh "H2CODE_PROVIDER=mock NO_SANDBOX=1 H2CODE_MOCK_SCRIPT=markdown_tokens ./h2code --tui-prompt 'mock' --yolo"
   end
 
   desc "Run TUI with mock provider — sound notification on turn completion"
   task :sound => :build do
-    sh "H2CODE_PROVIDER=mock H2CODE_SOUND=1 ./h2code --tui-prompt 'mock' --yolo"
+    sh "H2CODE_PROVIDER=mock NO_SANDBOX=1 H2CODE_SOUND=1 ./h2code --tui-prompt 'mock' --yolo"
   end
 
   desc "Run TUI with mock provider — sudo terminal exec demo (requires bin/mocksudo on PATH)"
   task :mocksudo => :build do
-    sh "H2CODE_PROVIDER=mock H2CODE_MOCK_SCRIPT=sudo PATH=#{File.dirname(__FILE__)}/bin:$PATH ./h2code --tui-prompt 'mock' --yolo"
+    sh "H2CODE_PROVIDER=mock NO_SANDBOX=1 H2CODE_MOCK_SCRIPT=sudo PATH=#{File.dirname(__FILE__)}/bin:$PATH ./h2code --tui-prompt 'mock' --yolo"
   end
 
   desc "Run TUI with mock provider — TodoList completion → log migration demo"
   task :todos => :build do
-    sh "H2CODE_PROVIDER=mock H2CODE_MOCK_SCRIPT=todos ./h2code --tui-prompt 'mock' --yolo"
+    sh "H2CODE_PROVIDER=mock NO_SANDBOX=1 H2CODE_MOCK_SCRIPT=todos ./h2code --tui-prompt 'mock' --yolo"
   end
 
   desc "Run TUI with mock provider — long-plan review (EnterPlanMode → Write → ExitPlanMode)"
   task :plan => :build do
-    sh "H2CODE_PROVIDER=mock H2CODE_MOCK_SCRIPT=plan ./h2code --tui-prompt 'mock' --yolo"
+    # NO_SANDBOX=1 disables the tool write confinement for mock demos:
+    # the plan file lives inside the session store (~/.h2code/sessions),
+    # which the sandbox guard otherwise blocks (see src/sandbox.cr).
+    sh "H2CODE_PROVIDER=mock NO_SANDBOX=1 H2CODE_MOCK_SCRIPT=plan ./h2code --tui-prompt 'mock' --yolo"
   end
 
   desc "Run TUI with mock provider — ReadMediaFile multi-part image delivery demo"
@@ -415,7 +418,7 @@ namespace :mock do
       puts "▶ ImageMagick not found — falling back to logo.png".colorize(:yellow)
       env = ""
     end
-    sh "H2CODE_PROVIDER=mock H2CODE_MOCK_SCRIPT=image #{env}./h2code --tui-prompt 'mock' --yolo"
+    sh "H2CODE_PROVIDER=mock NO_SANDBOX=1 H2CODE_MOCK_SCRIPT=image #{env}./h2code --tui-prompt 'mock' --yolo"
   end
 
   desc "Run TUI with mock provider — clipboard image paste demo (Ctrl+V inserts a placeholder; press Enter to send)"
@@ -429,7 +432,7 @@ namespace :mock do
                      "-annotate", "+0+0", text, img)
       puts "▶ Generated #{img} — it acts as the clipboard image".colorize(:blue)
     end
-    sh "H2CODE_PROVIDER=mock H2CODE_MOCK_SCRIPT=imagepaste H2CODE_CLIPBOARD_FILE=#{img} ./h2code --tui-prompt 'mock' --yolo"
+    sh "H2CODE_PROVIDER=mock NO_SANDBOX=1 H2CODE_MOCK_SCRIPT=imagepaste H2CODE_CLIPBOARD_FILE=#{img} ./h2code --tui-prompt 'mock' --yolo"
   end
 
   # --- standalone mock binaries (built by build:mock_h2code / build:mockfast_h2code) ---
