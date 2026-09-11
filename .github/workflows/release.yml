@@ -49,11 +49,13 @@ jobs:
           fi
           echo "Pushed tag: $RAW"
 
-          # YYYY.MM.DD form → compute next build number for that day. Also
-          # accepts post-commit auto-tags YYYY.MM.DD-<secs from day begin>
-          # (with optional .N collision suffix): they mark a commit, not a
-          # release, so the build number is computed the same way.
-          if [[ "$RAW" =~ ^([0-9]{4})\.([0-9]{2})\.([0-9]{2})(-[0-9]+(\.[0-9]+)?)?$ ]]; then
+          # Post-commit auto-tags YYYY.MM.DD-<secs from day begin> (with
+          # optional .N collision suffix) release under their own name —
+          # every pushed tag publishes a release, one per tag.
+          if [[ "$RAW" =~ ^[0-9]{4}\.[0-9]{2}\.[0-9]{2}-[0-9]+(\.[0-9]+)?$ ]]; then
+            VERSION="$RAW"
+          # YYYY.MM.DD form → compute next build number for that day.
+          elif [[ "$RAW" =~ ^([0-9]{4})\.([0-9]{2})\.([0-9]{2})$ ]]; then
             DAY="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
             # Find existing release tags for this day and pick the max N.
             EXISTING=$(git tag -l "${DAY}.*" 2>/dev/null || true)
