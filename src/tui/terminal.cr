@@ -296,6 +296,15 @@ module H2code
       def self.rgb(r : Int32, g : Int32, b : Int32) : String
         "#{ESC}38;2;#{r};#{g};#{b}m"
       end
+
+      # Truecolor (24-bit) counterpart of `color`: optional fg and bg RGB
+      # triples combined into one SGR sequence.
+      def self.color24(fg : {Int32, Int32, Int32}? = nil, bg : {Int32, Int32, Int32}? = nil) : String
+        parts = [] of String
+        parts << "38;2;#{fg[0]};#{fg[1]};#{fg[2]}" if fg
+        parts << "48;2;#{bg[0]};#{bg[1]};#{bg[2]}" if bg
+        parts.empty? ? "" : "#{ESC}#{parts.join(";")}m"
+      end
     end
   end
 end
