@@ -1448,7 +1448,8 @@ module H2code
           return
         end
 
-        @status = "Fetching models..."
+        @status = "Loading models for #{@provider_name}..."
+        @model_fetch_active = true
         @dirty = true
 
         spawn do
@@ -1463,6 +1464,7 @@ module H2code
           rescue ex
             emit_to_log(Message.new("error", H2code.t("ui.models_fetch_failed", message: ex.message)))
           ensure
+            @model_fetch_active = false
             @status = ""
             @dirty = true
           end

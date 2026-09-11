@@ -123,7 +123,8 @@ module H2code
         end
 
         name = wizard.provider_name.to_s
-        @status = "Loading models..."
+        @status = "Loading models for #{name}..."
+        @model_fetch_active = true
         @editor.clear
         @dirty = true
 
@@ -140,6 +141,7 @@ module H2code
           rescue ex
             emit_to_log(Message.new("system", H2code.t("ui.models_unavailable")))
           ensure
+            @model_fetch_active = false
             @status = "Setup: #{wizard.step.to_s.downcase}"
             @dirty = true
           end

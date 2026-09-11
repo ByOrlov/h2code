@@ -682,6 +682,10 @@ module H2code
       #   Done    — bar khaki (logo), text gray (dim), ✓ check mark
       #   Error   — red (error), ✗ mark
       private def render_agent_status_line : String
+        # Model fetch takes precedence over the lifecycle line: it can run
+        # while the status is Hello (which renders nothing) or Done (static),
+        # and the user must see that the provider API call is in flight.
+        return render_model_fetch_line if @model_fetch_active
         bar = MessageRenderer::STREAMING_BAR
         String.build do |s|
           case @agent_status
@@ -719,6 +723,26 @@ module H2code
             s << @status
             s << ANSI.reset
           end
+        end
+      end
+
+      # Transient animated indicator shown while a provider's model list is
+      # being fetched (setup wizard, /model, provider switch): spinner frame +
+      # @status ("Loading models for <provider>..."). Animated by the run
+      # loop's 80ms tick while @model_fetch_active is set.
+      private def render_model_fetch_line : String
+        String.build do |s|
+          s << ANSI.color(@theme.colors.info, nil)
+          s << MessageRenderer::STREAMING_BAR
+          s << ANSI.reset
+          s << ' '
+          s << ANSI.color(@theme.colors.info, nil)
+          s << Spinner::FRAMES[@spin_phase % Spinner::FRAMES.size]
+          s << ANSI.reset
+          s << ' '
+          s << ANSI.color(@theme.colors.muted, nil)
+          s << @status
+          s << ANSI.reset
         end
       end
     end

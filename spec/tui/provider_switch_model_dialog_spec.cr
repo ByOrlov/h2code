@@ -40,6 +40,14 @@ class ProviderSwitchApp < H2code::TUI::App
   def model_list
     @model_list
   end
+
+  def model_fetch_active?
+    @model_fetch_active
+  end
+
+  def status_line
+    render_agent_status_line
+  end
 end
 
 # Wait for the async model-fetch fiber (open_model_selector spawns) to finish.
@@ -80,6 +88,36 @@ describe H2code::TUI::App do
     app.model_list.visible?.should be_true
     # Positioned on the provider's saved model, not on the first entry.
     app.model_list.current.should eq("glm-4.6")
+  end
+
+  it "shows an animated loading-models line while the fetch is in flight" do
+    app = ProviderSwitchApp.new
+    release = Channel(Nil).new(1)
+    app.on_provider_configured = ->(_name : String) : Bool { true }
+    app.on_provider_change = ->(_name : String) : Bool do
+      app.model = "glm-4.6"
+      true
+    end
+    # Gated fetch: blocks until the spec releases it, so the in-flight
+    # window is observable.
+    app.on_fetch_models = -> : Array(String) do
+      release.receive
+      ["glm-4.5", "glm-4.6"]
+    end
+
+    app.open_provider
+    app.select_provider("zai")
+    app.provider_enter
+
+    provider_switch_wait_until { app.model_fetch_active? }.should be_true
+    line = app.status_line
+    line.should contain("Loading models for zai")
+    # The line carries an animated spinner frame, not just static text.
+    H2code::TUI::Spinner::FRAMES.any? { |f| line.includes?(f) }.should be_true
+
+    release.send(nil)
+    provider_switch_wait_until { app.model_list.visible? }.should be_true
+    app.model_fetch_active?.should be_false
   end
 
   it "does not open the model selector when the provider switch fails" do
