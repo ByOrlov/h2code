@@ -239,36 +239,43 @@ module H2code
       private def glob_to_regex(pattern : String) : Regex
         s = String::Builder.new
         s << '^'
+        emit_glob_fragment(s, pattern)
+        s << '$'
+        Regex.new(s.to_s)
+      end
+
+      # Translate a glob fragment into regex text appended to `s` (no
+      # anchors). Recursed into for each `{a,b}` alternation part so that
+      # wildcards inside braces (`{.github/**,deploy*,*.sh}`) are
+      # translated rather than emitted as raw (invalid) regex.
+      private def emit_glob_fragment(s : String::Builder, fragment : String) : Nil
         i = 0
-        size = pattern.size
+        size = fragment.size
         while i < size
-          if i + 2 < size && pattern[i, 3] == "**/"
+          if i + 2 < size && fragment[i, 3] == "**/"
             # `**/` matches zero or more directory segments
             s << "(?:[^/]+/)*"
             i += 3
-          elsif i + 1 < size && pattern[i, 2] == "**"
+          elsif i + 1 < size && fragment[i, 2] == "**"
             s << ".*"
             i += 2
-          elsif pattern[i] == '*'
+          elsif fragment[i] == '*'
             s << "[^/]*"
             i += 1
-          elsif pattern[i] == '?'
+          elsif fragment[i] == '?'
             s << "[^/]"
             i += 1
-          elsif pattern[i] == '{'
-            end_idx = pattern.index('}', i + 1)
+          elsif fragment[i] == '{'
+            end_idx = fragment.index('}', i + 1)
             if end_idx
-              contents = pattern[(i + 1)...end_idx]
+              contents = fragment[(i + 1)...end_idx]
               s << "(?:"
               # alternation: a,b,c → a|b|c
               first = true
               contents.split(',').each do |part|
                 s << '|' unless first
                 first = false
-                part.each_char do |ch|
-                  s << '\\' if regex_meta?(ch)
-                  s << ch
-                end
+                emit_glob_fragment(s, part)
               end
               s << ")"
               i = end_idx + 1
@@ -276,11 +283,11 @@ module H2code
               s << "\\{"
               i += 1
             end
-          elsif pattern[i] == '['
+          elsif fragment[i] == '['
             # Character class: [abc] / [a-z], [!...] negation.
-            end_idx = pattern.index(']', i + 1)
+            end_idx = fragment.index(']', i + 1)
             if end_idx && end_idx > i + 1
-              contents = pattern[(i + 1)...end_idx]
+              contents = fragment[(i + 1)...end_idx]
               negated = contents.starts_with?('!')
               contents = contents[1..] if negated
               s << (negated ? "[^" : "[")
@@ -298,17 +305,15 @@ module H2code
               s << "\\["
               i += 1
             end
-          elsif regex_meta?(pattern[i])
+          elsif regex_meta?(fragment[i])
             s << '\\'
-            s << pattern[i]
+            s << fragment[i]
             i += 1
           else
-            s << pattern[i]
+            s << fragment[i]
             i += 1
           end
         end
-        s << '$'
-        Regex.new(s.to_s)
       end
 
       private def regex_meta?(c : Char) : Bool

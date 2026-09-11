@@ -211,6 +211,22 @@ describe H2code::Tools::Glob do
       result.content.should_not contain("c.cr")
     end
 
+    it "translates wildcards inside braces" do
+      # `{.github/**,deploy*,*.sh}` used to emit raw `**` into the regex,
+      # failing with "quantifier does not follow a repeatable item".
+      dir = glob_fresh_dir("brace-wildcard")
+      glob_write("#{dir}/.github/workflows/ci.yml")
+      glob_write("#{dir}/deploy.sh")
+      glob_write("#{dir}/keep.cr")
+
+      glob = H2code::Tools::Glob.new(dir)
+      result = glob.execute(JSON.parse(%({"pattern": "{.github/**,deploy*,*.sh}"})))
+      result.is_error?.should be_false
+      result.content.should contain("ci.yml")
+      result.content.should contain("deploy.sh")
+      result.content.should_not contain("keep.cr")
+    end
+
     it "matches character class [abc]" do
       dir = glob_fresh_dir("charclass")
       glob_write("#{dir}/a.cr")
