@@ -532,6 +532,25 @@ module H2code::Tools
       end
     end
 
+    it "observe settles from the first immediate poll instead of waiting POLL_INTERVAL_S" do
+      with_tmpdir do |dir|
+        runner = CiFakeRunner.new
+        runner.add(0, %[ [{"name":"build","status":"completed","conclusion":"success"}] ])
+        svc = Ci::LiveCiService.new
+        svc.runner = ->runner.call(String, String)
+
+        svc.observe(CI_SPEC_SHA, dir).should be_true
+
+        # The spawned poll fiber must run its first check right away: the
+        # observer reaches a terminal state in well under POLL_INTERVAL_S.
+        deadline = Time.instant + 2.seconds
+        while svc.observer_for(CI_SPEC_SHA).try(&.pending?) && Time.instant < deadline
+          sleep 10.milliseconds
+        end
+        svc.observer_for(CI_SPEC_SHA).not_nil!.status.success?.should be_true
+      end
+    end
+
     it "poll_once captures the failure log and delivers a notification" do
       with_tmpdir do |dir|
         delivered = [] of String
