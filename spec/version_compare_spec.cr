@@ -25,6 +25,26 @@ describe H2code::VersionCompare do
       H2code::VersionCompare.compare("2026.07.31", "2026.07.31.0").should eq(0)
       H2code::VersionCompare.compare("2026.07.31", "2026.07.31.1").should be < 0
     end
+
+    it "ranks auto-tags chronologically by seconds within the same day" do
+      H2code::VersionCompare.compare("2026.09.11-40308", "2026.09.11-53466").should be < 0
+      H2code::VersionCompare.compare("2026.09.11-53466", "2026.09.11-41716").should be > 0
+      H2code::VersionCompare.compare("2026.09.11-53466", "2026.09.11-53466").should eq(0)
+    end
+
+    it "ranks auto-tags after the bare date but before .N releases of the same day" do
+      H2code::VersionCompare.compare("2026.09.11", "2026.09.11-53466").should be < 0
+      H2code::VersionCompare.compare("2026.09.11-53466", "2026.09.11.1").should be < 0
+    end
+
+    it "ranks auto-tags across days by date" do
+      H2code::VersionCompare.compare("2026.09.11-53466", "2026.09.12-100").should be < 0
+      H2code::VersionCompare.compare("2026.09.11-70000", "2026.09.10.9").should be > 0
+    end
+
+    it "ignores the same-second collision suffix for ordering" do
+      H2code::VersionCompare.compare("2026.09.11-53466", "2026.09.11-53466.2").should eq(0)
+    end
   end
 
   describe ".newer?" do

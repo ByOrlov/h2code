@@ -265,6 +265,61 @@ module H2code
         end
       end
 
+      describe "forceclean" do
+        it "removes unmerged and dirty sandboxes and prunes empty parents" do
+          with_git_repo do |repo, home|
+            # Unmerged work committed on the sandbox branch and pushed to
+            # the source repo (as /merge's fetch does) — forceclean must
+            # force-delete that branch too.
+            unmerged = Worktree.create(repo, "sess20", home).path.not_nil!
+            wt_git(unmerged, "config", "user.email", "spec@example.com")
+            wt_git(unmerged, "config", "user.name", "Spec")
+            File.write(File.join(unmerged, "a.txt"), "wip\n")
+            wt_git(unmerged, "add", "-A")
+            wt_git(unmerged, "commit", "-m", "wip")
+            wt_git(repo, "fetch", unmerged, "+h2code-sess20:h2code-sess20")
+
+            # Dirty sandbox with uncommitted changes — removed anyway.
+            dirty = Worktree.create(repo, "sess21", home).path.not_nil!
+            File.write(File.join(dirty, "b.txt"), "uncommitted\n")
+
+            result = Worktree.forceclean(home)
+            result.removed.size.should eq(2)
+            result.removed.should contain(unmerged)
+            result.removed.should contain(dirty)
+            result.kept.should be_empty
+            File.exists?(unmerged).should be_false
+            File.exists?(dirty).should be_false
+            # The pushed branch was force-deleted from the source repo.
+            wt_git(repo, "branch", "--list", "h2code-sess20").should be_empty
+            # The source repo's own branch survives.
+            wt_git_ok?(repo, "rev-parse", "--verify", "main").should be_true
+
+            # Empty <project-path> parents below the worktree root were
+            # pruned; the root itself stays.
+            File.exists?(File.dirname(unmerged)).should be_false
+            Dir.exists?(Worktree.root(home)).should be_true
+            Worktree.list(home).should be_empty
+          end
+        end
+
+        it "keeps the current session's sandbox (skip)" do
+          with_git_repo do |repo, home|
+            current = Worktree.create(repo, "sess22", home).path.not_nil!
+            other = Worktree.create(repo, "sess23", home).path.not_nil!
+
+            result = Worktree.forceclean(home, skip: current)
+            result.removed.should eq([other])
+            result.kept.size.should eq(1)
+            result.kept.first.should contain("current sandbox")
+            File.exists?(current).should be_true
+            File.exists?(other).should be_false
+            # The kept sandbox's parent was not pruned out from under it.
+            Dir.exists?(File.dirname(current)).should be_true
+          end
+        end
+      end
+
       it "gc removes only aged, merged sandboxes" do
         with_git_repo do |repo, home|
           # Aged but unmerged: kept by gc.

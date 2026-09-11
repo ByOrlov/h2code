@@ -145,7 +145,7 @@ en:
   ui:
     fork_busy: "Cannot fork while a turn is running. Wait or interrupt first."
     fork_not_wired: "Session fork is not wired up."
-    fork_usage: "Usage: /fork [list|clean|go <id>]"
+    fork_usage: "Usage: /fork [list|clean|forceclean|go <id>]"
     fork_failed: "/fork failed: %{error}"
     fork_created: "Forked into isolated worktree (branch %{branch}, %{path}). The agent now works inside the worktree — use /merge to fold changes back."
     fork_go_not_found: "No fork matches '%{id}'. Use /fork list to see the available ids."
@@ -158,6 +158,7 @@ en:
     fork_wt_dirty: "uncommitted changes"
     fork_wt_session_archived: "archived"
     fork_clean_done: "Removed %{removed} worktree(s), kept %{kept}:"
+    fork_forceclean_done: "Removed %{removed} worktree(s), unlinked %{unlinked} session(s), kept %{kept}:"
     merge_busy: "Cannot merge while a turn is running. Wait or interrupt first."
     merge_not_in_worktree: "This session is not in a worktree. Use /fork first."
     merge_no_repo: "Cannot resolve the original repository for this worktree."

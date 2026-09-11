@@ -39,6 +39,11 @@ module H2code
   #     tool gate and keeps working);
   #   * other sessions' sandboxes under `~/.h2code/worktree/**` are
   #     off-limits — only the session's own work tree is writable.
+  #
+  # The single seam that lifts ALL of the above (fork guard included) is
+  # the NO_SANDBOX env var — set only by the rake mock tasks. The mock
+  # plan demo must write its plan file inside the session store, which
+  # the guard otherwise blocks; real sessions never set it.
   module Sandbox
     @@mutex = Mutex.new
     @@main_repo_cache = {} of String => String?
@@ -48,6 +53,12 @@ module H2code
     # fork session may write into the original repository. Set by the
     # TUI command controller; cleared on every turn end.
     class_property? merge_active
+
+    # Whether ALL write/shell confinement is disabled via the NO_SANDBOX
+    # env var (rake mock tasks only — see the module docs).
+    def self.disabled? : Bool
+      ENV.has_key?("NO_SANDBOX")
+    end
 
     # Test seam: drop the main-repo cache and lower the merge flag.
     def self.reset : Nil
@@ -78,6 +89,7 @@ module H2code
     # written from this session, nil when the write is allowed.
     def self.write_block_reason(canonical : String, cwd : String,
                                 home : String = HomePort.home) : String?
+      return nil if disabled?
       base = File.expand_path(cwd)
 
       # Session store: private data of the sessions (all of them).
@@ -108,6 +120,7 @@ module H2code
     # another session's sandbox; nil when allowed.
     def self.shell_block_reason(command : String, cwd : String?, work_dir : String,
                                 home : String = HomePort.home) : String?
+      return nil if disabled?
       base = File.expand_path(work_dir)
       sroot = sessions_root(home)
       wroot = worktree_root(home)

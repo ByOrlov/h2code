@@ -28,7 +28,7 @@ module H2code
         CommandInfo.new("/new", "Start a new session", description_key: "new"),
         CommandInfo.new("/sessions", "List and resume a session", description_key: "sessions"),
         CommandInfo.new("/resume", "Resume a session (alias for /sessions)", description_key: "resume"),
-        CommandInfo.new("/fork", "Fork the session into an isolated sandbox clone", "[list|clean|go <id>]", "fork"),
+        CommandInfo.new("/fork", "Fork the session into an isolated sandbox clone", "[list|clean|forceclean|go <id>]", "fork"),
         CommandInfo.new("/merge", "Merge the worktree branch back into the original repo", description_key: "merge"),
         CommandInfo.new("/archive", "Archive the current session", description_key: "archive"),
         CommandInfo.new("/restore", "Restore an archived session", description_key: "restore"),

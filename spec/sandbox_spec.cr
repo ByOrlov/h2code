@@ -296,6 +296,36 @@ module H2code
       end
     end
 
+    describe "NO_SANDBOX" do
+      it "lifts every confinement while set, restores them after unset" do
+        with_sandbox do |repo, home, sandbox|
+          ENV["NO_SANDBOX"] = "1"
+          begin
+            Sandbox.disabled?.should be_true
+            # Session store, sibling sandbox and fork original repo all
+            # become writable...
+            Tools::PathAccess.resolve(File.join(home, ".h2code", "sessions", "x", "y"),
+              sandbox, Tools::PathAccess::Mode::Write)
+              .should eq(File.join(home, ".h2code", "sessions", "x", "y"))
+            Tools::PathAccess.resolve(File.join(repo, "escaped.txt"),
+              sandbox, Tools::PathAccess::Mode::Write)
+              .should eq(File.join(repo, "escaped.txt"))
+            # ...and shell commands aimed at them pass the guard too.
+            Sandbox.shell_block_reason("ls #{File.join(home, ".h2code", "sessions")}",
+              nil, sandbox, home).should be_nil
+          ensure
+            ENV.delete("NO_SANDBOX")
+          end
+
+          Sandbox.disabled?.should be_false
+          expect_raises(Tools::PathAccess::AccessError, "session") do
+            Tools::PathAccess.resolve(File.join(home, ".h2code", "sessions", "x", "y"),
+              sandbox, Tools::PathAccess::Mode::Write)
+          end
+        end
+      end
+    end
+
     it "does not confine sessions outside a fork sandbox" do
       with_sandbox do |_repo, home, _sandbox|
         # A normal directory pair: absolute-path writes outside the

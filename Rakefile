@@ -175,7 +175,11 @@ def run_specs(path = nil)
   build_miniaudio_bridge
   link_flags = crystal_link_flags
   target = path ? "spec #{path}" : "spec"
-  sh "crystal #{target} --warnings none --no-color --link-flags \"#{link_flags}\""
+  # Fail-fast in CI (GitHub Actions sets CI=true): stop at the first failing
+  # example — the remaining failures are almost always cascades of the same
+  # root cause, so surface it immediately instead of collecting them all.
+  fail_fast = ENV["CI"] ? " --fail-fast" : ""
+  sh "crystal #{target}#{fail_fast} --warnings none --no-color --link-flags \"#{link_flags}\""
 end
 
 # Invocation path for a binary built into the repo. On Windows Crystal appends
@@ -403,53 +407,56 @@ task :spec_integration => "spec:integration"
 namespace :mock do
   desc "Run TUI with mock provider — default self-test script (parallel tools)"
   task :default => :build do
-    run_h2code({"H2CODE_PROVIDER" => "mock"}, "--tui-prompt 'mock' --yolo")
+    run_h2code({"H2CODE_PROVIDER" => "mock", "NO_SANDBOX" => "1"}, "--tui-prompt 'mock' --yolo")
   end
 
   desc "Run TUI with mock provider — thinking streaming demo (~5s)"
   task :thinking => :build do
-    run_h2code({"H2CODE_PROVIDER" => "mock", "H2CODE_MOCK_SCRIPT" => "thinking"},
+    run_h2code({"H2CODE_PROVIDER" => "mock", "NO_SANDBOX" => "1", "H2CODE_MOCK_SCRIPT" => "thinking"},
       "--tui-prompt 'mock' --yolo")
   end
 
   desc "Run TUI with mock provider — thinking + tool call demo"
   task :thinking_tools => :build do
-    run_h2code({"H2CODE_PROVIDER" => "mock", "H2CODE_MOCK_SCRIPT" => "thinking-tools"},
+    run_h2code({"H2CODE_PROVIDER" => "mock", "NO_SANDBOX" => "1", "H2CODE_MOCK_SCRIPT" => "thinking-tools"},
       "--tui-prompt 'mock' --yolo")
   end
 
   desc "Run TUI with mock provider — markdown rendering demo"
   task :markdown => :build do
-    run_h2code({"H2CODE_PROVIDER" => "mock", "H2CODE_MOCK_SCRIPT" => "markdown"},
+    run_h2code({"H2CODE_PROVIDER" => "mock", "NO_SANDBOX" => "1", "H2CODE_MOCK_SCRIPT" => "markdown"},
       "--tui-prompt 'mock' --yolo")
   end
 
   desc "Run TUI with mock provider — broken-token markdown list streaming bug repro"
   task :markdown_tokens => :build do
-    run_h2code({"H2CODE_PROVIDER" => "mock", "H2CODE_MOCK_SCRIPT" => "markdown_tokens"},
+    run_h2code({"H2CODE_PROVIDER" => "mock", "NO_SANDBOX" => "1", "H2CODE_MOCK_SCRIPT" => "markdown_tokens"},
       "--tui-prompt 'mock' --yolo")
   end
 
   desc "Run TUI with mock provider — sound notification on turn completion"
   task :sound => :build do
-    run_h2code({"H2CODE_PROVIDER" => "mock", "H2CODE_SOUND" => "1"},
+    run_h2code({"H2CODE_PROVIDER" => "mock", "NO_SANDBOX" => "1", "H2CODE_SOUND" => "1"},
       "--tui-prompt 'mock' --yolo")
   end
 
   desc "Run TUI with mock provider — sudo terminal exec demo (requires bin/mocksudo on PATH)"
   task :mocksudo => :build do
-    sh "H2CODE_PROVIDER=mock H2CODE_MOCK_SCRIPT=sudo PATH=#{File.dirname(__FILE__)}/bin:$PATH ./h2code --tui-prompt 'mock' --yolo"
+    sh "H2CODE_PROVIDER=mock NO_SANDBOX=1 H2CODE_MOCK_SCRIPT=sudo PATH=#{File.dirname(__FILE__)}/bin:$PATH ./h2code --tui-prompt 'mock' --yolo"
   end
 
   desc "Run TUI with mock provider — TodoList completion → log migration demo"
   task :todos => :build do
-    run_h2code({"H2CODE_PROVIDER" => "mock", "H2CODE_MOCK_SCRIPT" => "todos"},
+    run_h2code({"H2CODE_PROVIDER" => "mock", "NO_SANDBOX" => "1", "H2CODE_MOCK_SCRIPT" => "todos"},
       "--tui-prompt 'mock' --yolo")
   end
 
   desc "Run TUI with mock provider — long-plan review (EnterPlanMode → Write → ExitPlanMode)"
   task :plan => :build do
-    run_h2code({"H2CODE_PROVIDER" => "mock", "H2CODE_MOCK_SCRIPT" => "plan"},
+    # NO_SANDBOX=1 disables the tool write confinement for mock demos:
+    # the plan file lives inside the session store (~/.h2code/sessions),
+    # which the sandbox guard otherwise blocks (see src/sandbox.cr).
+    run_h2code({"H2CODE_PROVIDER" => "mock", "NO_SANDBOX" => "1", "H2CODE_MOCK_SCRIPT" => "plan"},
       "--tui-prompt 'mock' --yolo")
   end
 
@@ -462,7 +469,7 @@ namespace :mock do
     mkdir_p File.dirname(img)
     text = "Hello H2Code, this is image text"
     bin = %w[magick convert].find { |b| system(b, "-version", out: File::NULL, err: File::NULL) }
-    env = {"H2CODE_PROVIDER" => "mock", "H2CODE_MOCK_SCRIPT" => "image"}
+    env = {"H2CODE_PROVIDER" => "mock", "NO_SANDBOX" => "1", "H2CODE_MOCK_SCRIPT" => "image"}
     if bin && system(bin, "-size", "800x300", "xc:white", "-fill", "black",
                      "-pointsize", "48", "-gravity", "center",
                      "-annotate", "+0+0", text, img)
@@ -485,7 +492,7 @@ namespace :mock do
                      "-annotate", "+0+0", text, img)
       puts "▶ Generated #{img} — it acts as the clipboard image".colorize(:blue)
     end
-    run_h2code({"H2CODE_PROVIDER" => "mock", "H2CODE_MOCK_SCRIPT" => "imagepaste",
+    run_h2code({"H2CODE_PROVIDER" => "mock", "NO_SANDBOX" => "1", "H2CODE_MOCK_SCRIPT" => "imagepaste",
                 "H2CODE_CLIPBOARD_FILE" => img}, "--tui-prompt 'mock' --yolo")
   end
 

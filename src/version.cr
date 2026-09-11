@@ -1,5 +1,6 @@
 module H2code
-  # Rolling-release version: YYYY.MM.DD.N (e.g. "2026.07.31.1").
+  # Rolling-release version: "YYYY.MM.DD.N" releases (e.g. "2026.07.31.1")
+  # or post-commit auto-tags "YYYY.MM.DD-<secs>" (e.g. "2026.09.11-53466").
   # Set at build time via the H2CODE_VERSION env var (CI injects the git tag;
   # Rake tasks resolve it from `git describe --tags` for local builds).
   # Builds without the var fall back to "0.0.0-dev".

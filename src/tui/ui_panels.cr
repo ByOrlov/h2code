@@ -452,7 +452,11 @@ module H2code
           lines << "#{lead}#{ANSI.color(color, nil)}#{marker} #{title}#{ANSI.reset}"
         end
         if active
-          lines << ProgressBar.render(done, todos.size, cols, khaki: @theme.colors.logo)
+          # Scroll the gradient carousel while the agent is working (the
+          # 80ms tick is running and @spin_phase advances); flatten to the
+          # static base shade when idle.
+          phase = @agent_busy ? @spin_phase : 0
+          lines << ProgressBar.render(done, todos.size, cols, khaki: @theme.colors.logo, phase: phase)
         else
           lines << "" if pending > 0
         end
