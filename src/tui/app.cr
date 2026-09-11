@@ -133,6 +133,11 @@ module H2code
       # pending observer), their 80ms animation
       # tick, and the Ctrl+D exit warning. Mirrors @swarm_active's role.
       @ci_active : Bool = false
+      # True while a provider's model list is being fetched (setup wizard,
+      # /model, provider switch) — drives the animated "Loading models for
+      # <provider>" status line and its 80ms animation tick, mirroring
+      # @swarm_active's role.
+      @model_fetch_active : Bool = false
       # True while at least one background task (Bash/Agent with
       # run_in_background) is running — drives the animated active-zone wait
       # lines (one per task) and their 80ms animation tick. Unlike CI
@@ -548,7 +553,8 @@ module H2code
             @last_bg_poll = now
           end
 
-          if (@agent_busy || @swarm_active || @ci_active || @bg_tasks_active || voice_active?) && elapsed >= 80
+          if (@agent_busy || @swarm_active || @ci_active || @bg_tasks_active ||
+              @model_fetch_active || voice_active?) && elapsed >= 80
             @spin_phase += 1
             @dirty = true
           end
