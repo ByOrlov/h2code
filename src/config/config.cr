@@ -184,6 +184,128 @@ module H2code
         save rescue nil
       end
 
+      # One editable setting of `/set`: the dotted config key, the
+      # accepted value type ("string" | "int" | "bool" | "enum") and, for
+      # enums, the allowed members. `secret` masks the value in output.
+      record SettingSpec, key : String, type : String,
+        values : Array(String) = [] of String, secret : Bool = false
+
+      # Schema of the settings editable via the `/set <key> <value>`
+      # command. Values are validated against this (allowed keys, value
+      # types, enum members) before anything is applied to the live
+      # config or written to config.json — a typo can never corrupt the
+      # file. Keys mirror the config.json structure so the save/load
+      # roundtrip holds.
+      SETTING_SCHEMA = [
+        SettingSpec.new("model.default", "string"),
+        SettingSpec.new("model.thinking_effort", "enum", ["low", "medium", "high"]),
+        SettingSpec.new("permission.mode", "enum", ["manual", "auto", "yolo"]),
+        SettingSpec.new("permission.sudo_mode", "enum", ["off", "request", "always"]),
+        SettingSpec.new("agent.max_steps", "int"),
+        SettingSpec.new("agent.max_context_tokens", "int"),
+        SettingSpec.new("github.token", "string", secret: true),
+        SettingSpec.new("gitlab.token", "string", secret: true),
+        SettingSpec.new("gitlab.endpoint", "string"),
+        SettingSpec.new("ui.language", "enum",
+          ["en", "ru", "es", "zh", "ja", "pt", "hi", "fa", "uk", "be"]),
+        SettingSpec.new("ui.show_tips", "bool"),
+      ]
+
+      # Schema entry for a dotted key, or nil when the key is unknown.
+      def self.setting_spec(key : String) : SettingSpec?
+        SETTING_SCHEMA.find { |spec| spec.key == key }
+      end
+
+      # Expected API token shapes, so a garbage paste fails at input time
+      # with a clear error instead of a 401 from the API later. GitHub:
+      # classic PATs (ghp_) and the other typed prefixes (gho_/ghu_/ghs_/
+      # ghr_) carry 36 alphanumeric chars; fine-grained PATs are
+      # github_pat_<22>_<59>. GitLab: personal access tokens are glpat-
+      # plus 20+ chars from [A-Za-z0-9_-].
+      GITHUB_TOKEN_RE = /\A(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{36}\z|\Agithub_pat_[A-Za-z0-9]{22}_[A-Za-z0-9]{59}\z/
+      GITLAB_TOKEN_RE = /\Aglpat-[A-Za-z0-9_\-]{20,64}\z/
+
+      # Whether `token` looks like a GitHub personal access token (see
+      # GITHUB_TOKEN_RE). Used by the /github token wizard and /set.
+      def self.valid_github_token?(token : String) : Bool
+        !!(token =~ GITHUB_TOKEN_RE)
+      end
+
+      # Whether `token` looks like a GitLab personal access token (see
+      # GITLAB_TOKEN_RE). Used by the /gitlab token wizard and /set.
+      def self.valid_gitlab_token?(token : String) : Bool
+        !!(token =~ GITLAB_TOKEN_RE)
+      end
+
+      # Canonical string form of `value` for the spec's type, or nil when
+      # the value is not admissible (unknown enum member, non-integer,
+      # non-boolean). The canonical form is what `apply_setting` expects.
+      def self.parse_setting_value(spec : SettingSpec, value : String) : String?
+        # Token settings additionally require the expected format, so
+        # garbage is rejected with an error instead of being saved.
+        case spec.key
+        when "github.token" then return nil unless valid_github_token?(value)
+        when "gitlab.token" then return nil unless valid_gitlab_token?(value)
+        end
+
+        case spec.type
+        when "enum"
+          spec.values.find { |allowed| allowed.downcase == value.downcase }
+        when "bool"
+          case value.downcase
+          when "true", "on", "1"   then "true"
+          when "false", "off", "0" then "false"
+          else                          nil
+          end
+        when "int"
+          value.to_i?.try(&.to_s)
+        else
+          value
+        end
+      end
+
+      # Human hint for the acceptable values ("enum" shows its members).
+      def self.setting_type_hint(spec : SettingSpec) : String
+        spec.type == "enum" ? spec.values.join("|") : spec.type
+      end
+
+      # Current value of a schema setting as a string ("" when unset).
+      # Callers mask secret entries before showing them.
+      def setting_value(key : String) : String
+        case key
+        when "model.default"            then @model.to_s
+        when "model.thinking_effort"    then @thinking_effort
+        when "permission.mode"          then @permission_mode
+        when "permission.sudo_mode"     then @sudo_mode
+        when "agent.max_steps"          then @max_steps.to_s
+        when "agent.max_context_tokens" then @max_context_tokens.to_s
+        when "github.token"             then @github_token
+        when "gitlab.token"             then @gitlab_token
+        when "gitlab.endpoint"          then @gitlab_endpoint
+        when "ui.language"              then @language.to_s
+        when "ui.show_tips"             then @show_tips.to_s
+        else                                 ""
+        end
+      end
+
+      # Apply a validated, canonical value (see parse_setting_value) to
+      # the live config. Follow up with `save` to persist.
+      def apply_setting(key : String, value : String) : Nil
+        case key
+        when "model.default"            then @model = value.empty? ? nil : value
+        when "model.thinking_effort"    then @thinking_effort = value
+        when "permission.mode"          then @permission_mode = value
+        when "permission.sudo_mode"     then @sudo_mode = value
+        when "agent.max_steps"          then @max_steps = value.to_i
+        when "agent.max_context_tokens" then @max_context_tokens = value.to_i
+        when "github.token"             then @github_token = value
+        when "gitlab.token"             then @gitlab_token = value
+        when "gitlab.endpoint"          then @gitlab_endpoint = value
+        when "ui.language"              then @language = value.empty? ? nil : value
+        when "ui.show_tips"             then @show_tips = value == "true"
+        end
+      end
+
       def self.load(path : String? = nil) : Config
         config = Config.new
 
@@ -344,9 +466,13 @@ module H2code
         config
       end
 
+      # h2code's per-user home: config.json, ci.json, sessions live here.
+      # Overridable via H2CODE_HOME (tests, portable installs).
+      def self.h2code_home : String
+        ENV["H2CODE_HOME"]? || File.join(HomePort.home, ".h2code")
+      end
+
       def self.default_config_path : String
-        home = HomePort.home
-        h2code_home = ENV["H2CODE_HOME"]? || File.join(home, ".h2code")
         File.join(h2code_home, "config.json")
       end
 

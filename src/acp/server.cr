@@ -651,6 +651,7 @@ module H2code
           github_token: @config.github_token,
           gitlab_token: @config.gitlab_token,
           gitlab_endpoint: @config.gitlab_endpoint,
+          bindings: Tools::Ci::Bindings.new(File.join(Config::Config.h2code_home, "ci.json")),
         )
         tools.register(Tools::CurrentTime.new)
         tools.register(Tools::GetContextRemaining.new(memory))

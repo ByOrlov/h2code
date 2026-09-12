@@ -66,6 +66,7 @@ module H2code
         CommandInfo.new("/web", "Print session URL for the Web UI", description_key: "web"),
         CommandInfo.new("/sync", "Cloud sync with the PWA", "[on|off|code|email <addr>]", "sync"),
         CommandInfo.new("/settings", "Show current configuration", description_key: "settings"),
+        CommandInfo.new("/set", "Show or set a config value", "[<key> [<value>]]", "set"),
         CommandInfo.new("/init", "Analyze the codebase and generate AGENTS.md", description_key: "init"),
         CommandInfo.new("/export-debug-zip", "Export session debug bundle (.tar.gz)", description_key: "export_debug_zip"),
         CommandInfo.new("/experiments", "Show experimental feature flags", description_key: "experiments"),
@@ -84,7 +85,8 @@ module H2code
         CommandInfo.new("/voicelang", "Default voice message language", "ru|en|…|auto", "voicelang"),
         CommandInfo.new("/upgrade", "Update h2code to the latest release", description_key: "upgrade"),
         CommandInfo.new("/cleanup", "Delete old sessions and voice messages", "[week|month|6months|year]", "cleanup"),
-        CommandInfo.new("/ci", "Manually watch CI for a commit", "[<commit>]", "ci"),
+        CommandInfo.new("/ci", "Manually watch CI for a commit", "[check [<commit>]|<commit>]", "ci"),
+        CommandInfo.new("/ci type", "Show or set the CI provider type", "[github|gitlab] [host]", "ci_type"),
         CommandInfo.new("/github", "Configure the GitHub token for CI status", "[status|token [clear]]", "github"),
         CommandInfo.new("/gitlab", "Configure the GitLab token for CI status", "[status|token [clear]]", "gitlab"),
       ]

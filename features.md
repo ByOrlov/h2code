@@ -20,24 +20,37 @@ contains a `git push` segment exits successfully, the tool calls
 one targeted by the command — `git -C <dir> push` watches `<dir>`, not the
 session cwd. Observation starts only when all of these hold:
 
-- GitHub Actions: the repo has a `.github/workflows` directory and
-  `git remote get-url origin` points at github.com (the `gh` CLI is checked
-  lazily on the first poll);
-- GitLab CI: the repo has a `.gitlab-ci.yml` file and the origin remote
+- GitHub Actions: the repo has a `.github/workflows` directory and a
+  checked remote points at github.com (the `gh` CLI is checked lazily on
+  the first poll);
+- GitLab CI: the repo has a `.gitlab-ci.yml` file and a checked remote
   points at gitlab.com, or at the host of the configured self-hosted
   endpoint (config `gitlab.endpoint` / `GITLAB_HOST` env);
+- the checked remotes are the ones the pushed commit actually landed on:
+  right after the push, `git branch -r --contains <sha>` names them from
+  the freshly updated remote-tracking refs (origin is the fallback), so a
+  `git push gitlab master` in a repo whose origin is GitHub — with both
+  CI configs in the tree — is observed on GitLab, where the build runs;
+- a manual binding wins over everything: `/ci type gitlab` (or
+  `/ci type github <host>`) records the repository and its host in
+  `~/.h2code/ci.json` (`hosts` + `urls` sections), and from then on every
+  repository from that host is detected as that provider — a self-hosted
+  GitLab needs no `gitlab.endpoint` config. `/ci type` alone lists the
+  effective binding per remote;
 - the pushed branch is covered by a workflow: some workflow's `on: push`
   trigger matches the branch (`branches` / `branches-ignore` filters,
   fnmatch globs; no filter covers every branch). A push to a ref no
   workflow triggers on never produces a CI status, so instead of parking
   a wait line until the timeout the observer is skipped and an info
-  notification explains why. Undecidable input (detached HEAD, unparsable
-  YAML, GitLab `workflow:rules`) counts as covered. `WaitForCI` applies
-  the same gate to its default HEAD path.
+  notification explains why. GitLab-bound pushes skip this gate —
+  `.gitlab-ci.yml` `workflow:rules` are not parsed and count as covered.
+  Undecidable input (detached HEAD, unparsable YAML) also counts as
+  covered. `WaitForCI` applies the same gate to its default HEAD path.
 
 No separate commit tool is needed — the observer piggybacks on every push,
 exactly like sudo detection piggybacks on every elevated command. A manual
-start is also available: the `/ci [<commit>]` slash command (`cmd_ci` in
+start is also available: the `/ci [<commit>]` slash command (`/ci check
+[<commit>]` is the same thing spelled out; `cmd_ci` in
 `src/tui/command_controller.cr`) resolves the argument through
 `git rev-parse <commit>^{commit}` (short SHA, branch and tag all work; no
 argument observes HEAD) and calls `Ci.service.observe` — same eligibility
@@ -47,8 +60,11 @@ gate as pushes, and from there the exact same wait-line / notification flow.
 
 `Tools::Ci` follows the `Cron.service` pattern: a module-level service seam
 (`Ci.service`) with a `LiveCiService` implementation. Provider detection
-(`detect_repo`) resolves the origin remote once per cwd into a `RepoInfo`
-(provider + host + project path). Each watched commit gets an `Observer`
+(`detect_repo`) resolves the repo into a `RepoInfo` (provider + host +
+project path): with a sha in hand (post-push) the remotes whose tracking
+refs contain the commit are checked first, then origin; the result is
+cached per cwd and refreshed on every push. Each watched commit gets an
+`Observer`
 that polls on a **fixed 30 s interval** (no backoff; gives up after
 60 minutes). There are three polling backends:
 
@@ -62,16 +78,27 @@ that polls on a **fixed 30 s interval** (no backoff; gives up after
   `gh run view <id> --log-failed` are used (requires an interactive gh login).
 - **GitLab REST mode** — GitLab repos are polled through the GitLab v4 API
   (`GitlabApi` in `ci.cr`: `/projects/{group%2Fproject}/pipelines?sha=…`,
-  failure logs via the first hard-failed job's `/jobs/{id}/trace`). The token
+  failure logs via the first hard-failed job's `/jobs/{id}/trace`). The
+  `?sha=` filter is not trusted alone: every returned pipeline row carries
+  the `sha` of its commit, and rows whose `sha` differs from the observed
+  one are dropped client-side — a verdict always belongs to the pushed
+  commit, never to whatever else the instance mixes into the listing. The
+  token
   (config `gitlab.token`, overridden by `GITLAB_TOKEN` /
   `GITLAB_PRIVATE_TOKEN` env, settable via `/gitlab token`) is **optional** —
   public projects answer anonymous pipeline queries. When access is denied
   (401/403/404 — private projects answer 404 to anonymous queries) and the
   `glab` CLI is installed (probed once), the poll is retried through
   `glab api --hostname <host> -X GET …`, so a glab login covers private
-  projects without any token in h2code's config. Self-hosted
+  projects without any token in h2code's config. When neither a token nor
+  glab can authenticate (401/403/404), the observer settles as **error on
+  the first poll** — an access denial never resolves by retrying, so the
+  wait line disappears immediately with a hint to set a token / log in
+  with glab instead of waiting out the failure threshold or MAX_WAIT_S.
+  Self-hosted
   instances: set `gitlab.endpoint` (or `GITLAB_HOST`) to the base URL and
-  remotes on that host are treated as GitLab.
+  remotes on that host are treated as GitLab — or bind the host once
+  with `/ci type gitlab` (stored in `ci.json`, see below).
 
 Run aggregation (shared by the backends): pending while any run/pipeline is
 in progress or none is registered yet; failure on any `failure`/`cancelled`/
@@ -100,8 +127,10 @@ On a terminal state the service:
   circle (`Spinner::CI_BULLET_FRAMES`), followed by a clickable
   `link: <url>` to the commit's checks page
   (`https://github.com/{owner}/{repo}/commit/{sha}/checks` on GitHub,
-  `https://{host}/{group}/{project}/-/commits/{sha}` on GitLab — resolved
-  from the origin remote and empty when the repo info is unknown),
+  `https://{host}/{group}/{project}/-/commit/{sha}` on GitLab — resolved
+  from the remotes and empty when the repo info is unknown; on GitLab the
+  link is repointed to the commit's pipeline
+  `…/-/pipelines/{id}` as soon as a poll sees one),
   bracketed by `declare_active(:ci)` /
   `release_active(:ci)` so the zone-balance invariant holds. A settled
   commit's outcome is logged even while other commits are still pending;

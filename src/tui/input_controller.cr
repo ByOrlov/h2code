@@ -694,6 +694,8 @@ module H2code
           cmd_sync(args)
         when "/settings"
           cmd_settings
+        when "/set"
+          cmd_set(args)
         when "/init"
           cmd_init
         when "/export-debug-zip"

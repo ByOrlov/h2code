@@ -12,9 +12,13 @@ module H2code
     # Flow:
     #   1. The Bash tool detects a successful `git push` (sudo-detect style)
     #      and calls `Ci.service.try_observe_push`.
-    #   2. If the repo has GitHub Actions workflows and a github.com remote,
-    #      an `Observer` polls right away and then every 30 s (gives up
-    #      after 60 min).
+    #   2. The remote the pushed commit actually landed on decides the
+    #      provider — `git branch -r --contains <sha>` right after the push
+    #      names the remotes that received it (origin is the fallback), so
+    #      a repo with two remotes (github.com origin + a GitLab mirror)
+    #      is observed where the commit really went. If the repo has
+    #      GitHub Actions workflows and a github.com remote, an `Observer`
+    #      polls right away and then every 30 s (gives up after 60 min).
     #      With a GitHub token
     #      configured (config `github.token` / GITHUB_TOKEN / GH_TOKEN)
     #      the observer polls api.github.com directly via `GithubApi` —
@@ -27,6 +31,10 @@ module H2code
     #      is optional — public projects answer anonymous queries; private
     #      ones (401/403/404) are retried through the `glab` CLI
     #      (`glab api`, when installed) so its login covers them too.
+    #      Manual bindings from `~/.h2code/ci.json` (written by the
+    #      `/ci type <provider> [host]` command) take precedence over
+    #      the host whitelists: once a host is bound, every repository
+    #      on it is detected as that provider.
     #   3. While pending, the TUI shows one animated "Waiting for CI for
     #      commit <sha>" line per watched commit in the active zone (with a
     #      `link:` to the commit's Actions checks page) and guards the
@@ -184,6 +192,112 @@ module H2code
           }
           headers["Private-Token"] = token if token && !token.empty?
           headers
+        end
+      end
+
+      # Host of a git remote URL (SSH and HTTPS forms, credentials and port
+      # stripped), or nil for inputs that parse as neither.
+      def self.remote_host(url : String) : String?
+        url = url.strip
+        ssh = url.match(%r{git@([^:\s/]+):(.+?)(?:\.git)?$})
+        https = url.match(%r{(?:https?|ssh)://(?:[^@\s]+@)?([^/:\s]+)(?::\d+)?/(.+?)(?:\.git)?$})
+        (ssh || https).try { |m| m[1].downcase.split(':')[0]? }
+      end
+
+      # Manual CI provider bindings, persisted as `<h2code home>/ci.json`:
+      #
+      #   {"hosts": {"gl.example.com": "gitlab"},
+      #    "urls":  {"git@gl.example.com:acme/app.git": "gitlab"}}
+      #
+      # Written by the `/ci type <provider> [host]` command: the urls entry
+      # pins the exact repository, the hosts entry makes every repository
+      # from that host auto-detect as the provider — one `/ci type gitlab`
+      # per GitLab instance covers all of a user's repositories on it, with
+      # no `gitlab.endpoint` config needed. Detection consults bindings
+      # before the builtin/configured host whitelists. A nil path keeps
+      # the bindings in memory only (tests, service fakes).
+      class Bindings
+        getter path : String?
+
+        @mutex = Mutex.new
+        @hosts = {} of String => Provider
+        @urls = {} of String => Provider
+
+        def initialize(@path : String? = nil)
+          load
+        end
+
+        # Provider bound for a remote URL: the exact urls entry (a ".git"
+        # suffix is tolerated) or the entry of the URL's host. Nil when
+        # unbound.
+        def provider_for_url(url : String) : Provider?
+          url = url.strip
+          base = url.ends_with?(".git") ? url[0...url.size - 4] : url
+          @mutex.synchronize do
+            @urls[url]? ||
+              @urls[base]? ||
+              Ci.remote_host(url).try { |host| @hosts[host]? }
+          end
+        end
+
+        # Provider bound for a host, or nil.
+        def provider_for_host(host : String) : Provider?
+          @mutex.synchronize { @hosts[host.downcase]? }
+        end
+
+        # Hosts bound to GitLab — feeds the remote host whitelist of
+        # detection (see `LiveCiService#gitlab_hosts`).
+        def gitlab_hosts : Array(String)
+          @mutex.synchronize { @hosts.select { |_, p| p.gitlab? }.keys }
+        end
+
+        # Record a binding: the host plus every given remote URL on it.
+        def set(host : String, urls : Array(String), provider : Provider) : Nil
+          @mutex.synchronize do
+            @hosts[host.downcase] = provider
+            urls.each { |url| @urls[url.strip] = provider }
+            save
+          end
+        end
+
+        private def load : Nil
+          path = @path
+          return if path.nil? || !File.exists?(path)
+          root = JSON.parse(File.read(path))
+          @hosts = parse_map(root["hosts"]?)
+          @urls = parse_map(root["urls"]?)
+        rescue JSON::ParseException | IO::Error | File::NotFoundError
+          # Best-effort: a broken ci.json behaves as no bindings at all.
+        end
+
+        private def parse_map(value : JSON::Any?) : Hash(String, Provider)
+          map = {} of String => Provider
+          hash = value.try(&.raw.as?(Hash))
+          return map if hash.nil?
+          hash.each do |key, v|
+            case v.to_s.downcase
+            when "gitlab" then map[key.to_s] = Provider::Gitlab
+            when "github" then map[key.to_s] = Provider::Github
+            end
+          end
+          map
+        end
+
+        private def save : Nil
+          path = @path
+          return if path.nil?
+          json = JSON.build do |b|
+            b.object do
+              b.field("hosts") { b.object { @hosts.each { |k, p| b.field(k, p.to_s.downcase) } } }
+              b.field("urls") { b.object { @urls.each { |k, p| b.field(k, p.to_s.downcase) } } }
+            end
+          end
+          dir = File.dirname(path)
+          Dir.mkdir_p(dir) unless Dir.exists?(dir)
+          File.write(path, json + "\n")
+        rescue IO::Error | File::NotFoundError | ArgumentError
+          # Best-effort persistence: a failed write keeps the in-memory
+          # bindings working for this session.
         end
       end
 
@@ -373,9 +487,9 @@ module H2code
       # `[...]`) matched with `File.match?`. Undecidable input (empty or
       # detached branch, no workflow files, YAML the parser rejects)
       # counts as covered, so observation degrades to the old behavior
-      # instead of skipping a real build. GitLab repos have no workflows
-      # dir and stay covered — `.gitlab-ci.yml` `workflow:rules` are not
-      # parsed.
+      # instead of skipping a real build. GitLab-bound pushes skip this
+      # gate entirely (see `observe_push_branch?`) — `.gitlab-ci.yml`
+      # `workflow:rules` are not parsed.
       def self.push_covers_branch?(repo_dir : String, branch : String) : Bool
         return true if branch.empty? || branch == "HEAD"
         paths = Dir.glob(File.join(repo_dir, ".github", "workflows", "*.{yml,yaml}"))
@@ -531,6 +645,13 @@ module H2code
         def current_branch(cwd : String) : String
           ""
         end
+
+        # True when the CI repo at `cwd` resolves to GitLab — GitHub
+        # workflow branch filters do not apply to its pushes. Concrete
+        # default keeps test doubles simple; `LiveCiService` overrides.
+        def gitlab_repo?(cwd : String) : Bool
+          false
+        end
       end
 
       class LiveCiService < CiService
@@ -560,6 +681,11 @@ module H2code
         # Injectable in tests to skip the probe subprocess.
         property? glab_available : Bool = false
         property? glab_probed : Bool = false
+        # Manual CI provider bindings (ci.json) — `/ci type gitlab|github
+        # [host]` writes them; detection consults them before the
+        # host whitelists. Memory-only by default; the wiring sites point
+        # it at <h2code home>/ci.json.
+        property bindings : Bindings = Bindings.new
         # Injectable REST GET for tests; defaults to real GithubApi/GitlabApi.
         property api_get : (String -> ApiResponse)? = nil
 
@@ -569,7 +695,7 @@ module H2code
         @repo_cache = {} of String => RepoInfo?
 
         def initialize(@github_token : String = "", @gitlab_token : String = "",
-                       @gitlab_endpoint : String = "")
+                       @gitlab_endpoint : String = "", @bindings : Bindings = Bindings.new)
         end
 
         # Token for direct REST polling (nil → gh CLI fallback mode).
@@ -595,7 +721,7 @@ module H2code
         # of the configured self-hosted endpoint. Public for the
         # MergeRequest tool's remote detection.
         def gitlab_hosts : Array(String)
-          hosts = ["gitlab.com"]
+          hosts = ["gitlab.com"] + @bindings.gitlab_hosts
           if ep = @gitlab_endpoint.presence
             begin
               host = URI.parse(ep.starts_with?("http") ? ep : "https://#{ep}").host
@@ -622,31 +748,85 @@ module H2code
         end
 
         # Resolve (and cache per-cwd) the CI repo info for the repo at `cwd`.
-        private def resolve_repo(cwd : String) : RepoInfo?
-          cached = @mutex.synchronize { @repo_cache[cwd]? }
-          return cached if cached
-          return nil if @mutex.synchronize { @repo_cache.has_key?(cwd) }
-          info = detect_repo(cwd)
+        # A nil `sha` serves the cached entry (the poll loop); a concrete sha
+        # forces a fresh, sha-aware detection — after a push the commit may
+        # live on a different remote than a cached resolution says.
+        private def resolve_repo(cwd : String, sha : String? = nil) : RepoInfo?
+          if sha.nil?
+            cached = @mutex.synchronize { @repo_cache[cwd]? }
+            return cached if cached
+            return nil if @mutex.synchronize { @repo_cache.has_key?(cwd) }
+          end
+          info = detect_repo(cwd, sha)
           @mutex.synchronize { @repo_cache[cwd] = info }
           info
         end
 
-        # Provider detection for the repo at cwd: GitHub Actions
-        # (`.github/workflows` + github.com remote) takes precedence, then
-        # GitLab CI (`.gitlab-ci.yml` + a gitlab.com / configured-endpoint
-        # remote). Marker directories are checked first so repos that are
-        # not CI-eligible resolve to nil without spawning any command. Nil
+        # Provider detection for the repo at cwd: the candidate remotes are
+        # checked in order (see `candidate_remote_urls`) and the first one
+        # whose host matches a CI marker wins — GitHub Actions
+        # (`.github/workflows` + github.com remote), then GitLab CI
+        # (`.gitlab-ci.yml` + a gitlab.com / configured-endpoint remote).
+        # Marker directories are checked first so repos that are not
+        # CI-eligible resolve to nil without spawning any command. Nil
         # when the repo is not eligible for CI observation.
-        private def detect_repo(cwd : String) : RepoInfo?
+        private def detect_repo(cwd : String, sha : String? = nil) : RepoInfo?
           gh_marker = Dir.exists?(File.join(cwd, ".github", "workflows"))
           gl_marker = File.exists?(File.join(cwd, ".gitlab-ci.yml"))
           return nil unless gh_marker || gl_marker
-          remote = run("git remote get-url origin", cwd)
-          return nil if remote.exit_code != 0
-          url = remote.output.strip
-          info = gh_marker ? Ci.parse_github_remote(url) : nil
-          info ||= gl_marker ? Ci.parse_gitlab_remote(url, gitlab_hosts) : nil
-          info
+          candidate_remote_urls(cwd, sha).each do |url|
+            info = bound_repo_info(url)
+            return info if info
+            info = gh_marker ? Ci.parse_github_remote(url) : nil
+            info ||= gl_marker ? Ci.parse_gitlab_remote(url, gitlab_hosts) : nil
+            return info if info
+          end
+          nil
+        end
+
+        # RepoInfo from a ci.json binding: the urls entry pins this exact
+        # repository, the hosts entry every repository from that host. The
+        # host needs no whitelist here — the user's binding says what it
+        # is; the generic git-URL parsing extracts host + project path.
+        private def bound_repo_info(url : String) : RepoInfo?
+          provider = @bindings.provider_for_url(url)
+          return nil if provider.nil?
+          host = Ci.remote_host(url)
+          return nil if host.nil?
+          Ci.parse_gitlab_remote(url, [host]).try { |info| RepoInfo.new(provider, host, info.path) }
+        end
+
+        # URLs of the remotes to test for CI eligibility, best-candidate
+        # order: when `sha` is known (right after a push), the remotes whose
+        # tracking refs contain the commit come first — `git branch -r
+        # --contains` reports exactly where the commit went (a successful
+        # push updates the tracking refs), so a non-origin `git push gitlab
+        # master` is detected on the gitlab remote even when origin is
+        # github.com and both CI configs sit in the tree. origin follows as
+        # the fallback (and for the sha-less resolution). A commit pushed
+        # to several CI-eligible remotes is observed on the first one
+        # listed — one observer per commit.
+        private def candidate_remote_urls(cwd : String, sha : String?) : Array(String)
+          names = [] of String
+          if sha
+            res = run("git branch -r --contains #{sha}", cwd)
+            if res.exit_code == 0
+              res.output.each_line do |line|
+                next if line.includes?("->") # origin/HEAD -> origin/master
+                name = line.strip.split('/')[0]?
+                # Remote names are word chars / dots / dashes; anything else
+                # is noise and must never reach the shell.
+                next if name.nil? || name.empty? || !(name =~ /\A[\w.-]+\z/)
+                names << name unless names.includes?(name)
+              end
+            end
+          end
+          names << "origin" unless names.includes?("origin")
+          names.compact_map do |name|
+            res = run("git remote get-url #{name}", cwd)
+            url = res.output.strip
+            res.exit_code == 0 && !url.empty? ? url : nil
+          end
         end
 
         private def api_call(path : String) : ApiResponse
@@ -666,20 +846,31 @@ module H2code
         def try_observe_push(command : String, cwd : String) : Bool
           return false unless Ci.push_command?(command)
           repo_dir = Ci.repo_dir_from_command(command, cwd)
-          sha = head_sha(repo_dir)
+          sha = rev_parse_head(repo_dir)
           return false if sha.nil?
-          return false unless observe_push_branch?(repo_dir)
+          # Resolve the repo with the sha in hand: right after the push the
+          # remote tracking refs already say which remote received the
+          # commit, so `git push gitlab master` in a repo whose origin is
+          # GitHub is observed on GitLab, not on GitHub.
+          info = resolve_repo(repo_dir, sha)
+          return false if info.nil?
+          return false unless observe_push_branch?(repo_dir, info)
           observe(sha, repo_dir)
         end
 
         # A plain `git push` publishes the current branch, so before
         # observing, check that branch against the workflows' `on.push`
-        # triggers. When no workflow covers it, CI never runs for the
-        # sha — report that instead of parking a "Waiting for CI" line
-        # until MAX_WAIT_S. Refspec pushes (`git push origin HEAD:master`)
-        # are not parsed; an undeterminable branch (empty / detached HEAD)
-        # falls through to observing, same as before.
-        private def observe_push_branch?(repo_dir : String) : Bool
+        # triggers. GitLab-bound pushes skip the gate — `.gitlab-ci.yml`
+        # `workflow:rules` are not parsed, so the pipeline counts as
+        # covered (and the GitHub workflows in a two-config tree say
+        # nothing about a GitLab push). When no workflow covers the sha's
+        # branch, CI never runs for it — report that instead of parking a
+        # "Waiting for CI" line until MAX_WAIT_S. Refspec pushes
+        # (`git push origin HEAD:master`) are not parsed; an undeterminable
+        # branch (empty / detached HEAD) falls through to observing, same
+        # as before.
+        private def observe_push_branch?(repo_dir : String, info : RepoInfo) : Bool
+          return true if info.provider.gitlab?
           branch = current_branch(repo_dir)
           return true if Ci.push_covers_branch?(repo_dir, branch)
           notify_uncovered_branch(branch)
@@ -713,12 +904,27 @@ module H2code
           res.exit_code == 0 ? res.output.strip : ""
         end
 
+        # True when the resolved CI repo at `cwd` is GitLab-bound. Uses the
+        # per-cwd cache (populated by head_sha / try_observe_push), so this
+        # spawns no subprocess on the WaitForCI path.
+        def gitlab_repo?(cwd : String) : Bool
+          resolve_repo(cwd).try(&.provider.gitlab?) || false
+        end
+
         # HEAD sha of the repo at `cwd`, or nil when the repo is not eligible
-        # for CI observation (see `detect_repo`: GitHub needs
+        # for CI observation (see `detect_repo`; GitHub needs
         # `.github/workflows` + a github.com remote, GitLab needs
-        # `.gitlab-ci.yml` + a GitLab remote).
+        # `.gitlab-ci.yml` + a GitLab remote — resolved sha-aware, so a HEAD
+        # published to a non-origin remote is detected there).
         def head_sha(cwd : String) : String?
-          return nil if resolve_repo(cwd).nil?
+          sha = rev_parse_head(cwd)
+          return nil if sha.nil?
+          resolve_repo(cwd, sha).nil? ? nil : sha
+        end
+
+        # HEAD sha of the repo at `cwd` — 40 hex chars — or nil when
+        # rev-parse fails or returns anything else.
+        private def rev_parse_head(cwd : String) : String?
           rev = run("git rev-parse HEAD", cwd)
           sha = rev.output.strip
           return nil if rev.exit_code != 0 || sha.size != 40 || sha =~ /[^0-9a-f]/
@@ -729,6 +935,26 @@ module H2code
         # same eligibility as head_sha) — used by the startup token tip.
         def repo_info(cwd : String) : RepoInfo?
           resolve_repo(cwd)
+        end
+
+        # URLs of all remotes configured for the repo at `cwd` — `/ci type`
+        # picks the host to bind from them. Empty when the lookup fails.
+        def remote_urls(cwd : String) : Array(String)
+          res = run("git config --local --get-regexp '^remote\\..*\\.url$'", cwd)
+          return [] of String unless res.exit_code == 0
+          res.output.lines.compact_map do |line|
+            value = line.strip.split(' ', 2)[1]?
+            value.try(&.strip).presence
+          end
+        end
+
+        # `/ci type`: persist the provider binding (ci.json) and drop the
+        # cached repo resolution, so the next detection — a push, /ci,
+        # WaitForCI — sees it immediately.
+        def bind_provider(cwd : String, host : String, urls : Array(String),
+                          provider : Provider) : Nil
+          @bindings.set(host, urls, provider)
+          @mutex.synchronize { @repo_cache.delete(cwd) }
         end
 
         def observe(sha : String, cwd : String) : Bool
@@ -881,19 +1107,53 @@ module H2code
               return
             end
             settle_gitlab_pipelines(obs, info, cwd, pipelines, via_glab: false)
-          when 401, 403
-            record_poll_failure(obs, "GitLab API HTTP #{res.status_code}: set a GitLab token (config gitlab.token / GITLAB_TOKEN env) or log in with `glab auth login` to observe private projects")
-          when 404
-            record_poll_failure(obs, "GitLab API HTTP 404: project not found — check the remote URL and token access")
+          when 401, 403, 404
+            gitlab_access_denied(obs, res.status_code)
           else
             record_poll_failure(obs, "GitLab API HTTP #{res.status_code}: #{Ci.excerpt(res.body, DETAIL_EXCERPT_BYTES)}")
           end
         end
 
-        # Shared terminal handling for both GitLab backends: aggregate the
-        # pipelines, capture the failure-log excerpt on failure, settle.
+        # 401/403/404 on the direct REST path (the glab fallback was
+        # already considered and is unavailable) never resolves on its
+        # own: GitLab answers 404 to hide private projects and 401/403 to
+        # reject anonymous or bad credentials, and no retry changes that
+        # within a session. Settle as Error right away with an actionable
+        # hint instead of parking the wait line until the failure
+        # threshold / MAX_WAIT_S.
+        private def gitlab_access_denied(obs : Observer, status_code : Int32) : Nil
+          hint = @gitlab_token.presence ? "the configured GitLab token was rejected — check gitlab.token / GITLAB_TOKEN and its access to this project (a fine-grained token additionally needs the CI/CD 'Pipeline: Read' permission)" : "no GitLab token is configured and anonymous access was denied (GitLab answers 404 for private projects) — set gitlab.token / GITLAB_TOKEN or log in with `glab auth login`"
+          obs.status = Status::Error
+          obs.detail = "GitLab API HTTP #{status_code}: #{hint}"
+          settle(obs)
+        end
+
+        # Shared terminal handling for both GitLab backends: match the
+        # pipeline rows to the observed commit, aggregate, capture the
+        # failure-log excerpt on failure, settle.
         private def settle_gitlab_pipelines(obs : Observer, info : RepoInfo, cwd : String,
                                             pipelines : Array(JSON::Any), via_glab : Bool) : Nil
+          # GitLab pipeline rows carry the `sha` of the commit they run
+          # for — the authoritative pipeline↔commit link. The `?sha=`
+          # query param is only a server-side filter and some instances
+          # (older self-hosted GitLab, the glab passthrough, merge-request
+          # pipelines) apply it loosely, so re-verify client-side: a
+          # verdict must never come from another commit's pipeline. Rows
+          # without a sha field (very old instances) stay — undecidable
+          # input degrades to the server-side filter alone.
+          pipelines = pipelines.select do |pipeline|
+            sha = pipeline["sha"]?.try(&.to_s)
+            sha.nil? || sha == obs.sha
+          end
+          # Repoint the wait-line link straight at the commit's pipeline
+          # once it exists — the row carries the canonical `web_url`
+          # (.../-/pipelines/<id>); instances without it get a constructed
+          # one. Until then the link opens the commit page.
+          if pipeline = pipelines.first?
+            url = pipeline["web_url"]?.try(&.to_s).presence ||
+                  "#{gitlab_api_base(info)}/#{info.path}/-/pipelines/#{pipeline["id"]?.try(&.to_s)}"
+            obs.actions_url = url unless url.empty?
+          end
           obs.consecutive_failures = 0
           status, detail = Ci.aggregate_pipelines(pipelines)
           obs.detail = detail
@@ -999,8 +1259,12 @@ module H2code
                             when .gitlab?
                               # gitlab_api_base carries the configured
                               # endpoint's scheme/port; the web UI lives on
-                              # the same base as the API.
-                              "#{gitlab_api_base(info)}/#{info.path}/-/commits/#{obs.sha}"
+                              # the same base as the API. `/commit/<sha>`
+                              # (singular) is the commit page; `/commits/`
+                              # is an unfiltered listing. Replaced by the
+                              # direct pipeline link once a poll sees one
+                              # (settle_gitlab_pipelines).
+                              "#{gitlab_api_base(info)}/#{info.path}/-/commit/#{obs.sha}"
                             else
                               "https://github.com/#{info.path}/commit/#{obs.sha}/checks"
                             end
@@ -1114,6 +1378,26 @@ module H2code
           return if obs.claimed?
           xml = Ci.render_notification(obs)
           @delivery.try(&.call(xml)) unless xml.nil?
+        end
+      end
+
+      # Startup CI-token warning tip for the repo at `cwd`: resolves the
+      # provider sha-aware (like the post-push detection — the remote the
+      # HEAD commit actually lives on decides, not origin, so a repo whose
+      # origin is GitHub but whose HEAD sits on a GitLab remote gets the
+      # GitLab tip) and returns the i18n tip text when the matching token
+      # is not configured. Nil when the repo is not CI-eligible or the
+      # token is already set.
+      def self.token_warning_tip(service : LiveCiService, github_token : String,
+                                 gitlab_token : String, cwd : String) : String?
+        service.head_sha(cwd)
+        case service.repo_info(cwd).try(&.provider)
+        when Provider::Gitlab
+          gitlab_token.empty? ? H2code.t("ui.ci_token_tip_gitlab") : nil
+        when Provider::Github
+          github_token.empty? ? H2code.t("ui.ci_token_tip") : nil
+        else
+          nil
         end
       end
 
