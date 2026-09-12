@@ -207,6 +207,7 @@ es:
     ci_failed: "La compilación de CI FALLÓ para %{sha} (%{detail})"
     ci_error: "Error del observador de CI para %{sha}: %{detail}"
     ci_timeout: "Estado de CI desconocido para %{sha}: %{detail}"
+    ci_log_fetch_failed: "No se pudieron obtener los registros de CI de %{sha}: %{detail}"
     ci_exit_warning: "Comprobación de CI en curso — pulse %{btn} de nuevo para forzar la salida, Esc para cancelar"
     ci_token_tip: "Consejo: configure un token de GitHub para que h2code siga el estado del CI directamente, sin el CLI gh — GitHub → Settings → Developer settings → Personal access tokens (basta el permiso «Actions: Read»); luego defina GITHUB_TOKEN o \"github.token\" en ~/.h2code/config.json."
     ci_token_tip_gitlab: "Consejo: configure un token de GitLab para que h2code siga el estado del CI de proyectos privados — GitLab → Preferences → Access tokens (basta el ámbito «read_api»; para un token fine-grained, active también el permiso de lectura de CI/CD «Pipeline: Read»); luego defina GITLAB_TOKEN o \"gitlab.token\" en ~/.h2code/config.json. Los proyectos públicos se siguen sin token."

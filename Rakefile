@@ -398,6 +398,13 @@ namespace :spec do  desc "Run integration specs only: tools executed headlessly 
   task :integration do
     run_specs("spec/integration")
   end
+
+  desc "Run CI port integration specs against the real GitHub/GitLab APIs " \
+       "(read-only, public projects; no credentials required)"
+  task :ci_port do
+    ENV["H2CODE_CI_INTEGRATION"] = "1"
+    run_specs("spec/integration/ci_port_integration_spec.cr")
+  end
 end
 
 # Dash-spelled alias, mirroring i18n_check/tips_check conventions.

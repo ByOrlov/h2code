@@ -207,6 +207,7 @@ ja:
     ci_failed: "%{sha} の CI ビルドが失敗しました (%{detail})"
     ci_error: "%{sha} の CI オブザーバーエラー: %{detail}"
     ci_timeout: "%{sha} の CI ステータスは不明です: %{detail}"
+    ci_log_fetch_failed: "%{sha} の CI ログを取得できませんでした: %{detail}"
     ci_exit_warning: "CI 確認が進行中 — 強制終了するには %{btn} をもう一度、キャンセルするには Esc"
     ci_token_tip: "ヒント: GitHub トークンを設定すると、gh CLI なしで h2code が CI ステータスを直接追跡できます — GitHub → Settings → Developer settings → Personal access tokens（«Actions: Read» 権限で十分）；その後 GITHUB_TOKEN または ~/.h2code/config.json の \"github.token\" に設定してください。"
     ci_token_tip_gitlab: "ヒント: GitLab トークンを設定すると、h2code が非公開プロジェクトの CI ステータスを追跡できます — GitLab → Preferences → Access tokens（«read_api» スコープで十分。fine-grained トークンは CI/CD 読み取り権限 «Pipeline: Read» も必要）；その後 GITLAB_TOKEN または ~/.h2code/config.json の \"gitlab.token\" に設定してください。公開プロジェクトはトークンなしで追跡できます。"

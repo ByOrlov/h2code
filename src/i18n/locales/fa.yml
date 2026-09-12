@@ -207,6 +207,7 @@ fa:
     ci_failed: "بیلد CI برای %{sha} ناموفق بود (%{detail})"
     ci_error: "خطای ناظر CI برای %{sha}: %{detail}"
     ci_timeout: "وضعیت CI برای %{sha} نامشخص است: %{detail}"
+    ci_log_fetch_failed: "دریافت لاگ‌های CI برای %{sha} ناموفق بود: %{detail}"
     ci_exit_warning: "بررسی CI در جریان است — برای خروج اجباری %{btn} را دوباره بزنید، برای لغو Esc"
     ci_token_tip: "نکته: یک توکن GitHub تنظیم کنید تا h2code بدون gh CLI مستقیماً وضعیت CI را دنبال کند — GitHub → Settings → Developer settings → Personal access tokens (دسترسی «Actions: Read» کافی است)؛ سپس GITHUB_TOKEN یا \"github.token\" را در ~/.h2code/config.json تنظیم کنید."
     ci_token_tip_gitlab: "نکته: یک توکن GitLab تنظیم کنید تا h2code وضعیت CI پروژه‌های خصوصی را دنبال کند — GitLab → Preferences → Access tokens (دامنه «read_api» کافی است؛ برای توکن fine-grained مجوز خواندن CI/CD یعنی «Pipeline: Read» را نیز فعال کنید)؛ سپس GITLAB_TOKEN یا \"gitlab.token\" را در ~/.h2code/config.json تنظیم کنید. پروژه‌های عمومی بدون توکن پیگیری می‌شوند."

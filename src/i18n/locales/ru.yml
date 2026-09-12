@@ -207,6 +207,7 @@ ru:
     ci_failed: "Сборка CI НЕ пройдена для %{sha} (%{detail})"
     ci_error: "Ошибка наблюдения CI для %{sha}: %{detail}"
     ci_timeout: "Статус CI неизвестен для %{sha}: %{detail}"
+    ci_log_fetch_failed: "Не удалось получить логи CI для %{sha}: %{detail}"
     ci_exit_warning: "Идёт проверка CI — нажмите %{btn} ещё раз для принудительного выхода, Esc для отмены"
     ci_token_tip: "Совет: настройте GitHub-токен, чтобы h2code следил за статусом CI напрямую, без gh CLI — GitHub → Settings → Developer settings → Personal access tokens (прав «Actions: Read» достаточно); затем задайте GITHUB_TOKEN или \"github.token\" в ~/.h2code/config.json."
     ci_token_tip_gitlab: "Совет: настройте GitLab-токен, чтобы h2code следил за статусом CI приватных проектов — GitLab → Preferences → Access tokens (права «read_api» достаточно; для fine-grained-токена также включите право чтения CI/CD — «Pipeline: Read»); затем задайте GITLAB_TOKEN или \"gitlab.token\" в ~/.h2code/config.json. Публичные проекты отслеживаются без токена."

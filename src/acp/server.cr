@@ -598,6 +598,16 @@ module H2code
         # simplification as PlanMode above): one-MR-per-session guard and
         # `merge_request_url` persistence into the ACP session's state.
         H2code::Tools::MergeRequest.store = store
+        # CI observer delivery (mirrors the TUI wiring in h2code.cr): a
+        # failed build injects its failure-log excerpt as a follow-up
+        # prompt, so the model receives the error straight from the logs
+        # instead of fetching them itself. The store wiring lands
+        # `ci.status` events in the session wire log. Same GLOBAL
+        # last-one-wins simplification as PlanMode above.
+        if ci_svc = Tools::Ci.service.as?(Tools::Ci::LiveCiService)
+          ci_svc.store = store
+          ci_svc.delivery = ->(xml : String) { acp_session.deliver_external_prompt(xml) }
+        end
 
         acp_session
       end
@@ -644,9 +654,10 @@ module H2code
           Tools::ToolSelect.service ||= Tools::AgentToolSelectService.new(tools)
         end
         tools.register(Tools::SelectTools.new) if Tools::ToolSelect.service.try(&.enabled?)
-        # Shared CI observer service (no TUI delivery here — the WaitForCI
-        # tool still reads observer state directly). GitHub token enables
-        # direct REST polling (no gh CLI).
+        # Shared CI observer service. Delivery + session store are attached
+        # per session in build_session_common (completion notifications run
+        # as follow-up prompts). GitHub token enables direct REST polling
+        # (no gh CLI).
         Tools::Ci.service ||= Tools::Ci::LiveCiService.new(
           github_token: @config.github_token,
           gitlab_token: @config.gitlab_token,

@@ -148,6 +148,9 @@ module H2code
             unless obs.failure_log.empty?
               buf << "Failure log (excerpt):\n#{obs.failure_log}\n"
             end
+            unless obs.failure_log_error.empty?
+              buf << "Could not fetch the CI failure log: #{obs.failure_log_error}\n"
+            end
             buf << "Fix the failures, then commit and push again."
           end
           ToolResult.error(content)

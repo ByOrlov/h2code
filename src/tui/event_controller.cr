@@ -390,6 +390,14 @@ module H2code
                          {H2code.t("ui.ci_timeout", sha: obs.short_sha, detail: obs.detail), "system"}
                        end
           emit_to_log(Message.new(role, line))
+          # A failed build whose log could not be fetched says so loudly:
+          # a separate error line tells the user to fix the token/access
+          # (e.g. a fine-grained GitLab PAT missing the 'Job: Read'
+          # permission) instead of wondering why no log came.
+          if obs.status.failure? && !obs.failure_log_error.empty?
+            emit_to_log(Message.new("error",
+              H2code.t("ui.ci_log_fetch_failed", sha: obs.short_sha, detail: obs.failure_log_error)))
+          end
           invalidate_log_cache!
         end
         if obs.pending? || Tools::Ci.service.try(&.pending?) || false
