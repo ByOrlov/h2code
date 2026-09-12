@@ -395,6 +395,11 @@ module H2code
                        else
                          {H2code.t("ui.ci_timeout", sha: obs.short_sha, detail: obs.detail), "system"}
                        end
+          # Keep the clickable link after the wait line is gone: the checks
+          # page URL stays reachable from the settled log line, green or not.
+          unless obs.actions_url.empty?
+            line += "  #{H2code.t("ui.ci_link", url: obs.actions_url)}"
+          end
           emit_to_log(Message.new(role, line))
           invalidate_log_cache!
         end

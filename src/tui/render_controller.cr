@@ -621,9 +621,9 @@ module H2code
       # CI observer wait lines: pulsing circle (Spinner::CI_BULLET_FRAMES)
       # while a pushed commit's build is pending. One line per pending
       # observer — multiple pushes are each watched in their own row, oldest
-      # commit first — each ending with a clickable `link: <url>` to the
-      # commit's Actions checks page when the owner/repo pair is known.
-      # Rendered only while @ci_active is set by on_ci_update;
+      # commit first — each ending with a clickable localized `link: <url>`
+      # to the commit's Actions checks page when the owner/repo pair is
+      # known. Rendered only while @ci_active is set by on_ci_update;
       # returns an empty Array otherwise so the active zone never shows
       # stale rows.
       private def render_ci_wait_lines : Array(String)
@@ -639,7 +639,7 @@ module H2code
             s << ' ' << frame << ' '
             s << H2code.t("ui.ci_waiting", sha: obs.short_sha, elapsed: DurationFormat.hms(obs.elapsed_s))
             unless obs.actions_url.empty?
-              s << "  link: " << obs.actions_url
+              s << "  " << H2code.t("ui.ci_link", url: obs.actions_url)
             end
             s << ANSI.reset
           end

@@ -204,6 +204,7 @@ hi:
     task_waiting: "बैकग्राउंड कार्य %{id} चल रहा है (%{elapsed}): %{label}"
     task_finished: "बैकग्राउंड कार्य %{id} समाप्त: %{detail}"
     ci_passed: "%{sha} के लिए CI बिल्ड सफल रहा (%{detail})"
+    ci_link: "लिंक: %{url}"
     ci_failed: "%{sha} के लिए CI बिल्ड असफल रहा (%{detail})"
     ci_error: "%{sha} के लिए CI पर्यवेक्षक त्रुटि: %{detail}"
     ci_timeout: "%{sha} के लिए CI स्थिति अज्ञात: %{detail}"

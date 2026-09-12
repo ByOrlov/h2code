@@ -265,4 +265,36 @@ describe "/ci command" do
       end
     end
   end
+
+  describe "#on_ci_update" do
+    it "keeps the checks-page link on the settled line when CI goes green" do
+      H2code::I18n.init("en")
+      app = CiCommandApp.new
+      obs = H2code::Tools::Ci::Observer.new("1234567890abcdef")
+      obs.status = H2code::Tools::Ci::Status::Success
+      obs.detail = "1 run(s) passed"
+      obs.actions_url = "https://github.com/example/repo/actions/runs/1"
+
+      app.on_ci_update(obs)
+
+      msg = app.@messages.last
+      msg.role.should eq("ci_success")
+      msg.content.should contain("CI build passed for 1234567")
+      msg.content.should contain("link: https://github.com/example/repo/actions/runs/1")
+    end
+
+    it "omits the link when the owner/repo pair was never known" do
+      H2code::I18n.init("en")
+      app = CiCommandApp.new
+      obs = H2code::Tools::Ci::Observer.new("1234567890abcdef")
+      obs.status = H2code::Tools::Ci::Status::Success
+      obs.detail = "1 run(s) passed"
+
+      app.on_ci_update(obs)
+
+      msg = app.@messages.last
+      msg.content.should contain("CI build passed for 1234567")
+      msg.content.should_not contain("link:")
+    end
+  end
 end

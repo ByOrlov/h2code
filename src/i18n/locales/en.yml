@@ -204,6 +204,7 @@ en:
     task_waiting: "Background task %{id} running (%{elapsed}): %{label}"
     task_finished: "Background task %{id} finished: %{detail}"
     ci_passed: "CI build passed for %{sha} (%{detail})"
+    ci_link: "link: %{url}"
     ci_failed: "CI build FAILED for %{sha} (%{detail})"
     ci_error: "CI observer error for %{sha}: %{detail}"
     ci_timeout: "CI status unknown for %{sha}: %{detail}"

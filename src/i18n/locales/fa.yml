@@ -204,6 +204,7 @@ fa:
     task_waiting: "کار پس‌زمینه %{id} در حال اجراست (%{elapsed}): %{label}"
     task_finished: "کار پس‌زمینه %{id} پایان یافت: %{detail}"
     ci_passed: "بیلد CI برای %{sha} با موفقیت گذشت (%{detail})"
+    ci_link: "پیوند: %{url}"
     ci_failed: "بیلد CI برای %{sha} ناموفق بود (%{detail})"
     ci_error: "خطای ناظر CI برای %{sha}: %{detail}"
     ci_timeout: "وضعیت CI برای %{sha} نامشخص است: %{detail}"

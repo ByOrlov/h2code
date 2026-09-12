@@ -204,6 +204,7 @@ ja:
     task_waiting: "バックグラウンドタスク %{id} 実行中 (%{elapsed}): %{label}"
     task_finished: "バックグラウンドタスク %{id} 完了: %{detail}"
     ci_passed: "%{sha} の CI ビルドが成功しました (%{detail})"
+    ci_link: "リンク: %{url}"
     ci_failed: "%{sha} の CI ビルドが失敗しました (%{detail})"
     ci_error: "%{sha} の CI オブザーバーエラー: %{detail}"
     ci_timeout: "%{sha} の CI ステータスは不明です: %{detail}"

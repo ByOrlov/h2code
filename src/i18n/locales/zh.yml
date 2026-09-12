@@ -204,6 +204,7 @@ zh:
     task_waiting: "后台任务 %{id} 运行中 (%{elapsed}): %{label}"
     task_finished: "后台任务 %{id} 已结束: %{detail}"
     ci_passed: "%{sha} 的 CI 构建已通过 (%{detail})"
+    ci_link: "链接：%{url}"
     ci_failed: "%{sha} 的 CI 构建失败 (%{detail})"
     ci_error: "%{sha} 的 CI 观察器错误: %{detail}"
     ci_timeout: "%{sha} 的 CI 状态未知: %{detail}"

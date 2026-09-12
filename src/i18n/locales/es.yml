@@ -204,6 +204,7 @@ es:
     task_waiting: "Tarea en segundo plano %{id} en ejecución (%{elapsed}): %{label}"
     task_finished: "Tarea en segundo plano %{id} finalizada: %{detail}"
     ci_passed: "La compilación de CI pasó para %{sha} (%{detail})"
+    ci_link: "enlace: %{url}"
     ci_failed: "La compilación de CI FALLÓ para %{sha} (%{detail})"
     ci_error: "Error del observador de CI para %{sha}: %{detail}"
     ci_timeout: "Estado de CI desconocido para %{sha}: %{detail}"

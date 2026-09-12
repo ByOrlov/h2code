@@ -204,6 +204,7 @@ ru:
     task_waiting: "Фоновая задача %{id} выполняется (%{elapsed}): %{label}"
     task_finished: "Фоновая задача %{id} завершена: %{detail}"
     ci_passed: "Сборка CI успешно пройдена для %{sha} (%{detail})"
+    ci_link: "ссылка: %{url}"
     ci_failed: "Сборка CI НЕ пройдена для %{sha} (%{detail})"
     ci_error: "Ошибка наблюдения CI для %{sha}: %{detail}"
     ci_timeout: "Статус CI неизвестен для %{sha}: %{detail}"

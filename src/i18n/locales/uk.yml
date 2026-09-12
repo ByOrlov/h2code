@@ -204,6 +204,7 @@ uk:
     task_waiting: "Фонова задача %{id} виконується (%{elapsed}): %{label}"
     task_finished: "Фонова задача %{id} завершена: %{detail}"
     ci_passed: "Збірка CI успішно пройдена для %{sha} (%{detail})"
+    ci_link: "посилання: %{url}"
     ci_failed: "Збірка CI НЕ пройдена для %{sha} (%{detail})"
     ci_error: "Помилка спостереження CI для %{sha}: %{detail}"
     ci_timeout: "Статус CI невідомий для %{sha}: %{detail}"

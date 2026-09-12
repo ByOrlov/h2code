@@ -204,6 +204,7 @@ be:
     task_waiting: "Фонавая задача %{id} выконваецца (%{elapsed}): %{label}"
     task_finished: "Фонавая задача %{id} завершана: %{detail}"
     ci_passed: "Зборка CI паспяхова пройдзена для %{sha} (%{detail})"
+    ci_link: "спасылка: %{url}"
     ci_failed: "Зборка CI НЕ пройдзена для %{sha} (%{detail})"
     ci_error: "Памылка назірання CI для %{sha}: %{detail}"
     ci_timeout: "Статус CI невядомы для %{sha}: %{detail}"
