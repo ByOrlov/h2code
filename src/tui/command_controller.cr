@@ -13,7 +13,7 @@ module H2code
 
       private def cmd_new : Nil
         if @agent_busy
-          emit_to_log(Message.new("error", "Cannot start a new session while a turn is running. Wait or interrupt first."))
+          emit_to_log(Message.new("error", H2code.t("ui.busy_new_session")))
         else
           @on_new_session.try(&.call)
           @messages.clear
@@ -25,7 +25,7 @@ module H2code
 
       private def cmd_sessions : Nil
         if @agent_busy
-          emit_to_log(Message.new("error", "Cannot switch sessions while a turn is running."))
+          emit_to_log(Message.new("error", H2code.t("ui.busy_switch_sessions")))
         else
           open_session_selector(:resume)
         end
@@ -33,7 +33,7 @@ module H2code
 
       private def cmd_restore : Nil
         if @agent_busy
-          emit_to_log(Message.new("error", "Cannot restore a session while a turn is running."))
+          emit_to_log(Message.new("error", H2code.t("ui.busy_restore")))
         else
           open_session_selector(:restore)
         end
@@ -43,7 +43,7 @@ module H2code
       # lists sessions from every workspace, archived included.
       private def cmd_search : Nil
         if @agent_busy
-          emit_to_log(Message.new("error", "Cannot search sessions while a turn is running."))
+          emit_to_log(Message.new("error", H2code.t("ui.busy_search")))
         else
           open_session_selector(:search)
         end
@@ -295,12 +295,12 @@ module H2code
 
       private def cmd_archive : Nil
         if @agent_busy
-          emit_to_log(Message.new("error", "Cannot archive while a turn is running."))
+          emit_to_log(Message.new("error", H2code.t("ui.busy_archive")))
         elsif cb = @on_archive
           cb.call
           emit_to_log(Message.new("system", H2code.t("ui.session_archived")))
         else
-          emit_to_log(Message.new("error", "Session archive is not wired up."))
+          emit_to_log(Message.new("error", H2code.t("ui.archive_not_wired")))
         end
       end
 
@@ -309,15 +309,15 @@ module H2code
           emit_to_log(Message.new("system", H2code.t("ui.usage_rename")))
         elsif cb = @on_rename
           cb.call(args)
-          emit_to_log(Message.new("system", "Session title set to: #{args}"))
+          emit_to_log(Message.new("system", H2code.t("ui.title_set", title: args)))
         else
-          emit_to_log(Message.new("error", "Session rename is not wired up."))
+          emit_to_log(Message.new("error", H2code.t("ui.rename_not_wired")))
         end
       end
 
       private def cmd_clear : Nil
         if @agent_busy
-          emit_to_log(Message.new("error", "Cannot clear while a turn is running. Wait or interrupt first."))
+          emit_to_log(Message.new("error", H2code.t("ui.busy_clear")))
         else
           @on_clear.try(&.call)
           @messages.clear
@@ -329,9 +329,9 @@ module H2code
 
       private def cmd_compact : Nil
         if @agent_busy
-          emit_to_log(Message.new("error", "Cannot compact while a turn is running. Wait or interrupt first."))
+          emit_to_log(Message.new("error", H2code.t("ui.busy_compact")))
         else
-          emit_to_log(Message.new("system", "Compacting context..."))
+          emit_to_log(Message.new("system", H2code.t("ui.compacting")))
           @is_compacting = true
           @status = "Compacting..."
           start_spinner
@@ -363,7 +363,7 @@ module H2code
         else
           count = args.strip.to_i? || 1
           @on_undo.try(&.call)
-          emit_to_log(Message.new("system", "Undid last #{count} turn(s)."))
+          emit_to_log(Message.new("system", H2code.t("ui.undo_last_count", count: count)))
         end
       end
 
@@ -375,7 +375,7 @@ module H2code
           emit_to_log(Message.new("system", H2code.t("ui.queue_empty")))
         else
           preview = @queue.map_with_index { |qm, i| "  #{i + 1}. #{truncate_preview(qm.text)}" }.join("\n")
-          emit_to_log(Message.new("system", "Queue (#{@queue.size}):\n#{preview}\n— #{queue_hint}"))
+          emit_to_log(Message.new("system", H2code.t("ui.queue_listing", count: @queue.size, preview: preview, hint: queue_hint)))
         end
       end
 
@@ -388,15 +388,15 @@ module H2code
         case args.strip.downcase
         when "on"
           apply_permission_mode("yolo")
-          emit_to_log(Message.new("system", "YOLO default saved: tool calls are auto-approved."))
+          emit_to_log(Message.new("system", H2code.t("ui.yolo_on")))
         when "off"
           apply_permission_mode("manual")
-          emit_to_log(Message.new("system", "YOLO default off: permission mode reset to manual."))
+          emit_to_log(Message.new("system", H2code.t("ui.yolo_off")))
         when ""
           state = @permission_mode == "yolo" ? "on" : "off"
-          emit_to_log(Message.new("system", "YOLO is #{state}. Usage: /yolo on|off"))
+          emit_to_log(Message.new("system", H2code.t("ui.yolo_state", state: state)))
         else
-          emit_to_log(Message.new("error", "Unknown argument: #{args}. Use: /yolo on|off"))
+          emit_to_log(Message.new("error", H2code.t("ui.yolo_usage", args: args)))
         end
       end
 
@@ -421,7 +421,7 @@ module H2code
           path = File.expand_path(args.strip, @work_dir)
           if Dir.exists?(path)
             if @additional_dirs.includes?(path)
-              emit_to_log(Message.new("system", "Already added: #{path}"))
+              emit_to_log(Message.new("system", H2code.t("ui.dir_already_added", path: path)))
             else
               @additional_dirs << path
               on_additional_dirs_change.try(&.call(@additional_dirs.dup))
@@ -429,7 +429,7 @@ module H2code
                 H2code.t("ui.added_directory", path: path, count: @additional_dirs.size)))
             end
           else
-            emit_to_log(Message.new("error", "Directory does not exist: #{path}"))
+            emit_to_log(Message.new("error", H2code.t("ui.dir_not_found", path: path)))
           end
         end
       end
@@ -531,15 +531,15 @@ module H2code
         case arg
         when "off"
           apply_sudo_mode(Tools::Bash::SudoMode::Off)
-          emit_to_log(Message.new("system", "Sudo mode: off (sudo commands disallowed)"))
+          emit_to_log(Message.new("system", H2code.t("ui.sudo_off")))
         when "request"
           apply_sudo_mode(Tools::Bash::SudoMode::Request)
-          emit_to_log(Message.new("system", "Sudo mode: request (ask before each sudo command)"))
+          emit_to_log(Message.new("system", H2code.t("ui.sudo_request")))
         when "always"
           apply_sudo_mode(Tools::Bash::SudoMode::Always)
-          emit_to_log(Message.new("system", "Sudo mode: always (sudo commands allowed)"))
+          emit_to_log(Message.new("system", H2code.t("ui.sudo_always")))
         else
-          emit_to_log(Message.new("error", "Unknown sudo mode: #{args}. Use: off, request, or always."))
+          emit_to_log(Message.new("error", H2code.t("ui.sudo_usage", mode: args)))
         end
       end
 
@@ -576,7 +576,7 @@ module H2code
           emit_to_log(Message.new("system", line))
         when "detect"
           {% if flag?(:win32) %}
-            emit_to_log(Message.new("system", "Detecting bash (probing candidates, may take a few seconds)…"))
+            emit_to_log(Message.new("system", H2code.t("ui.bash_detecting")))
             spawn do
               path = Win32ShellPort.detect_bash
               if path
@@ -598,11 +598,11 @@ module H2code
         when "patch"
           {% if flag?(:win32) %}
             if rest.empty?
-              emit_to_log(Message.new("error", "Usage: /bash patch <path-to-bash.exe>"))
+              emit_to_log(Message.new("error", H2code.t("ui.bash_patch_usage")))
               return
             end
             unless File.file?(rest)
-              emit_to_log(Message.new("error", "Not a file: #{rest}"))
+              emit_to_log(Message.new("error", H2code.t("ui.bash_not_a_file", path: rest)))
               return
             end
             ShellPort.bash_path = rest
@@ -626,7 +626,7 @@ module H2code
             emit_to_log(Message.new("system", "bash path override is Windows-only; on Unix bash resolves via PATH."))
           {% end %}
         else
-          emit_to_log(Message.new("error", "Unknown subcommand: #{sub}. Use: status, detect, patch <path>, clear."))
+          emit_to_log(Message.new("error", H2code.t("ui.bash_usage", sub: sub)))
         end
       end
 
@@ -658,7 +658,7 @@ module H2code
                      end
             "  #{i + 1}. #{marker} #{title}"
           end.join("\n")
-          emit_to_log(Message.new("system", "Todos (#{todos.size}):\n#{body}"))
+          emit_to_log(Message.new("system", H2code.t("ui.todos_listing", count: todos.size, body: body)))
         end
       end
 
@@ -675,28 +675,28 @@ module H2code
           emit_to_log(Message.new("system", H2code.t("ui.usage_feedback")))
         elsif cb = @on_feedback
           cb.call(args.strip)
-          emit_to_log(Message.new("system", "Feedback sent. Thank you!"))
+          emit_to_log(Message.new("system", H2code.t("ui.feedback_sent")))
         else
           # Local fallback: stash the feedback so it can be retrieved later.
           feedback_path = File.join(@home, ".h2code", "feedback.log")
           Dir.mkdir_p(File.dirname(feedback_path)) rescue nil
           File.write(feedback_path, "[#{Time.utc.to_s("%Y-%m-%dT%H:%M:%SZ")}] #{args.strip}\n", mode: "a")
-          emit_to_log(Message.new("system", "Feedback saved to #{feedback_path}."))
+          emit_to_log(Message.new("system", H2code.t("ui.feedback_saved", path: feedback_path)))
         end
       end
 
       private def cmd_reload : Nil
         if cb = @on_reload
           cb.call
-          emit_to_log(Message.new("system", "Config and session state reloaded."))
+          emit_to_log(Message.new("system", H2code.t("ui.reloaded")))
         else
-          emit_to_log(Message.new("error", "Reload is not wired up."))
+          emit_to_log(Message.new("error", H2code.t("ui.reload_not_wired")))
         end
       end
 
       private def cmd_web : Nil
         url = "https://www.kimi.com/code?session=#{URI.encode_path(@session_id)}"
-        emit_to_log(Message.new("system", "Open in Web UI: #{url}"))
+        emit_to_log(Message.new("system", H2code.t("ui.web_url", url: url)))
       end
 
       # `/sync [on|off|code|status]` — cloud sync with the PWA. `on`
@@ -712,16 +712,16 @@ module H2code
         case args.strip.downcase
         when "on"
           unless cfg
-            emit_to_log(Message.new("error", "Config not loaded."))
+            emit_to_log(Message.new("error", H2code.t("ui.config_not_loaded")))
             return
           end
           cfg.sync.enabled = true
           cfg.save
-          emit_to_log(Message.new("system", "Sync enabled. #{Remote::Sync.set_daemon_sync_mode("on")}"))
+          emit_to_log(Message.new("system", H2code.t("ui.sync_on", detail: Remote::Sync.set_daemon_sync_mode("on"))))
           emit_to_log(Message.new("system", Remote::Sync.qr_banner(Remote::Sync.read_or_create_code, cfg.sync.relay_url)))
         when "off"
           cfg.try { |c| c.sync.enabled = false; c.save }
-          emit_to_log(Message.new("system", "Sync disabled. #{Remote::Sync.set_daemon_sync_mode("off")}"))
+          emit_to_log(Message.new("system", H2code.t("ui.sync_off", detail: Remote::Sync.set_daemon_sync_mode("off"))))
         when "code", ""
           # Bare /sync = /sync code: QR of the current pairing code (no
           # rotation; a fresh code comes from `h2code sync resync` only).
@@ -731,7 +731,7 @@ module H2code
         when "status"
           emit_to_log(Message.new("system", sync_status_message(cfg)))
         else
-          emit_to_log(Message.new("error", "Usage: /sync [on|off|code]"))
+          emit_to_log(Message.new("error", H2code.t("ui.sync_usage")))
         end
       end
 
@@ -852,10 +852,10 @@ module H2code
       # and writes AGENTS.md to the project root.
       private def cmd_init : Nil
         if @agent_busy
-          emit_to_log(Message.new("error", "Cannot /init while a turn is running. Wait or interrupt first."))
+          emit_to_log(Message.new("error", H2code.t("ui.busy_init")))
         else
           @defer_user_messages = true
-          emit_to_log(Message.new("system", "Analyzing codebase and generating AGENTS.md..."))
+          emit_to_log(Message.new("system", H2code.t("ui.init_running")))
           @dirty = true
           spawn do
             begin
@@ -875,9 +875,9 @@ module H2code
       private def cmd_export_debug_zip : Nil
         path = export_debug_bundle
         if path
-          emit_to_log(Message.new("system", "Debug bundle exported to: #{path}"))
+          emit_to_log(Message.new("system", H2code.t("ui.debug_bundle_exported", path: path)))
         else
-          emit_to_log(Message.new("error", "Failed to export debug bundle (tar not available?)."))
+          emit_to_log(Message.new("error", H2code.t("ui.debug_bundle_failed")))
         end
       end
 
@@ -918,10 +918,10 @@ module H2code
           if cb = @on_mcp_update
             cb.call(server)
           else
-            emit_to_log(Message.new("error", "MCP update not available in this run."))
+            emit_to_log(Message.new("error", H2code.t("ui.mcp_update_unavailable")))
           end
         when "configure"
-          emit_to_log(Message.new("system", "MCP configuration: edit ~/.h2code/mcp.json directly, then run /mcp update to refresh the cache."))
+          emit_to_log(Message.new("system", H2code.t("ui.mcp_config_hint")))
         when "help"
           emit_to_log(Message.new("system", MCP_HELP_TEXT))
         else
@@ -934,7 +934,7 @@ module H2code
 
       private def cmd_login : Nil
         if cb = @on_login
-          emit_to_log(Message.new("system", "Starting OAuth device-code login..."))
+          emit_to_log(Message.new("system", H2code.t("ui.oauth_starting")))
           cb.call
         else
           cfg_path = File.join(@home, ".h2code", "config.json")
@@ -956,9 +956,9 @@ module H2code
       private def cmd_logout : Nil
         if cb = @on_logout
           cb.call
-          emit_to_log(Message.new("system", "Logged out. API key cleared from config."))
+          emit_to_log(Message.new("system", H2code.t("ui.logged_out")))
         else
-          emit_to_log(Message.new("error", "Logout is not wired up."))
+          emit_to_log(Message.new("error", H2code.t("ui.logout_not_wired")))
         end
       end
 
@@ -1029,15 +1029,15 @@ module H2code
             cfg.transcription.language = "auto"
             cfg.save
           end
-          emit_to_log(Message.new("system", "Voice language: auto (server-side detection)"))
+          emit_to_log(Message.new("system", H2code.t("ui.voicelang_auto")))
         when /^[a-z]{2}(-[a-z]{2})?$/
           if cfg = @app_config
             cfg.transcription.language = lang
             cfg.save
           end
-          emit_to_log(Message.new("system", "Voice language: #{lang}"))
+          emit_to_log(Message.new("system", H2code.t("ui.voicelang_set", lang: lang)))
         else
-          emit_to_log(Message.new("error", "Usage: /voicelang <code|auto>  (e.g. ru, en, auto)"))
+          emit_to_log(Message.new("error", H2code.t("ui.voicelang_usage")))
         end
       end
 

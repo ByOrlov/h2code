@@ -115,6 +115,32 @@ describe H2code::TUI::App do
     active_stripped2.join('\n').should_not contain("Using Read")
   end
 
+  # Regression: a runtime /language switch must reach tool headers rendered by
+  # the turn fiber. Each turn runs in a fresh spawned fiber and crystal-i18n
+  # catalogs are per-fiber (built lazily from config), so before the fix the
+  # turn fiber's catalog resolved the old locale and new tool entries kept
+  # rendering in English until restart.
+  it "renders new tool headers in the switched locale from a turn fiber" do
+    H2code::I18n.init("en")
+    app = H2code::TUI::App.new
+
+    # /language ru — runs on the main/input fiber, like the real command.
+    app.on_event(H2code::Loop::Event.language_changed("ru"))
+
+    # Tool results arrive from the spawned run_turn fiber, which fills the
+    # log-zone cache via render_now on that fiber.
+    done = Channel(String).new
+    spawn do
+      app.on_event(H2code::Loop::Event.tool_call_start("c1", "Grep", %({"pattern":"x"})))
+      app.on_event(H2code::Loop::Event.tool_result("c1", "ok", false))
+      done.send(app.build_render_output)
+    end
+    frame = app_strip_ansi(done.receive)
+    frame.should contain("Использовал Grep")
+
+    H2code::I18n.activate("en")
+  end
+
   # A fully-completed TodoList must migrate from the active zone into the log:
   # the live panel is frozen as a `todo_snapshot` message (rendered identically
   # to the panel) and the tool's state is cleared so a fresh list can start.

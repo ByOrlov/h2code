@@ -1040,7 +1040,7 @@ module H2code
       # say so instead of silently switching directories.
       if (sf = store.read_state.try(&.sandbox_folder)) && !sf.empty? && sf != work_dir
         app.add_message("system",
-          "This session's sandbox (#{sf}) no longer exists; continuing in #{work_dir}.")
+          H2code.t("ui.sandbox_gone", folder: sf, dir: work_dir))
       end
 
       # Wire subagent lifecycle events from the runners into the TUI so the
@@ -1228,8 +1228,7 @@ module H2code
       # the session file vanished externally and was rebuilt from the
       # in-memory journal (otherwise the fix is invisible).
       store.on_wire_recovered = -> {
-        app.add_message("system",
-          "Session file was deleted externally; restored the full history from the in-memory journal.")
+        app.add_message("system", H2code.t("ui.wire_recovered"))
         nil
       }
 
@@ -1300,7 +1299,7 @@ module H2code
               end
             else
               app.add_message("system",
-                "This session's sandbox (#{sandbox}) no longer exists; continuing in #{work_dir}.")
+                H2code.t("ui.sandbox_gone", folder: sandbox, dir: work_dir))
             end
           end
           H2code::Tools::PlanMode.plan_service = H2code::Tools::AgentPlanService.new(store.session_dir, "main")
@@ -1592,6 +1591,10 @@ module H2code
       app.on_language_change = ->(lang : String) do
         config.language = lang
         config.save
+        # Broadcast through the event pipeline so every consumer re-activates
+        # the locale in its own fiber (catalogs are per-fiber in crystal-i18n)
+        # and the transcript re-renders in the new language.
+        app.on_event(Loop::Event.language_changed(lang))
         nil
       end
       # `/sudo`: persist the app-wide sudo mode so it survives restarts and

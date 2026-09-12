@@ -103,6 +103,18 @@ describe H2code::I18n do
       H2code.t("status.turn_complete").should eq("Ход завершён")
     end
 
+    it "propagates a runtime locale switch to fibers spawned later" do
+      # crystal-i18n builds a per-fiber catalog lazily from config; a runtime
+      # /language switch must update config.default_locale so every future
+      # fiber (each turn runs in a fresh one) resolves the new locale.
+      H2code::I18n.init("en")
+      H2code::I18n.activate("ru")
+
+      ch = Channel(String).new
+      spawn { ch.send H2code.t("tools.used") }
+      ch.receive.should eq("Использовал")
+    end
+
     it "returns the key for missing translations" do
       H2code::I18n.init("en")
       H2code.t("nonexistent.key").should eq("nonexistent.key")

@@ -276,6 +276,12 @@ module H2code
           stop_spinner
           @agent_status = AgentStatus::Error
           @status = event.text
+        when .language_changed?
+          # /language: crystal-i18n catalogs are per-fiber (lazily built from
+          # config on first use in each fiber), so re-activate the locale on
+          # whichever fiber processes this event. The cache invalidation
+          # below re-renders the whole transcript in the new language.
+          H2code::I18n.activate(event.text)
         when .turn_end?
           # Turn finished (normal, errored, or cancelled). Reset busy state
           # and drain the next queued message if any. The TUI is the single
@@ -309,7 +315,7 @@ module H2code
           if event.is_error?
             unless @queue.empty?
               @queue.clear
-              emit_to_log(Message.new("system", "[Queue cleared on interrupt]"))
+              emit_to_log(Message.new("system", H2code.t("ui.queue_cleared_interrupt")))
             end
           end
 

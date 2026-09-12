@@ -792,7 +792,7 @@ module H2code
           result = cb.call(args)
           emit_to_log(Message.new("system", result))
         else
-          emit_to_log(Message.new("system", "Plugin management is not available."))
+          emit_to_log(Message.new("system", H2code.t("ui.plugins_unavailable")))
         end
       end
 
@@ -817,7 +817,7 @@ module H2code
       private def handle_goal_command(args : String) : Nil
         service = H2code::Tools::Goal.service
         unless service
-          emit_to_log(Message.new("error", "Goal service is not wired up."))
+          emit_to_log(Message.new("error", H2code.t("ui.goal_not_wired")))
           return
         end
 
@@ -894,7 +894,7 @@ module H2code
 
       private def open_tasks_browser : Nil
         unless cb = @on_fetch_tasks
-          emit_to_log(Message.new("error", "Tasks browser is not wired up (no task service)."))
+          emit_to_log(Message.new("error", H2code.t("ui.tasks_not_wired")))
           return
         end
 
@@ -948,13 +948,13 @@ module H2code
       private def open_undo_selector : Nil
         unless cb = @on_fetch_undo_choices
           @on_undo.try(&.call)
-          emit_to_log(Message.new("system", "Undid last turn."))
+          emit_to_log(Message.new("system", H2code.t("ui.undo_one")))
           return
         end
 
         raw = cb.call
         if raw.nil? || raw.empty?
-          emit_to_log(Message.new("system", "No turns to undo."))
+          emit_to_log(Message.new("system", H2code.t("ui.undo_none")))
           return
         end
 
@@ -968,7 +968,7 @@ module H2code
           else
             @on_undo.try(&.call)
           end
-          emit_to_log(Message.new("system", "Undid #{c.count} turn(s)."))
+          emit_to_log(Message.new("system", H2code.t("ui.undo_count", count: c.count)))
           nil
         end
 
@@ -1010,7 +1010,7 @@ module H2code
           @provider_list.hide
           @dirty = true
           if name == @provider_name
-            emit_to_log(Message.new("system", "Provider already set to #{name}."))
+            emit_to_log(Message.new("system", H2code.t("ui.provider_already", name: name)))
           elsif needs_setup?(name)
             # Credentials missing for the selected provider: launch the setup
             # wizard for it instead of failing the switch.
@@ -1018,14 +1018,14 @@ module H2code
           elsif cb = @on_provider_change
             if cb.call(name)
               @provider_name = name
-              emit_to_log(Message.new("system", "Switched provider to #{name}."))
+              emit_to_log(Message.new("system", H2code.t("ui.provider_switched", name: name)))
               # The switch already loaded the provider's saved model into
               # @model, so the selector opens positioned on it. Escaping the
               # selector keeps that model.
               open_model_selector
             end
           else
-            emit_to_log(Message.new("error", "Provider switching is not wired up."))
+            emit_to_log(Message.new("error", H2code.t("ui.provider_not_wired")))
           end
         when .escape?
           # A single Esc clears an active search first; a second Esc closes.
@@ -1063,7 +1063,7 @@ module H2code
         if wizard.step == Setup::Wizard::Step::Endpoint
           # Keyless provider: jump straight to endpoint, but still show a
           # transcript entry so the user knows why no key was asked.
-          emit_to_log(Message.new("system", "No API key needed for #{name}."))
+          emit_to_log(Message.new("system", H2code.t("ui.provider_no_key", name: name)))
         end
         advance_setup_step
       end
@@ -1108,7 +1108,7 @@ module H2code
 
       private def apply_permission_mode(mode : String) : Nil
         @permission_mode = mode
-        emit_to_log(Message.new("system", "Permission mode: #{mode}"))
+        emit_to_log(Message.new("system", H2code.t("ui.permission_mode", mode: mode)))
         # Propagate to the live Permission::Manager + plan-mode reference and
         # persist the default to config.json (wired in run_interactive).
         @on_permission_mode_change.try(&.call(mode))
@@ -1222,7 +1222,7 @@ module H2code
                  else               Tools::Bash::SudoMode::Request
                  end
           apply_sudo_mode(mode)
-          emit_to_log(Message.new("system", "Sudo mode: #{mode_str}"))
+          emit_to_log(Message.new("system", H2code.t("ui.sudo_mode", mode: mode_str)))
         when .escape?
           @sudo_list.hide
           @dirty = true
@@ -1267,7 +1267,7 @@ module H2code
         ws_id = (!global && !@work_dir.empty?) ? Session::Index.workspace_id(@work_dir) : nil
         entries = index.list(ws_id, include_archived: include_archived)
         if entries.empty?
-          emit_to_log(Message.new("system", "No sessions found."))
+          emit_to_log(Message.new("system", H2code.t("ui.no_sessions")))
           return
         end
 
@@ -1392,16 +1392,16 @@ module H2code
           @session_list.hide
           @dirty = true
           unless entry
-            emit_to_log(Message.new("error", "No session selected."))
+            emit_to_log(Message.new("error", H2code.t("ui.no_session_selected")))
             return
           end
           case @session_picker_mode
           when :restore
             Session::Lifecycle.new(@home).restore(entry)
-            emit_to_log(Message.new("system", "Restored session: #{entry.label}"))
+            emit_to_log(Message.new("system", H2code.t("ui.session_restored", label: entry.label)))
           else
             if cb = @on_resume_session
-              emit_to_log(Message.new("system", "Resuming session: #{entry.label}"))
+              emit_to_log(Message.new("system", H2code.t("ui.session_resuming", label: entry.label)))
               begin
                 cb.call(entry.path)
               rescue ex : Session::FileDeletedError
@@ -1417,7 +1417,7 @@ module H2code
                   "Session is open in another h2code process, cannot resume: #{entry.label} (#{ex.message})"))
               end
             else
-              emit_to_log(Message.new("error", "Session resume is not wired up."))
+              emit_to_log(Message.new("error", H2code.t("ui.resume_not_wired")))
             end
           end
         when .escape?
@@ -1439,7 +1439,7 @@ module H2code
       private def open_model_selector : Nil
         cb = @on_fetch_models
         if cb.nil?
-          emit_to_log(Message.new("error", "Model fetching is not wired up."))
+          emit_to_log(Message.new("error", H2code.t("ui.models_not_wired")))
           return
         end
 
@@ -1450,13 +1450,13 @@ module H2code
           begin
             models = cb.call
             if models.empty?
-              emit_to_log(Message.new("system", "No models available for current provider."))
+              emit_to_log(Message.new("system", H2code.t("ui.no_models")))
             else
               @model_list.show(H2code.t("ui.select_model", name: @provider_name), models)
               @model_list.selected = models.index(@model) || 0
             end
           rescue ex
-            emit_to_log(Message.new("error", "Failed to fetch models: #{ex.message}"))
+            emit_to_log(Message.new("error", H2code.t("ui.models_fetch_failed", message: ex.message)))
           ensure
             @status = ""
             @dirty = true
@@ -1471,14 +1471,14 @@ module H2code
           @model_list.hide
           @dirty = true
           if model == @model
-            emit_to_log(Message.new("system", "Model already set to #{model}."))
+            emit_to_log(Message.new("system", H2code.t("ui.model_already", model: model)))
           elsif cb = @on_model_change
             if cb.call(model)
               @model = model
-              emit_to_log(Message.new("system", "Switched model to #{model}."))
+              emit_to_log(Message.new("system", H2code.t("ui.model_switched", model: model)))
             end
           else
-            emit_to_log(Message.new("error", "Model switching is not wired up."))
+            emit_to_log(Message.new("error", H2code.t("ui.model_switch_not_wired")))
           end
         when .escape?
           # A single Esc clears an active search first; a second Esc closes.
