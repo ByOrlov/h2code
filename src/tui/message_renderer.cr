@@ -857,7 +857,7 @@ module H2code
       # tool_args), "○ Cancelled · 00:04" for a discarded recording, or
       # "✗ Recording failed" when the session errored.
       private def voice_tool_header(args : String?, has_result : Bool, is_error : Bool) : String
-        return "#{ANSI.color(@theme.colors.error, nil)}✗ #{ANSI.reset}#{ANSI.color(@theme.colors.error, nil)}#{ANSI.bold}Recording failed#{ANSI.reset}" if is_error
+        return "#{ANSI.color(@theme.colors.error, nil)}✗ #{ANSI.reset}#{ANSI.color(@theme.colors.error, nil)}#{ANSI.bold}#{H2code.t("ui.voice_failed")}#{ANSI.reset}" if is_error
 
         duration = ""
         engine = ""
@@ -875,12 +875,12 @@ module H2code
         end
         if cancelled
           bullet = "#{ANSI.color(@theme.colors.dim, nil)}○ #{ANSI.reset}"
-          label = "#{ANSI.color(@theme.colors.dim, nil)}Cancelled#{ANSI.reset}"
+          label = "#{ANSI.color(@theme.colors.dim, nil)}#{H2code.t("ui.voice_cancelled")}#{ANSI.reset}"
           detail = duration.empty? ? "" : "#{ANSI.color(@theme.colors.dim, nil)} · #{duration}#{ANSI.reset}"
           return "#{bullet}#{label}#{detail}"
         end
         bullet = "#{ANSI.color(@theme.colors.success, nil)}● #{ANSI.reset}"
-        label = "#{ANSI.color(@theme.colors.primary, nil)}#{ANSI.bold}Voice message#{ANSI.reset}"
+        label = "#{ANSI.color(@theme.colors.primary, nil)}#{ANSI.bold}#{H2code.t("ui.voice_message")}#{ANSI.reset}"
         detail = "#{ANSI.color(@theme.colors.dim, nil)} · #{[duration, engine].reject(&.empty?).join(" · ")}#{ANSI.reset}"
         "#{bullet}#{label}#{detail}"
       end

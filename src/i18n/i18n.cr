@@ -90,6 +90,14 @@ module H2code
       unless @@loaded_locales.includes?(loc)
         reinit_with_locale(loc)
       end
+      # crystal-i18n keeps a per-fiber catalog (Fiber.current.i18n_catalog)
+      # built lazily from config on first use in each fiber. Activating only
+      # the current fiber would leave every fiber spawned later — each turn
+      # runs in a fresh fiber that renders tool headers — on the old locale,
+      # which is why a runtime /language switch didn't reach new tool entries.
+      # Updating default_locale makes every lazily built catalog resolve to
+      # the new locale; ::I18n.activate below covers the current fiber.
+      ::I18n.config.default_locale = loc
       begin
         ::I18n.activate(loc)
       rescue ::I18n::Errors::InvalidLocale

@@ -75,9 +75,9 @@ module H2code
       # installed but the config is missing/disabled, at the config section.
       private def voice_missing_hint : String
         if @voice_presence.installed?
-          "Voice messages are disabled. Enable the [transcription] section in ~/.h2code/config.json"
+          H2code.t("ui.voice_disabled")
         else
-          "H2 Voice is not installed. Install H2 Voice to recognize voice: #{Transcription::VoicePresencePort::INSTALL_URL}"
+          H2code.t("ui.voice_not_installed", url: Transcription::VoicePresencePort::INSTALL_URL)
         end
       end
 
@@ -86,9 +86,9 @@ module H2code
       # all" — the latter gets the install advice + link.
       private def voice_socket_error(client : Transcription::Client, ex : IO::Error) : String
         if @voice_presence.installed?
-          "Voice server unavailable at #{client.socket_path} — is h2voice running? (#{ex.message})"
+          H2code.t("ui.voice_server_unavailable", socket: client.socket_path, message: ex.message.to_s)
         else
-          "H2 Voice is not installed. Install H2 Voice to recognize voice: #{Transcription::VoicePresencePort::INSTALL_URL}"
+          H2code.t("ui.voice_not_installed", url: Transcription::VoicePresencePort::INSTALL_URL)
         end
       end
 
@@ -127,13 +127,13 @@ module H2code
             # entry with an error instead of hanging forever — nothing can
             # retry the transcription, the audio buffer lives server-side.
             if @voice_msg_idx == msg_idx
-              voice_finish(error: "Voice stream closed before the transcription result arrived")
+              voice_finish(error: H2code.t("ui.voice_stream_closed"))
             end
           rescue ex : IO::Error
             voice_finish(error: voice_socket_error(client, ex))
           rescue ex : Exception
             ExceptionHandler.report(ex, "voice recording")
-            voice_finish(error: "Voice recording failed: #{ex.message}")
+            voice_finish(error: H2code.t("ui.voice_failed_detail", message: ex.message.to_s))
           end
         end
 

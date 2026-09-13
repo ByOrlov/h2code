@@ -115,7 +115,7 @@ module H2code
           begin
             models = cb.call(name)
             if models.empty?
-              emit_to_log(Message.new("system", "Models unavailable."))
+              emit_to_log(Message.new("system", H2code.t("ui.models_unavailable")))
               restart_setup
             else
               @model_list.show(H2code.t("ui.select_model", name: name), models)
@@ -123,7 +123,7 @@ module H2code
               @model_list.selected = models.index(default) || 0
             end
           rescue ex
-            emit_to_log(Message.new("system", "Models unavailable."))
+            emit_to_log(Message.new("system", H2code.t("ui.models_unavailable")))
             restart_setup
           ensure
             @status = "Setup: #{wizard.step.to_s.downcase}"
@@ -227,8 +227,8 @@ module H2code
         config_msg = "Provider: #{wizard.provider_name}"
         config_msg += " | Model: #{wizard.model}" if wizard.model
         config_msg += " | YOLO: on" if wizard.yolo?
-        emit_to_log(Message.new("system", "Configuration saved. #{config_msg}"))
-        emit_to_log(Message.new("system", "Starting H2Code..."))
+        emit_to_log(Message.new("system", H2code.t("ui.config_saved", msg: config_msg)))
+        emit_to_log(Message.new("system", H2code.t("ui.starting")))
         @status = ""
         @setup_mode = false
         @dirty = true

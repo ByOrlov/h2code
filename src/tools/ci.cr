@@ -306,8 +306,10 @@ module H2code
         # Guards against spawning a second poll fiber for the same observer.
         property? polling : Bool = false
         # Clickable link to the commit's checks page on github.com, shown in
-        # the active-zone wait line. Empty when the owner/repo pair is not
-        # (yet) known — set by the service from the per-cwd remote cache.
+        # the active-zone wait line and kept on the settled log line once the
+        # observer reaches a terminal state. Empty when the owner/repo pair
+        # is not (yet) known — set by the service from the per-cwd remote
+        # cache.
         property actions_url : String = ""
         # Failed `gh` polls in a row (reset on any successful poll). While
         # below MAX_CONSECUTIVE_FAILURES the observer stays Pending so the

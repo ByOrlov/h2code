@@ -25,6 +25,11 @@ module H2code
       # exception (class, message, backtrace) so the TUI can render it as a
       # red exception block instead of letting the interface crumble.
       Exception
+      # The interface language was switched at runtime (/language). The text
+      # field carries the new locale name (e.g. "ru"); consumers re-activate
+      # the locale in their own fiber (crystal-i18n catalogs are per-fiber)
+      # and re-render translated UI.
+      LanguageChanged
     end
 
     class Event
@@ -174,6 +179,12 @@ module H2code
       def self.turn_end(cancelled : Bool = false) : Event
         e = new(EventType::TurnEnd)
         e.is_error = cancelled
+        e
+      end
+
+      def self.language_changed(locale : String) : Event
+        e = new(EventType::LanguageChanged)
+        e.text = locale
         e
       end
 
