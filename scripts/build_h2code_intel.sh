@@ -99,8 +99,8 @@ export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig"
 # Match the actual macro cache — $CRYSTAL_CACHE_DIR when overridden (GitLab
 # runners point it at ~/.cache/h2code), the ~/.cache/crystal default otherwise.
 CACHE_DIR="${CRYSTAL_CACHE_DIR:-$HOME/.cache/crystal}"
-CC_WRAPPER="$(mktemp)/cc-wrapper"
-mkdir -p "$(dirname "$CC_WRAPPER")"
+CC_WRAPPER_DIR="$(mktemp -d)"
+CC_WRAPPER="$CC_WRAPPER_DIR/cc-wrapper"
 cat > "$CC_WRAPPER" << WRAPPER
 #!/bin/bash
 for arg in "\$@"; do
