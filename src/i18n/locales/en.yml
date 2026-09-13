@@ -208,6 +208,7 @@ en:
     ci_failed: "CI build FAILED for %{sha} (%{detail})"
     ci_error: "CI observer error for %{sha}: %{detail}"
     ci_timeout: "CI status unknown for %{sha}: %{detail}"
+    ci_log_fetch_failed: "Failed to fetch CI logs for %{sha}: %{detail}"
     ci_exit_warning: "CI check in flight — press %{btn} again to force exit, Esc to cancel"
     ci_token_tip: "Tip: set up a GitHub token to let h2code track CI status directly, without the gh CLI — GitHub → Settings → Developer settings → Personal access tokens ('Actions: Read' permission is enough); then set GITHUB_TOKEN or \"github.token\" in ~/.h2code/config.json."
     ci_token_tip_gitlab: "Tip: set up a GitLab token so h2code can track CI status of private projects — GitLab → Preferences → Access tokens (the 'read_api' scope is enough; for a fine-grained token, also enable the CI/CD read permission 'Pipeline: Read'); then set GITLAB_TOKEN or \"gitlab.token\" in ~/.h2code/config.json. Public projects are tracked without a token."

@@ -208,6 +208,7 @@ zh:
     ci_failed: "%{sha} 的 CI 构建失败 (%{detail})"
     ci_error: "%{sha} 的 CI 观察器错误: %{detail}"
     ci_timeout: "%{sha} 的 CI 状态未知: %{detail}"
+    ci_log_fetch_failed: "无法获取 %{sha} 的 CI 日志：%{detail}"
     ci_exit_warning: "CI 检查进行中 — 再按一次 %{btn} 强制退出，按 Esc 取消"
     ci_token_tip: "提示：配置 GitHub 令牌后，h2code 可以直接跟踪 CI 状态，无需 gh CLI — GitHub → Settings → Developer settings → Personal access tokens（只需 «Actions: Read» 权限）；然后设置 GITHUB_TOKEN 或 ~/.h2code/config.json 中的 \"github.token\"。"
     ci_token_tip_gitlab: "提示：配置 GitLab 令牌后，h2code 可以跟踪私有项目的 CI 状态 — GitLab → Preferences → Access tokens（只需 «read_api» 权限；细粒度令牌还需勾选 CI/CD 读取权限 «Pipeline: Read»）；然后设置 GITLAB_TOKEN 或 ~/.h2code/config.json 中的 \"gitlab.token\"。公开项目无需令牌即可跟踪。"

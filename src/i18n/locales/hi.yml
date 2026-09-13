@@ -208,6 +208,7 @@ hi:
     ci_failed: "%{sha} के लिए CI बिल्ड असफल रहा (%{detail})"
     ci_error: "%{sha} के लिए CI पर्यवेक्षक त्रुटि: %{detail}"
     ci_timeout: "%{sha} के लिए CI स्थिति अज्ञात: %{detail}"
+    ci_log_fetch_failed: "%{sha} के लिए CI लॉग प्राप्त नहीं हो सके: %{detail}"
     ci_exit_warning: "CI जाँच चल रही है — जबरन बाहर निकलने के लिए %{btn} दोबारा दबाएँ, रद्द करने के लिए Esc"
     ci_token_tip: "सुझाव: GitHub टोकन सेट करें ताकि h2code gh CLI के बिना सीधे CI स्थिति को ट्रैक कर सके — GitHub → Settings → Developer settings → Personal access tokens («Actions: Read» अनुमति पर्याप्त है); फिर GITHUB_TOKEN या ~/.h2code/config.json में \"github.token\" सेट करें।"
     ci_token_tip_gitlab: "सुझाव: GitLab टोकन सेट करें ताकि h2code निजी प्रोजेक्ट्स की CI स्थिति को ट्रैक कर सके — GitLab → Preferences → Access tokens («read_api» स्कोप पर्याप्त है; fine-grained टोकन के लिए CI/CD पढ़ने की अनुमति «Pipeline: Read» भी सक्षम करें); फिर GITLAB_TOKEN या ~/.h2code/config.json में \"gitlab.token\" सेट करें। सार्वजनिक प्रोजेक्ट बिना टोकन ट्रैक होते हैं।"

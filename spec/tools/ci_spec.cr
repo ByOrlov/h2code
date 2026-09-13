@@ -363,16 +363,19 @@ module H2code::Tools
         Ci.render_notification(obs).should be_nil
       end
 
-      it "builds a fix-it notification for failure" do
+      it "builds a plain-text fix-it notification for failure" do
         obs = Ci::Observer.new("a" * 40)
         obs.status = Ci::Status::Failure
         obs.detail = "spec (failure)"
         obs.failure_log = "expected true, got false"
-        xml = Ci.render_notification(obs).not_nil!
-        xml.should contain("ci_completion")
-        xml.should contain("CI build failed")
-        xml.should contain("expected true, got false")
-        xml.should contain("commit and push again")
+        text = Ci.render_notification(obs).not_nil!
+        # The plain-text delivery marker (exactly-once dedup key).
+        text.should contain(%([notification id="ci.#{"a" * 40}.failure"]))
+        text.should contain("CI build failed")
+        text.should contain("expected true, got false")
+        text.should contain("commit and push again")
+        # No raw XML envelope reaches the model.
+        text.should_not contain("<notification")
       end
 
       it "mentions GitLab CI and glab for GitLab observers" do
@@ -380,8 +383,7 @@ module H2code::Tools
         obs.provider = Ci::Provider::Gitlab
         obs.status = Ci::Status::Failure
         obs.detail = "pipeline #7 (failed)"
-        xml = Ci.render_notification(obs).not_nil!
-        xml.should contain("GitLab CI pipeline")
+        Ci.render_notification(obs).not_nil!.should contain("GitLab CI pipeline")
 
         err = Ci::Observer.new("b" * 40)
         err.provider = Ci::Provider::Gitlab
@@ -1017,6 +1019,37 @@ module H2code::Tools
           obs.failure_log.should contain("expected true, got false")
           # allow_failure jobs do not count as the pipeline's failure log.
           api_urls.last.should contain("/jobs/501/trace")
+        end
+      end
+
+      it "records why the failure log could not be fetched (fine-grained PAT)" do
+        with_tmpdir do |dir|
+          File.write(File.join(dir, ".gitlab-ci.yml"), "")
+          runner = CiFakeRunner.new
+          runner.add(0, "git@gitlab.com:acme/app.git")
+          svc = Tools.fake_ci_service(runner)
+          # glab not installed → no CLI fallback for the denied trace.
+          svc.glab_probed = true
+          svc.glab_available = false
+          svc.api_get = ->(path : String) do
+            if path.includes?("/jobs?")
+              Ci::ApiResponse.new(200, %([{"id":501,"status":"failed","allow_failure":false}]))
+            elsif path.includes?("/trace")
+              Ci::ApiResponse.new(403, %({"error":"insufficient_granular_scope","error_description":"Access denied: requires a fine-grained personal access token with the following project permissions: [Job: Read]."}))
+            else
+              Ci::ApiResponse.new(200, %([{"id":7,"project_id":11,"status":"failed"}]))
+            end
+          end
+
+          svc.observe(CI_SPEC_SHA, dir)
+          obs = svc.observer_for(CI_SPEC_SHA).not_nil!
+          svc.poll_once(obs, dir)
+
+          obs.status.failure?.should be_true
+          obs.failure_log.empty?.should be_true
+          obs.failure_log_error.should contain("HTTP 403")
+          obs.failure_log_error.should contain("Job: Read")
+          Ci.render_notification(obs).not_nil!.should contain("Could not fetch the CI failure log")
         end
       end
 

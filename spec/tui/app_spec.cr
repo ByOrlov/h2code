@@ -231,6 +231,79 @@ describe H2code::TUI::App do
     app.@queue.count { |qm| qm.text.includes?("task.t1.completed") }.should eq(1)
   end
 
+  # A failed CI build whose log could not be fetched (e.g. a fine-grained
+  # GitLab PAT missing the 'Job: Read' permission) must produce an explicit
+  # error line in the log zone — not a silent log-less failure line.
+  it "on_ci_update emits an explicit error when the failure log is unavailable" do
+    app = H2code::TUI::App.new
+    obs = H2code::Tools::Ci::Observer.new("a" * 40)
+    obs.status = H2code::Tools::Ci::Status::Failure
+    obs.detail = "pipeline #8 (failed)"
+    obs.failure_log_error = "job log unavailable — GitLab API HTTP 403: {\"error\":\"insufficient_granular_scope\",… [Job: Read]}"
+
+    app.on_ci_update(obs)
+
+    errors = app.@messages.select { |m| m.role == "error" }
+    errors.size.should eq(1)
+    errors.first.content.should contain("Failed to fetch CI logs")
+    errors.first.content.should contain("Job: Read")
+  end
+
+  # Plain-text CI notifications (no XML envelope) dedup on the bracketed
+  # marker line exactly like the XML ones.
+  it "deliver_external_prompt deduplicates plain-text CI notifications" do
+    app = BusyApp.new
+    app.set_busy(true)
+
+    notif = %([notification id="ci.#{"b" * 40}.failure"]\nCI build failed\nFailure log (excerpt):\nboom)
+    app.deliver_external_prompt(notif)
+    app.deliver_external_prompt(notif) # duplicate
+
+    app.@queue.size.should eq(1)
+  end
+
+  # External notifications are session messages, not ephemeral turn fuel:
+  # queued ones persist to the wire log (the transcript shows them and the
+  # drain survives a resume), idle ones start a turn the run block persists
+  # itself.
+  it "persists queued external notifications to the wire log" do
+    app = BusyApp.new
+    persisted = [] of {String, String}
+    app.on_persist_queued = ->(type : String, text : String) do
+      persisted << {type, text}
+      nil
+    end
+    app.set_busy(true)
+
+    notif = %([notification id="ci.#{"c" * 40}.failure"]\nCI build failed\nFailure log (excerpt):\nboom)
+    app.deliver_external_prompt(notif)
+
+    persisted.should eq([{"turn.prompt", notif}])
+  end
+
+  it "runs an idle external notification as a turn the run block persists" do
+    app = H2code::TUI::App.new
+    received = Channel({String, Bool}).new
+    app.run_turn_cb = ->(text : String, persisted : Bool, _parts : Array(H2code::LLM::ContentPart)?) do
+      received.send({text, persisted})
+      nil
+    end
+
+    notif = %([notification id="ci.#{"d" * 40}.failure"]\nCI build failed\nFailure log (excerpt):\nboom)
+    app.deliver_external_prompt(notif)
+
+    text, persisted = select
+    when t = received.receive
+      t
+    when timeout(2.seconds)
+      {"", true}
+    end
+    text.should eq(notif)
+    # persisted=false → the run_turn block writes the turn.prompt record,
+    # so the notification lands in the session transcript exactly once.
+    persisted.should be_false
+  end
+
   # Consecutive external notifications queued while the agent was busy are
   # drained as ONE coalesced turn, not one turn per notification; a user
   # prompt queued behind them keeps its own turn.

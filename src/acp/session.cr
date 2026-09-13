@@ -24,6 +24,20 @@ module H2code
       @tool_args_accumulator = {} of String => String
       @started_tool_calls = Set(String).new
       @cancelled = false
+      # Serializes agent turns: a client `session/prompt` and self-started
+      # external-prompt turns (CI failure notifications) never interleave.
+      @turn_mutex = Mutex.new
+      # Advisory busy flag — true while a turn (plus its follow-up drain)
+      # runs; external deliveries check it to decide between queueing and
+      # self-starting a turn.
+      @busy = false
+      # External prompts queued while a turn runs (CI completion
+      # notifications), drained as follow-up turns when it ends.
+      @external_queue = [] of String
+      @external_lock = Mutex.new
+      # `<notification id="...">` payloads already delivered — a racing
+      # source firing twice must notify exactly once.
+      @delivered_notification_ids = Set(String).new
 
       def initialize(@id : String, @agent : Loop::Agent, @store : H2code::Session::Store,
                      @rpc : JsonRpc, @system_prompt : String)
@@ -45,39 +59,103 @@ module H2code
           return handle_slash_command(text)
         end
 
-        # Persist to wire log
-        @store.append_simple("turn.prompt", "prompt", text)
-
-        @current_turn_id = @turn_counter.add(1)
-        @tool_args_accumulator.clear
-        @started_tool_calls.clear
         @cancelled = false
 
         result_channel = Channel(JSON::Any).new
         @prompt_result = result_channel
 
         spawn(name: "acp-prompt-#{@id}") do
-          begin
-            @agent.run_goal_turn(text, @system_prompt) do |event|
-              handle_event(event)
+          @turn_mutex.synchronize do
+            @busy = true
+            begin
+              run_turn(text)
+              drain_external_prompts
+              # Turn completed normally
+              stop = @cancelled ? "cancelled" : "end_turn"
+              result_channel.send(build_prompt_response(stop)) unless result_channel.closed?
+            rescue ex : Loop::UserCancellationError
+              @cancelled = true
+              result_channel.send(build_prompt_response("cancelled")) unless result_channel.closed?
+            rescue ex : Loop::NetworkFailureError
+              STDERR.puts "[acp] network error in session #{@id}: #{ex.message}"
+              result_channel.send(build_prompt_response("end_turn")) unless result_channel.closed?
+            rescue ex
+              STDERR.puts "[acp] error in session #{@id}: #{ex}"
+              ex.backtrace.each { |b| STDERR.puts "  #{b}" } if ENV["H2CODE_DEBUG"]?
+              result_channel.send(build_prompt_response("end_turn")) unless result_channel.closed?
+            ensure
+              @busy = false
             end
-            # Turn completed normally
-            stop = @cancelled ? "cancelled" : "end_turn"
-            result_channel.send(build_prompt_response(stop)) unless result_channel.closed?
-          rescue ex : Loop::UserCancellationError
-            @cancelled = true
-            result_channel.send(build_prompt_response("cancelled")) unless result_channel.closed?
-          rescue ex : Loop::NetworkFailureError
-            STDERR.puts "[acp] network error in session #{@id}: #{ex.message}"
-            result_channel.send(build_prompt_response("end_turn")) unless result_channel.closed?
-          rescue ex
-            STDERR.puts "[acp] error in session #{@id}: #{ex}"
-            ex.backtrace.each { |b| STDERR.puts "  #{b}" } if ENV["H2CODE_DEBUG"]?
-            result_channel.send(build_prompt_response("end_turn")) unless result_channel.closed?
           end
         end
 
         result_channel.receive
+      end
+
+      # External prompt injection (CI completion notifications; the ACP
+      # mirror of the TUI's `App#deliver_external_prompt`). While a turn
+      # runs, texts queue up and are drained as follow-up turns when it
+      # ends — a build failing mid-turn delivers its failure-log excerpt to
+      # the model right away, in the same response stream. While idle, a
+      # fresh turn starts on its own so a failed build wakes the agent
+      # without the client sending anything. Notification payloads carrying
+      # an id (the `<notification id="...">` XML envelope or the plain-text
+      # `[notification id="..."]` marker line) are deduplicated by id.
+      def deliver_external_prompt(text : String) : Nil
+        return if text.strip.empty?
+        @external_lock.synchronize do
+          if id = notification_id(text)
+            return if @delivered_notification_ids.includes?(id)
+            @delivered_notification_ids << id
+          end
+          @external_queue << text
+        end
+        return if @busy
+        spawn(name: "acp-external-#{@id}") do
+          @turn_mutex.synchronize do
+            @busy = true
+            begin
+              drain_external_prompts
+            rescue ex
+              STDERR.puts "[acp] external prompt error in session #{@id}: #{ex}"
+            ensure
+              @busy = false
+            end
+          end
+        end
+      end
+
+      # Id of a notification payload — the `<notification id="...">` XML
+      # attribute or the plain-text `[notification id="..."]` marker line
+      # (must stay in sync with the TUI's TurnController).
+      private def notification_id(text : String) : String?
+        text.match(/<notification\s+id="([^"]*)"/).try(&.[1]) ||
+          text.match(/\[notification\s+id="([^"]*)"\]/).try(&.[1])
+      end
+
+      # One agent turn: persist the prompt, bump the turn id and stream the
+      # agent's events as `session/update` notifications.
+      private def run_turn(text : String) : Nil
+        @store.append_simple("turn.prompt", "prompt", text)
+        @current_turn_id = @turn_counter.add(1)
+        @tool_args_accumulator.clear
+        @started_tool_calls.clear
+        @agent.run_goal_turn(text, @system_prompt) do |event|
+          handle_event(event)
+        end
+      end
+
+      # Follow-up turns for external prompts queued while a turn ran (CI
+      # failure logs etc.): they run inside the caller's turn mutex before
+      # the PromptResponse goes out, so the model receives them right after
+      # the current turn instead of fetching the logs itself.
+      private def drain_external_prompts : Nil
+        loop do
+          break if @cancelled
+          text = @external_lock.synchronize { @external_queue.shift? }
+          break if text.nil?
+          run_turn(text)
+        end
       end
 
       # Cancel the current turn.
