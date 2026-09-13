@@ -460,9 +460,10 @@ namespace :mock do
 
   desc "Run TUI with mock provider — long-plan review (EnterPlanMode → Write → ExitPlanMode)"
   task :plan => :build do
-    # NO_SANDBOX=1 disables the tool write confinement for mock demos:
-    # the plan file lives inside the session store (~/.h2code/sessions),
-    # which the sandbox guard otherwise blocks (see src/sandbox.cr).
+    # NO_SANDBOX=1 disables the tool write confinement for mock demos.
+    # The own-session carve-out (src/sandbox.cr) already allows plan files
+    # inside the session store, but the mock also scribbles other paths,
+    # so keep the whole guard off here as before.
     run_h2code({"H2CODE_PROVIDER" => "mock", "NO_SANDBOX" => "1", "H2CODE_MOCK_SCRIPT" => "plan"},
       "--tui-prompt 'mock' --yolo")
   end

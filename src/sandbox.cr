@@ -34,16 +34,17 @@ module H2code
   # lifted (not even during `/merge`):
   #
   #   * the h2code session store (`~/.h2code/sessions/**`) is private
-  #     session data — no tool ever writes there (its own session's
-  #     included; tool plumbing like background-task logs bypasses the
-  #     tool gate and keeps working);
+  #     session data — other sessions' dirs are never writable by tools.
+  #     The session's OWN dir is writable (plan-mode plan files live under
+  #     `<session>/agents/**/plans/*.md` and are written with the regular
+  #     Write/Edit tools); tool plumbing like background-task logs bypasses
+  #     the tool gate and keeps working;
   #   * other sessions' sandboxes under `~/.h2code/worktree/**` are
   #     off-limits — only the session's own work tree is writable.
   #
   # The single seam that lifts ALL of the above (fork guard included) is
-  # the NO_SANDBOX env var — set only by the rake mock tasks. The mock
-  # plan demo must write its plan file inside the session store, which
-  # the guard otherwise blocks; real sessions never set it.
+  # the NO_SANDBOX env var — set only by the rake mock tasks (they never
+  # wire a real session dir into the guard); real sessions never set it.
   module Sandbox
     @@mutex = Mutex.new
     @@main_repo_cache = {} of String => String?
@@ -60,10 +61,17 @@ module H2code
       ENV.has_key?("NO_SANDBOX")
     end
 
+    # This session's own directory under `~/.h2code/sessions/**` — the one
+    # carve-out from the session-store write block (plan files are written
+    # there with the regular Write/Edit tools). Set by the runtime wiring
+    # when the session store is created/resumed; nil exempts nothing.
+    class_property session_dir : String? = nil
+
     # Test seam: drop the main-repo cache and lower the merge flag.
     def self.reset : Nil
       @@mutex.synchronize { @@main_repo_cache.clear }
       @@merge_active = false
+      @@session_dir = nil
     end
 
     # The original repository a fork-sandbox `cwd` belongs to (normalized
@@ -92,9 +100,15 @@ module H2code
       return nil if disabled?
       base = File.expand_path(cwd)
 
-      # Session store: private data of the sessions (all of them).
+      # Session store: private data of OTHER sessions. The session's own
+      # dir is the one sanctioned write target inside the store (plan
+      # files); everything else under the store root stays blocked.
       sroot = sessions_root(home)
-      return session_store_message(canonical, sroot) if within?(canonical, sroot)
+      if within?(canonical, sroot)
+        own = session_dir
+        return nil if own && within?(canonical, File.expand_path(own))
+        return session_store_message(canonical, sroot)
+      end
 
       # Sibling sandboxes: under the worktree root but outside this
       # session's own work tree.

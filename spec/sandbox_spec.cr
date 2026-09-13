@@ -255,6 +255,37 @@ module H2code
         end
       end
 
+      it "allows file-tool writes into the session's own dir, blocks other sessions'" do
+        with_sandbox do |_repo, home, sandbox|
+          own = File.join(home, ".h2code", "sessions", "mine")
+          Sandbox.session_dir = own
+          begin
+            # Own session dir (plan files live there) is writable via the
+            # Write tool — from a fork sandbox and from a plain checkout.
+            own_target = File.join(own, "agents", "main", "plans", "p1.md")
+            tool = Tools::Write.new(sandbox)
+            result = tool.execute(JSON.parse({"path" => own_target, "content" => "# Plan\n"}.to_json))
+            result.is_error?.should be_false
+            File.read(own_target).should eq("# Plan\n")
+
+            plain = File.join(home, "plain")
+            Dir.mkdir_p(plain)
+            tool = Tools::Write.new(plain)
+            result = tool.execute(JSON.parse({"path" => own_target, "content" => "x"}.to_json))
+            result.is_error?.should be_false
+
+            # Another session's dir stays blocked, and a path that merely
+            # shares the prefix does not unlock it.
+            sibling_target = File.join(home, ".h2code", "sessions", "mine-x", "wire.log")
+            expect_raises(Tools::PathAccess::AccessError, "session") do
+              Tools::PathAccess.resolve(sibling_target, plain, Tools::PathAccess::Mode::Write)
+            end
+          ensure
+            Sandbox.session_dir = nil
+          end
+        end
+      end
+
       it "blocks Bash and InteractiveShell aimed at the session store" do
         with_sandbox do |_repo, home, sandbox|
           sroot = File.join(home, ".h2code", "sessions")

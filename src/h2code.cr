@@ -1096,6 +1096,9 @@ module H2code
       # TUI's PlanReviewDialog. `/plan` toggles the mode through on_plan_mode.
       plan_service = H2code::Tools::AgentPlanService.new(store.session_dir, "main")
       H2code::Tools::PlanMode.plan_service = plan_service
+      # Own-session carve-out for the sandbox session-store write block
+      # (plan files are written with the regular Write/Edit tools).
+      Sandbox.session_dir = store.session_dir
       # Swarm-mode wiring: a fresh in-memory service per interactive session.
       H2code::Tools::SwarmMode.service = H2code::Tools::SwarmModeService.new
       H2code::Tools::PlanMode.permission_mode = H2code::Tools::PermissionModeRef.new(
@@ -1253,6 +1256,7 @@ module H2code
           Remote::Sync.notify_session_created(app.session_id)
         end
         H2code::Tools::PlanMode.plan_service = H2code::Tools::AgentPlanService.new(store.session_dir, "main")
+        Sandbox.session_dir = store.session_dir
         # Restart the cron scheduler against the fresh session store.
         cron_service.stop
         new_cron = H2code::Tools::LiveCronService.new(
@@ -1303,6 +1307,7 @@ module H2code
             end
           end
           H2code::Tools::PlanMode.plan_service = H2code::Tools::AgentPlanService.new(store.session_dir, "main")
+          Sandbox.session_dir = store.session_dir
           # Restart the cron scheduler against the resumed session store and
           # reconcile persisted task records (mark non-terminal as Lost).
           cron_service.stop
