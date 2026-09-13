@@ -26,6 +26,13 @@ jobs:
       - name: Install ripgrep
         run: sudo apt-get update && sudo apt-get install -y ripgrep
 
+      - name: Validate crosspack.yml
+        run: |
+          # --user-install: the runner user can't write the system gem dir
+          gem install crosspack -v 0.6.2 --no-document --user-install # keep in sync with Gemfile.lock
+          export PATH="$(ruby -e 'puts Gem.user_dir')/bin:$PATH"
+          crosspack validate
+
       - name: Install shards
         run: shards install
 

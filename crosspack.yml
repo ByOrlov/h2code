@@ -1,0 +1,183 @@
+# crosspack — the build & pack pipeline in one file (gem: crosspack ~> 0.5.0).
+#
+#   gem install crosspack          # or: bundle install && bundle exec crosspack …
+#   crosspack deps ubuntu-24.04    # verify/install host build deps (crystal, cc, git)
+#   crosspack build ubuntu-24.04   # release build → builds/<family>/<version>/<arch>/
+#   crosspack pack ubuntu-24.04    # native package (deb/rpm/PKGBUILD) → crosspacks/
+#
+# Stages are gated (pack refuses to run before build filled builds/) and share
+# one target vocabulary. GitHub Release archives build through crosspack too:
+# release.yml runs `crosspack build <target>` on each runner — the same matrix
+# steps as local builds. The one cross-compiled artifact — x86_64-darwin on an
+# arm64 host — is a gated matrix step (scripts/build_h2code_intel.sh,
+# H2CODE_BUILD_INTEL=1) since crosspack itself builds host-natively only.
+
+name: h2code
+# Latest `git describe --tags` (the calver release tags), fallback 0.0.0-dev —
+# the same resolution src/version.cr applies to H2CODE_VERSION. CI can
+# override per run: crosspack build <target> --version 2026.09.13
+version: git-tag
+
+build:
+  output: builds
+
+  # What the BUILD HOST needs. (Runtime dependencies of the package live in
+  # the top-level deps: section below.) Selectors resolve in order: distro id
+  # from /etc/os-release, ID_LIKE tokens, os, "*". verify = presence probe,
+  # install = how to install it.
+  deps:
+    crystal:
+      hosts:
+        ubuntu:
+          verify: crystal --version
+          install: curl -fsSL https://crystal-lang.org/install.sh | sudo bash
+        debian:
+          verify: crystal --version
+          install: curl -fsSL https://crystal-lang.org/install.sh | sudo bash
+        fedora:
+          verify: crystal --version
+          install: sudo dnf install -y crystal
+        arch:
+          verify: crystal --version
+          install: sudo pacman -S --needed crystal
+        darwin:
+          verify: crystal --version
+          install: brew install crystal
+        windows:
+          verify: crystal --version
+          install: winget install -e --id CrystalLang.Crystal
+    git:
+      hosts:
+        ubuntu:
+          verify: git --version
+          install: sudo apt-get install -y git
+        debian:
+          verify: git --version
+          install: sudo apt-get install -y git
+        fedora:
+          verify: git --version
+          install: sudo dnf install -y git
+        arch:
+          verify: git --version
+          install: sudo pacman -S --needed git
+        darwin:
+          verify: git --version
+          install: xcode-select --install
+        windows:
+          verify: git --version
+          install: winget install -e --id Git.Git
+    # C toolchain for the miniaudio bridge (vendor/miniaudio). On Windows the
+    # bridge is built with MSVC cl.exe — Crystal links with MSVC there, so a
+    # plain verify `where cl` expects a Developer Command Prompt environment.
+    c-toolchain:
+      hosts:
+        ubuntu:
+          verify: cc --version
+          install: sudo apt-get install -y build-essential
+        debian:
+          verify: cc --version
+          install: sudo apt-get install -y build-essential
+        fedora:
+          verify: cc --version
+          install: sudo dnf install -y gcc
+        arch:
+          verify: cc --version
+          install: sudo pacman -S --needed base-devel
+        darwin:
+          verify: cc --version
+          install: xcode-select --install
+        windows:
+          verify: where cl
+          install: winget install -e --id Microsoft.VisualStudio.2022.BuildTools --override "--quiet --wait --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
+
+  matrix:
+    # One host-native entry per OS. arch "any" lets a single entry build on
+    # amd64 and arm64 hosts, stamping the host arch into the builds/ tree.
+    - id: linux
+      build: linux/any
+      steps:
+        - bash scripts/build_h2code.sh
+      artifacts:
+        from: build/bin
+        include: [h2code]
+        to: [debian-12, ubuntu-24.04, ubuntu-25.10, ubuntu-26.04, fedora-41, arch]
+        mode: copy
+
+    - id: macos
+      build: darwin/any
+      steps:
+        - bash scripts/build_h2code.sh
+        # Bundle the Homebrew OpenSSL dylibs next to the binary (@rpath) so
+        # archives and the cask are self-contained.
+        - bash scripts/rebind_dylibs.sh build/bin/h2code
+        # CI-only x86_64-darwin cross-build (skips unless H2CODE_BUILD_INTEL=1)
+        # into build/bin-x86_64; release.yml archives it from there.
+        - bash scripts/build_h2code_intel.sh
+      artifacts:
+        from: build/bin
+        include: [h2code, "*.dylib"]
+        to: [macos]
+        mode: copy
+
+    - id: windows
+      build: windows/amd64
+      steps:
+        - bash scripts/build_h2code.sh x86_64-windows
+        # Separate deps asset (build/bin/h2code-deps-windows.zip) for
+        # install.ps1 — same place CI uploads it from.
+        - pwsh -NoProfile scripts/collect_windows_dlls.ps1
+      artifacts:
+        from: build/bin
+        include: [h2code.exe]
+        to: [windows-11.0]
+        mode: copy
+
+package:
+  maintainer: Oleg Orlov <orelcokolov@gmail.com>
+  summary: H2Code — lighter-than-air AI coding agent in a single native binary
+  description: |-
+    H2Code — lighter-than-air AI coding agent in a single native binary.
+    Terminal UI, ~3 MB RAM per agent at idle, zero runtime.
+    Runs on Linux, macOS and Windows; speaks the OpenAI-compatible
+    Chat Completions protocol.
+  license: GPL-2.0-or-later
+  section: utils
+
+  sources: builds    # the tree the build stage fills: builds/<family>/<version>/<arch>/
+  prefix: usr
+  lib_dir: lib/h2code
+
+  # Per-target payload names: the common key resolves through the selector
+  # map (exact target → family → "*"), so one package section covers the
+  # Unix binary and the Windows .exe.
+  payload:
+    h2code:
+      "*": h2code
+      windows-11.0: h2code.exe
+    # The rebind step points the binary at @rpath — the cask must ship the
+    # bundled dylibs alongside it.
+    libssl.3.dylib:
+      macos: libssl.3.dylib
+    libcrypto.3.dylib:
+      macos: libcrypto.3.dylib
+  executables: [h2code]
+
+  links:
+    bin/h2code: ../lib/h2code/h2code
+
+# Runtime dependencies of the package, per distro family (the Depends: line
+# of the deb / Requires: of the rpm). The macos/windows verdicts are
+# informational for those targets.
+deps:
+  git:
+    targets:
+      debian:
+        "*": [git]
+      ubuntu:
+        "*": [git]
+      fedora:
+        "*": [git]
+      arch:
+        "*": [git]
+      macos: system    # ships with the Command Line Tools
+      windows: system  # Git for Windows expected on PATH (the installers set it up)

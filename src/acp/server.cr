@@ -587,6 +587,7 @@ module H2code
         # the daemon's one-chat-at-a-time usage; same simplification as the
         # TUI's AskUserQuestion.service.
         H2code::Tools::PlanMode.plan_service = H2code::Tools::AgentPlanService.new(store.session_dir, "main")
+        Sandbox.session_dir = store.session_dir
         H2code::Tools::PlanMode.permission_mode = H2code::Tools::PermissionModeRef.new(
           auto: permission.mode.auto?)
         H2code::Tools::PlanMode.plan_review_service = PlanReviewHandler.new(@rpc, session_id)

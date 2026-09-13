@@ -8,14 +8,43 @@ def new_tool
   H2code::Tools::InteractiveShellTool.new
 end
 
+# Run a diagnostic probe with a hard deadline (never hangs the suite); returns
+# its exit status and captured output, or a timeout marker.
+def probe(cmd : String, args : Array(String), timeout_s = 15) : String
+  proc = Process.new(cmd, args, input: Process::Redirect::Close,
+    output: Process::Redirect::Pipe, error: Process::Redirect::Pipe)
+  deadline = Time.monotonic + timeout_s.seconds
+  until proc.terminated? || Time.monotonic >= deadline
+    sleep 50.milliseconds
+  end
+  unless proc.terminated?
+    proc.terminate(graceful: false) rescue nil
+    return "TIMED OUT after #{timeout_s}s (pid #{proc.pid})"
+  end
+  # Capture before `wait`: reaping closes the pipe IOs, after which reads
+  # come back empty.
+  out = (proc.output.gets_to_end rescue "")
+  err = (proc.error.gets_to_end rescue "")
+  status = proc.wait
+  "exit=#{status.exit_status} out=#{out.inspect} err=#{err.inspect}"
+rescue ex
+  "raised #{ex.class}: #{ex.message}"
+end
+
 # Read from a session until `pattern` appears in the accumulated output or
-# `timeout_s` elapses (interactive programs answer asynchronously).
+# `timeout_s` elapses (interactive programs answer asynchronously). Returns
+# early when the session dies — a dead session produces nothing more.
 def read_until(session : H2code::Tools::ShellSession, pattern : String, timeout_s : Int32 = 10) : String
   deadline = Time.monotonic + timeout_s.seconds
   accumulated = ""
   while Time.monotonic < deadline
     accumulated += session.read_new_output(200)
     return accumulated if accumulated.includes?(pattern)
+    unless session.alive?
+      # Drain the exit message the watcher may have appended after the last
+      # read so the failure output explains itself.
+      return accumulated + session.read_new_output(100)
+    end
   end
   accumulated
 end
@@ -94,8 +123,17 @@ describe "InteractiveShell python3 integration" do
       session_id = result.content[/session_id: (\S+)/, 1]
       session = H2code::Tools::InteractiveShell.service.not_nil!.get(session_id).not_nil!
 
-      # Wait for the banner so the REPL is really accepting input.
-      read_until(session, ">>>").should contain(">>>")
+      # Wait for the banner so the REPL is really accepting input. Generous
+      # 30s budget: on a stalled/loaded CI runner the banner can take well
+      # over the usual ~100ms; everything downstream hangs off this wait.
+      banner = read_until(session, ">>>", 30)
+      unless banner.includes?(">>>")
+        py_probe = probe("python3", ["-c", "import sys; print('probe-ok', sys.version.split()[0])"])
+        env_probe = probe("/bin/bash", ["-c", "command -v python3; python3 --version 2>&1; echo PATH=$PATH"])
+        fail("python3 REPL never printed a prompt. " \
+             "banner=#{banner.inspect} alive=#{session.alive?} exit=#{session.exit_message.inspect} " \
+             "py_probe=[#{py_probe}] env_probe=[#{env_probe}]")
+      end
 
       # hello world
       session.write("print('hello world')\n")

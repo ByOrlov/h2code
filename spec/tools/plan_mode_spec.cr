@@ -364,3 +364,49 @@ module H2code::Tools::PlanServiceSpecHelper
     end
   end
 end
+
+# Regression for the fork-sandbox session-store write block (commit 303907a):
+# plan files live under the session store, so writing them with the regular
+# Write tool must stay possible while every other session-store path remains
+# blocked.
+describe H2code::Tools::PlanMode do
+  it "Write tool can write the active plan file inside the session store" do
+    home = File.join(ENV["TMPDIR"]? || "/tmp", "plan_write_home_#{Random::Secure.hex(8)}")
+    work = File.join(ENV["TMPDIR"]? || "/tmp", "plan_write_work_#{Random::Secure.hex(8)}")
+    Dir.mkdir_p(home)
+    Dir.mkdir_p(work)
+    session_dir = File.join(home, ".h2code", "sessions", "spec-session")
+
+    old_home = ENV["HOME"]?
+    ENV["HOME"] = home
+    H2code::Sandbox.reset
+    H2code::Sandbox.session_dir = session_dir
+    old_service = H2code::Tools::PlanMode.plan_service
+    service = H2code::Tools::AgentPlanService.new(session_dir, "main")
+    H2code::Tools::PlanMode.plan_service = service
+
+    begin
+      service.enter
+      plan_path = service.status.not_nil!.path.not_nil!
+
+      write = H2code::Tools::Write.new(work)
+      plan_json = {"path" => plan_path, "content" => "# Plan\n"}.to_json
+      result = write.execute(JSON.parse(plan_json))
+      result.is_error?.should be_false
+      File.read(plan_path).should eq("# Plan\n")
+
+      # A sibling session's dir stays blocked.
+      sibling = File.join(home, ".h2code", "sessions", "other", "x.log")
+      result = write.execute(JSON.parse({"path" => sibling, "content" => "x"}.to_json))
+      result.is_error?.should be_true
+      result.content.should contain("session data")
+    ensure
+      H2code::Tools::PlanMode.plan_service = old_service
+      H2code::Sandbox.session_dir = nil
+      H2code::Sandbox.reset
+      ENV["HOME"] = old_home if old_home
+      FileUtils.rm_rf(home)
+      FileUtils.rm_rf(work)
+    end
+  end
+end

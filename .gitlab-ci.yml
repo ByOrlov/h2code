@@ -3,18 +3,25 @@
 # Linux jobs run on the self-hosted Docker-executor runner (see
 # ci/runner/README.md): the job image (h2code-ci:1.21.0) is built once per
 # runner host with ci/runner/build-image.sh (crystallang/crystal:1.21.0 +
-# ripgrep + rake), pull_policy = if-not-present — jobs start warm.
+# ripgrep + rake + ruby + crosspack — rebuild the image after editing the
+# Dockerfile), pull_policy = if-not-present — jobs start warm.
 #
 # macOS/Windows jobs run on shell-executor runners tagged `macos` / `windows`
 # (setup: ci/runner/README.md). Until those runners are registered the jobs
 # sit pending ("waiting for a runner"); every build job declares an explicit
 # `needs:` list so pending macOS/Windows jobs never block the Linux build or
-# the release.
+# the release. The macOS runner needs Crystal + the system Ruby (crosspack is
+# gem-installed per job); the Windows runner needs Crystal, Ruby+gem and Git
+# for Windows.
 #
 # Releases: a tag push builds every platform, uploads the archives to the
 # project's generic package registry and publishes a GitLab Release linking
 # them. The pushed tag is used as the version verbatim (no YYYY.MM.DD →
 # YYYY.MM.DD.N auto-increment — pass the full version when tagging).
+#
+# All release binaries build through crosspack (the crosspack.yml matrix):
+# `crosspack build <target>` per runner, same steps as local builds and the
+# GitHub workflows.
 
 stages:
   - check
@@ -38,6 +45,7 @@ variables:
 check:
   stage: check
   script:
+    - crosspack validate
     - shards install
     - rake spec
 
@@ -48,8 +56,8 @@ integration:
     - rake spec:integration
 
 # Headless tool execution against the real macOS / Windows system, mirroring
-# the GitHub integration matrix. The macOS runner needs rake (bundled with
-# the system Ruby); the Windows runner needs Ruby+rake and Git for Windows.
+# the GitHub integration matrix. The macOS runner needs rake (bundled with the
+# system Ruby); the Windows runner needs Ruby+rake and Git for Windows.
 integration:macos:
   stage: integration
   tags: [macos]
@@ -66,46 +74,7 @@ integration:windows:
     - shards install
     - rake spec:integration
 
-# Shared by both darwin build jobs: Crystal links against Homebrew's
-# libssl.3.dylib / libcrypto.3.dylib with absolute install names (e.g.
-# /usr/local/opt/openssl@3/lib/...). On a user machine that path usually does
-# not exist (Homebrew on Apple Silicon lives under /opt/homebrew), so the
-# binary fails with dyld "Library not loaded". Rebind to @rpath and bundle
-# the dylibs next to the binary so the archive is self-contained.
-.rebind_darwin_dylibs: &rebind_darwin_dylibs |
-  set -euo pipefail
-  otool -L h2code
-  # Only act on the Homebrew-linked OpenSSL dylibs.
-  for lib in libssl.3.dylib libcrypto.3.dylib; do
-    abs=$(otool -L h2code | grep -E "/.*/${lib}\b" | awk '{print $1}' | head -n1 || true)
-    [ -n "$abs" ] || continue
-    cp "$abs" "./${lib}"
-    # Rewrite the dylib's own id and its dependency on the sibling.
-    install_name_tool -id "@rpath/${lib}" "./${lib}"
-    # NOTE the trailing "|| true": libcrypto has no ssl/crypto deps, so
-    # grep finds nothing, exits 1, and under `set -euo pipefail` that
-    # would abort the whole step after the rebind was half-done.
-    other=$(otool -L "./${lib}" | grep -E "/.*/(libssl.3|libcrypto.3).dylib\b" | awk '{print $1}' || true)
-    for dep in $other; do
-      depname=$(basename "$dep")
-      install_name_tool -change "$dep" "@rpath/${depname}" "./${lib}"
-    done
-    # Point the binary at the rebundled copy.
-    install_name_tool -change "$abs" "@rpath/${lib}" h2code
-  done
-  # Look beside the binary for the dylibs.
-  install_name_tool -add_rpath @loader_path h2code 2>/dev/null || true
-  # install_name_tool invalidated the Homebrew signatures of the modified
-  # dylibs (see the warnings above); re-sign ad hoc or macOS kills the
-  # binary on launch with an invalid code signature.
-  for lib in libssl.3.dylib libcrypto.3.dylib; do
-    [ -f "./${lib}" ] && codesign --force --sign - "./${lib}"
-  done
-  codesign --force --sign - h2code 2>/dev/null || true
-  echo "--- after rebind ---"
-  otool -L h2code
-
-# Release build, mirroring the Linux leg of the GitHub release matrix.
+# Release build via crosspack, mirroring the GitHub release matrix.
 # `needs:` (also on the other build jobs) decouples the build from stage
 # gating, so pending macOS/Windows jobs cannot block it.
 build:x86_64-linux:
@@ -115,12 +84,10 @@ build:x86_64-linux:
     - if: $CI_COMMIT_TAG
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
   script:
-    - shards install
     - export H2CODE_VERSION="${CI_COMMIT_TAG:-0.0.0-ci}"
-    - LINK_FLAGS="$(./scripts/build_miniaudio.sh x86_64-linux)"
-    - crystal build src/h2code.cr -o h2code --release --no-debug --warnings none --link-flags "$LINK_FLAGS"
-    - ./h2code --version
-    - tar -czf h2code-x86_64-linux.tar.gz h2code
+    - crosspack build ubuntu-24.04 --version "$H2CODE_VERSION"
+    - ./build/bin/h2code --version
+    - tar -czf h2code-x86_64-linux.tar.gz -C build/bin h2code
     - sha256sum h2code-x86_64-linux.tar.gz > h2code-x86_64-linux.tar.gz.sha256
     - cat h2code-x86_64-linux.tar.gz.sha256
   artifacts:
@@ -130,6 +97,8 @@ build:x86_64-linux:
       - h2code-x86_64-linux.tar.gz.sha256
 
 # Native Apple Silicon build on the macos runner (shell executor, bash).
+# The Intel cross-compile step of the crosspack macos entry is gated off
+# (H2CODE_BUILD_INTEL unset) — build:x86_64-darwin builds that one.
 build:aarch64-darwin:
   stage: build
   tags: [macos]
@@ -140,12 +109,10 @@ build:aarch64-darwin:
   script:
     - export CRYSTAL_CACHE_DIR="$HOME/.cache/h2code/crystal-aarch64"
     - export H2CODE_VERSION="${CI_COMMIT_TAG:-0.0.0-ci}"
-    - shards install
-    - LINK_FLAGS="$(./scripts/build_miniaudio.sh aarch64-darwin)"
-    - crystal build src/h2code.cr -o h2code --release --no-debug --warnings none --link-flags "$LINK_FLAGS"
-    - ./h2code --version
-    - *rebind_darwin_dylibs
-    - tar -czf h2code-aarch64-darwin.tar.gz h2code *.dylib 2>/dev/null || tar -czf h2code-aarch64-darwin.tar.gz h2code
+    - sudo gem install crosspack -v 0.6.2 --no-document
+    - crosspack build macos --version "$H2CODE_VERSION"
+    - ./build/bin/h2code --version
+    - (cd build/bin && tar -czf ../../h2code-aarch64-darwin.tar.gz h2code *.dylib 2>/dev/null) || (cd build/bin && tar -czf ../../h2code-aarch64-darwin.tar.gz h2code)
     - sha256sum h2code-aarch64-darwin.tar.gz > h2code-aarch64-darwin.tar.gz.sha256
     - cat h2code-aarch64-darwin.tar.gz.sha256
   artifacts:
@@ -154,8 +121,11 @@ build:aarch64-darwin:
       - h2code-aarch64-darwin.tar.gz
       - h2code-aarch64-darwin.tar.gz.sha256
 
-# Intel macOS build, cross-compiled on the Apple Silicon macos runner —
-# mirrors the GitHub release matrix leg (Rosetta + source-built x86_64 libs).
+# Intel macOS build, cross-compiled on the Apple Silicon macos runner via the
+# gated matrix step (scripts/build_h2code_intel.sh: Rosetta + source-built
+# x86_64 libs, cached in ~/x86_64-libs on the persistent runner home). The
+# matrix entry always builds the native arm64 binary too — crosspack runs
+# host-natively; this job only archives build/bin-x86_64.
 build:x86_64-darwin:
   stage: build
   tags: [macos]
@@ -166,76 +136,10 @@ build:x86_64-darwin:
   script:
     - export CRYSTAL_CACHE_DIR="$HOME/.cache/h2code/crystal-x86_64"
     - export H2CODE_VERSION="${CI_COMMIT_TAG:-0.0.0-ci}"
-    - shards install
-    # Homebrew dropped Intel macOS support entirely (Sept 2026): the
-    # installer itself refuses to run under Rosetta, so there is no brew,
-    # no bottles and no brew cache to scavenge. Build the three link
-    # dependencies from source instead, under `arch -x86_64` (inside a
-    # Rosetta shell plain `cc` targets x86_64), into $HOME/x86_64-libs.
-    # The dylib rebind step later matches any absolute libssl/libcrypto
-    # path, so the custom prefix is picked up there automatically.
-    - |
-      sudo softwareupdate --install-rosetta --agree-to-license || true
-      PREFIX="$HOME/x86_64-libs"
-      SRC="$PREFIX/src"
-      rm -rf "$PREFIX"
-      mkdir -p "$SRC"
-      JOBS="$(sysctl -n hw.ncpu)"
-      # openssl 3.x — Configure's darwin64-x86_64-cc target plus the
-      # build_sw / install_sw targets skip the test binaries that crash
-      # under Rosetta.
-      curl -fsSL --retry 3 -o "$SRC/openssl.tar.gz" \
-        "https://www.openssl.org/source/openssl-3.5.4.tar.gz"
-      mkdir "$SRC/openssl" && tar xzf "$SRC/openssl.tar.gz" -C "$SRC/openssl" --strip-components=1
-      (
-        cd "$SRC/openssl"
-        arch -x86_64 ./Configure darwin64-x86_64-cc \
-          --prefix="$PREFIX" --libdir=lib no-tests no-docs
-        arch -x86_64 make -j"$JOBS" build_sw
-        arch -x86_64 make install_sw
-      )
-      # libyaml — plain autotools build.
-      curl -fsSL --retry 3 -o "$SRC/libyaml.tar.gz" \
-        "https://github.com/yaml/libyaml/releases/download/0.2.5/yaml-0.2.5.tar.gz"
-      mkdir "$SRC/libyaml" && tar xzf "$SRC/libyaml.tar.gz" -C "$SRC/libyaml" --strip-components=1
-      (
-        cd "$SRC/libyaml"
-        arch -x86_64 ./configure --prefix="$PREFIX"
-        arch -x86_64 make -j"$JOBS"
-        arch -x86_64 make install
-      )
-      # pcre2 — plain autotools build (8-bit library is what Crystal links).
-      curl -fsSL --retry 3 -o "$SRC/pcre2.tar.gz" \
-        "https://github.com/PCRE2Project/pcre2/releases/download/pcre2-10.44/pcre2-10.44.tar.gz"
-      mkdir "$SRC/pcre2" && tar xzf "$SRC/pcre2.tar.gz" -C "$SRC/pcre2" --strip-components=1
-      (
-        cd "$SRC/pcre2"
-        arch -x86_64 ./configure --prefix="$PREFIX"
-        arch -x86_64 make -j"$JOBS"
-        arch -x86_64 make install
-      )
-      # Fail loudly (and early) when any of the .pc files the Crystal link
-      # needs is missing — not minutes later in the build step.
-      for pc in openssl.pc libcrypto.pc yaml-0.1.pc libpcre2-8.pc; do
-        [ -f "$PREFIX/lib/pkgconfig/$pc" ] || { echo "ERROR: missing $pc under $PREFIX/lib/pkgconfig"; exit 1; }
-      done
-      export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig"
-      # CC wrapper: skip -arch x86_64 for macro programs (compiled for the
-      # host arch, cached under ~/.cache/h2code — matched by the case below).
-      cat > /tmp/cc-wrapper << 'WRAPPER'
-      #!/bin/bash
-      for arg in "$@"; do
-        case "$arg" in */.cache/h2code/*) exec /usr/bin/cc "$@" ;; esac
-      done
-      WRAPPER
-      echo "exec /usr/bin/cc -arch x86_64 -L$PREFIX/lib \"\$@\"" >> /tmp/cc-wrapper
-      chmod +x /tmp/cc-wrapper
-      export CC=/tmp/cc-wrapper
-    - LINK_FLAGS="$(./scripts/build_miniaudio.sh x86_64-darwin)"
-    - crystal build src/h2code.cr -o h2code --release --no-debug --warnings none --target x86_64-apple-darwin --link-flags "$LINK_FLAGS"
-    - ./h2code --version
-    - *rebind_darwin_dylibs
-    - tar -czf h2code-x86_64-darwin.tar.gz h2code *.dylib 2>/dev/null || tar -czf h2code-x86_64-darwin.tar.gz h2code
+    - sudo gem install crosspack -v 0.6.2 --no-document
+    - H2CODE_BUILD_INTEL=1 crosspack build macos --version "$H2CODE_VERSION"
+    - ./build/bin-x86_64/h2code --version
+    - (cd build/bin-x86_64 && tar -czf ../../h2code-x86_64-darwin.tar.gz h2code *.dylib 2>/dev/null) || (cd build/bin-x86_64 && tar -czf ../../h2code-x86_64-darwin.tar.gz h2code)
     - sha256sum h2code-x86_64-darwin.tar.gz > h2code-x86_64-darwin.tar.gz.sha256
     - cat h2code-x86_64-darwin.tar.gz.sha256
   artifacts:
@@ -245,8 +149,9 @@ build:x86_64-darwin:
       - h2code-x86_64-darwin.tar.gz.sha256
 
 # Native Windows build on the windows runner (shell executor, pwsh). The
-# build itself runs under Git for Windows bash (same as the GitHub workflow);
-# archiving and DLL collection are native PowerShell.
+# crosspack build runs under Git for Windows bash (same as the GitHub
+# workflow); archiving is native PowerShell. The DLL deps zip is produced by
+# the crosspack matrix step (scripts/collect_windows_dlls.ps1).
 build:x86_64-windows:
   stage: build
   tags: [windows]
@@ -256,39 +161,18 @@ build:x86_64-windows:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
   script:
     - $env:CRYSTAL_CACHE_DIR = Join-Path $env:USERPROFILE ".cache\h2code\crystal"
+    - gem install crosspack -v 0.6.2 --no-document
     - |
       bash -c 'set -euo pipefail
       # Git on Windows sometimes rejects the shards cache/worktree with
-      # "detected dubious ownership"; allow any path so checkout works.
+      # "detected dubious ownership"; allow any path so checkout works
+      # (shards install runs inside the crosspack matrix steps).
       git config --global --add safe.directory "*"
       export H2CODE_VERSION="${CI_COMMIT_TAG:-0.0.0-ci}"
-      shards install
-      LINK_FLAGS="$(./scripts/build_miniaudio.sh x86_64-windows)"
-      crystal build src/h2code.cr -o h2code --release --no-debug --warnings none --link-flags "$LINK_FLAGS"
-      ./h2code.exe --version'
-    - |
-      # h2code.exe links dynamically against OpenSSL (libcrypto/libssl),
-      # libyaml and pcre2. The Crystal Windows install bundles these DLLs;
-      # ship them in a separate deps asset so install.ps1 can drop them
-      # next to h2code.exe on machines that lack a package manager.
-      $crystalDir = Split-Path (Get-Command crystal).Source
-      $needed = @('libcrypto-3-x64.dll','libssl-3-x64.dll','pcre2-8.dll','yaml.dll')
-      $found = @{}
-      Get-ChildItem -Path $crystalDir -Recurse -Filter *.dll -ErrorAction SilentlyContinue |
-        Where-Object { $needed -contains $_.Name -and -not $found.ContainsKey($_.Name) } |
-        ForEach-Object { $found[$_.Name] = $_.FullName }
-      foreach ($name in $needed) {
-        if (-not $found.ContainsKey($name)) {
-          Write-Warning "DLL not found in Crystal tree: $name"
-        }
-      }
-      $staging = "deps-staging"
-      New-Item -ItemType Directory -Path $staging -Force | Out-Null
-      foreach ($path in $found.Values) { Copy-Item $path -Destination $staging -Force }
-      Write-Host "Packaged deps:"
-      Get-ChildItem $staging | Format-Table Name,Length
-    - Compress-Archive -Path h2code.exe -DestinationPath h2code-x86_64-windows.zip -Force
-    - Compress-Archive -Path deps-staging/* -DestinationPath h2code-deps-windows.zip -Force
+      crosspack build windows-11.0 --version "$H2CODE_VERSION"
+      ./build/bin/h2code.exe --version'
+    - Copy-Item build/bin/h2code-deps-windows.zip .
+    - Compress-Archive -Path build/bin/h2code.exe -DestinationPath h2code-x86_64-windows.zip -Force
     - |
       bash -c 'sha256sum h2code-x86_64-windows.zip > h2code-x86_64-windows.zip.sha256
       sha256sum h2code-deps-windows.zip > h2code-deps-windows.zip.sha256
