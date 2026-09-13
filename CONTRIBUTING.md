@@ -58,6 +58,8 @@ rake mock:default       # self-test with the mock provider (no API key needed)
 Dependency setup, cross-platform release builds and packaging are configured
 in one file — `crosspack.yml` — and driven by the [crosspack](https://github.com/OrelSokolov/crosspack)
 gem (`bundle install`, then `bundle exec crosspack deps|build|pack <target>`).
+CI builds through the same matrix: both GitHub Actions and GitLab CI run
+`crosspack build <target>` on each runner instead of hand-rolled build steps.
 
 The `mock:*` tasks run the TUI against a scripted provider, so you can exercise the agent loop, tools, and rendering without an API key or network access.
 

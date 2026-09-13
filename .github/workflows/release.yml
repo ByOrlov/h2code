@@ -95,22 +95,26 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # One leg per runner; everything compiles through crosspack (the
+        # crosspack.yml matrix steps). The darwin leg builds both arches in
+        # a single `crosspack build macos` — the Intel cross-compile is a
+        # gated matrix step there (H2CODE_BUILD_INTEL=1).
         include:
           - target: x86_64-linux
             runner: ubuntu-latest
+            crosspack_target: ubuntu-24.04
             archive: tar.gz
           - target: aarch64-linux
             runner: ubuntu-24.04-arm
+            crosspack_target: ubuntu-24.04
             archive: tar.gz
-          - target: x86_64-darwin
+          - target: darwin
             runner: macos-latest
-            archive: tar.gz
-            cross_target: x86_64-apple-darwin
-          - target: aarch64-darwin
-            runner: macos-latest
+            crosspack_target: macos
             archive: tar.gz
           - target: x86_64-windows
             runner: windows-latest
+            crosspack_target: windows-11.0
             archive: zip
 
     steps:
@@ -125,187 +129,79 @@ jobs:
         if: matrix.target == 'x86_64-windows'
         uses: ilammy/msvc-dev-cmd@v1
 
-      - name: Set up x86_64 libraries (macOS cross-compile)
-        if: matrix.cross_target == 'x86_64-apple-darwin'
+      - name: Install crosspack
         shell: bash
-        run: |
-          sudo softwareupdate --install-rosetta --agree-to-license || true
-          # Homebrew dropped Intel macOS support entirely (Sept 2026): the
-          # installer itself refuses to run under Rosetta, so there is no
-          # brew, no bottles and no brew cache to scavenge. Build the three
-          # link dependencies from source instead, under `arch -x86_64`
-          # (inside a Rosetta shell plain `cc` targets x86_64), into
-          # $HOME/x86_64-libs. The dylib rebind step later matches any
-          # absolute libssl/libcrypto path, so the custom prefix is picked
-          # up there automatically.
-          PREFIX="$HOME/x86_64-libs"
-          SRC="$PREFIX/src"
-          rm -rf "$PREFIX"
-          mkdir -p "$SRC"
-          JOBS="$(sysctl -n hw.ncpu)"
+        run: gem install crosspack -v 0.6.2 --no-document # keep in sync with Gemfile.lock
 
-          # openssl 3.x — Configure's darwin64-x86_64-cc target plus the
-          # build_sw / install_sw targets skip the test binaries that
-          # crash under Rosetta.
-          curl -fsSL --retry 3 -o "$SRC/openssl.tar.gz" \
-            "https://www.openssl.org/source/openssl-3.5.4.tar.gz"
-          mkdir "$SRC/openssl" && tar xzf "$SRC/openssl.tar.gz" -C "$SRC/openssl" --strip-components=1
-          (
-            cd "$SRC/openssl"
-            arch -x86_64 ./Configure darwin64-x86_64-cc \
-              --prefix="$PREFIX" --libdir=lib no-tests no-docs
-            arch -x86_64 make -j"$JOBS" build_sw
-            arch -x86_64 make install_sw
-          )
+      - name: Cache x86_64 libraries (Intel macOS cross-build)
+        if: matrix.target == 'darwin'
+        uses: actions/cache@v4
+        with:
+          path: ~/x86_64-libs
+          key: x86_64-libs-${{ hashFiles('scripts/build_h2code_intel.sh') }}
 
-          # libyaml — plain autotools build.
-          curl -fsSL --retry 3 -o "$SRC/libyaml.tar.gz" \
-            "https://github.com/yaml/libyaml/releases/download/0.2.5/yaml-0.2.5.tar.gz"
-          mkdir "$SRC/libyaml" && tar xzf "$SRC/libyaml.tar.gz" -C "$SRC/libyaml" --strip-components=1
-          (
-            cd "$SRC/libyaml"
-            arch -x86_64 ./configure --prefix="$PREFIX"
-            arch -x86_64 make -j"$JOBS"
-            arch -x86_64 make install
-          )
-
-          # pcre2 — plain autotools build (8-bit library is what Crystal links).
-          curl -fsSL --retry 3 -o "$SRC/pcre2.tar.gz" \
-            "https://github.com/PCRE2Project/pcre2/releases/download/pcre2-10.44/pcre2-10.44.tar.gz"
-          mkdir "$SRC/pcre2" && tar xzf "$SRC/pcre2.tar.gz" -C "$SRC/pcre2" --strip-components=1
-          (
-            cd "$SRC/pcre2"
-            arch -x86_64 ./configure --prefix="$PREFIX"
-            arch -x86_64 make -j"$JOBS"
-            arch -x86_64 make install
-          )
-
-          # Fail loudly (and early) when any of the .pc files the Crystal
-          # link needs is missing — not minutes later in the build step.
-          for pc in openssl.pc libcrypto.pc yaml-0.1.pc libpcre2-8.pc; do
-            [ -f "$PREFIX/lib/pkgconfig/$pc" ] || { echo "::error::missing $pc under $PREFIX/lib/pkgconfig"; exit 1; }
-          done
-          echo "PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig" >> "$GITHUB_ENV"
-          # CC wrapper: skip -arch x86_64 for macro programs (compiled for host arch)
-          cat > /tmp/cc-wrapper << 'WRAPPER'
-          #!/bin/bash
-          for arg in "$@"; do
-            case "$arg" in */.cache/crystal/*) exec /usr/bin/cc "$@" ;; esac
-          done
-          WRAPPER
-          echo "exec /usr/bin/cc -arch x86_64 -L$PREFIX/lib \"\$@\"" >> /tmp/cc-wrapper
-          chmod +x /tmp/cc-wrapper
-          echo "CC=/tmp/cc-wrapper" >> "$GITHUB_ENV"
-
-      - name: Build
+      - name: Build (crosspack)
         shell: bash
+        env:
+          H2CODE_BUILD_INTEL: ${{ matrix.target == 'darwin' && '1' || '0' }}
         run: |
           # Git on Windows runners sometimes rejects the shards cache/worktree
-          # with "detected dubious ownership"; allow any path so checkout works.
+          # with "detected dubious ownership"; allow any path so checkout works
+          # (shards install runs inside the crosspack matrix steps).
           git config --global --add safe.directory '*'
-          # Run shards with stderr merged so any failure reason is visible in
-          # the log (Crystal's stack trace goes to stderr). On failure, surface
-          # diagnostics and re-emit the error before exiting non-zero.
-          if ! shards install 2>&1; then
-            echo "::error::shards install failed (see output above)"
-            shards --version 2>/dev/null || true
-            exit 1
-          fi
-          LINK_FLAGS="$(./scripts/build_miniaudio.sh ${{ matrix.target }})"
-          TARGET_ARGS=""
-          [ -n "${{ matrix.cross_target }}" ] && TARGET_ARGS="--target ${{ matrix.cross_target }}"
-          crystal build src/h2code.cr -o h2code --release --no-debug --warnings none $TARGET_ARGS --link-flags "$LINK_FLAGS"
-          if [ -f h2code.exe ]; then ./h2code.exe --version; else ./h2code --version; fi
+          crosspack build ${{ matrix.crosspack_target }} --version "$H2CODE_VERSION"
+          BIN=build/bin/h2code
+          [ -f build/bin/h2code.exe ] && BIN=build/bin/h2code.exe
+          "$BIN" --version
 
-      - name: Rebind Homebrew dylibs (macOS)
-        if: startsWith(matrix.target, 'x86_64-darwin') || startsWith(matrix.target, 'aarch64-darwin')
-        shell: bash
-        run: |
-          # Crystal links against Homebrew's libssl.3.dylib / libcrypto.3.dylib
-          # with absolute install names (e.g. /usr/local/opt/openssl@3/lib/...).
-          # On a user machine that path usually does not exist (Homebrew on
-          # Apple Silicon lives under /opt/homebrew), so the binary fails with
-          # dyld "Library not loaded". Rebind to @rpath and bundle the dylibs
-          # next to the binary so the archive is self-contained.
-          set -euo pipefail
-          otool -L h2code
-          # Only act on the Homebrew-linked OpenSSL dylibs.
-          for lib in libssl.3.dylib libcrypto.3.dylib; do
-            abs=$(otool -L h2code | grep -E "/.*/${lib}\b" | awk '{print $1}' | head -n1 || true)
-            [ -n "$abs" ] || continue
-            cp "$abs" "./${lib}"
-            # Rewrite the dylib's own id and its dependency on the sibling.
-            install_name_tool -id "@rpath/${lib}" "./${lib}"
-            # NOTE the trailing "|| true": libcrypto has no ssl/crypto deps, so
-            # grep finds nothing, exits 1, and under `set -euo pipefail` that
-            # used to abort the whole step after the rebind was half-done.
-            other=$(otool -L "./${lib}" | grep -E "/.*/(libssl.3|libcrypto.3).dylib\b" | awk '{print $1}' || true)
-            for dep in $other; do
-              depname=$(basename "$dep")
-              install_name_tool -change "$dep" "@rpath/${depname}" "./${lib}"
-            done
-            # Point the binary at the rebundled copy.
-            install_name_tool -change "$abs" "@rpath/${lib}" h2code
-          done
-          # Look beside the binary for the dylibs.
-          install_name_tool -add_rpath @loader_path h2code 2>/dev/null || true
-          # install_name_tool invalidated the Homebrew signatures of the
-          # modified dylibs (see the warnings above); re-sign ad hoc or macOS
-          # kills the binary on launch with an invalid code signature.
-          for lib in libssl.3.dylib libcrypto.3.dylib; do
-              [ -f "./${lib}" ] && codesign --force --sign - "./${lib}"
-          done
-          codesign --force --sign - h2code 2>/dev/null || true
-          echo "--- after rebind ---"
-          otool -L h2code
-
-      - name: Collect Windows runtime DLLs
-        if: matrix.target == 'x86_64-windows'
-        shell: pwsh
-        run: |
-          # h2code.exe links dynamically against OpenSSL (libcrypto/libssl),
-          # libyaml and pcre2. The Crystal Windows install bundles these DLLs;
-          # ship them in a separate deps asset so install.ps1 can drop them
-          # next to h2code.exe on machines that lack a package manager.
-          $crystalDir = Split-Path (Get-Command crystal).Source
-          $needed = @('libcrypto-3-x64.dll','libssl-3-x64.dll','pcre2-8.dll','yaml.dll')
-          $found = @{}
-          Get-ChildItem -Path $crystalDir -Recurse -Filter *.dll -ErrorAction SilentlyContinue |
-            Where-Object { $needed -contains $_.Name -and -not $found.ContainsKey($_.Name) } |
-            ForEach-Object { $found[$_.Name] = $_.FullName }
-          foreach ($name in $needed) {
-            if (-not $found.ContainsKey($name)) {
-              Write-Host "::warning::DLL not found in Crystal tree: $name"
-            }
-          }
-          $staging = "deps-staging"
-          New-Item -ItemType Directory -Path $staging -Force | Out-Null
-          foreach ($path in $found.Values) { Copy-Item $path -Destination $staging -Force }
-          Compress-Archive -Path "$staging/*" -DestinationPath "h2code-deps-windows.zip" -Force
-          Write-Host "Packaged deps:"
-          Get-ChildItem $staging | Format-Table Name,Length
-
-      # ---- Archive + upload ----
+      # ---- Archive + upload (from the crosspack artifacts.from dirs) ----
       - name: Archive (tar.gz)
         if: matrix.archive == 'tar.gz'
-        run: tar -czf "h2code-${{ matrix.target }}.tar.gz" h2code *.dylib 2>/dev/null || tar -czf "h2code-${{ matrix.target }}.tar.gz" h2code
+        run: |
+          set -euo pipefail
+          archive() { # <target-name> <bin-dir>
+            (cd "$2" && tar -czf "../../h2code-$1.tar.gz" h2code *.dylib 2>/dev/null) || \
+              (cd "$2" && tar -czf "../../h2code-$1.tar.gz" h2code)
+          }
+          case "${{ matrix.target }}" in
+            x86_64-linux|aarch64-linux) archive "${{ matrix.target }}" build/bin ;;
+            darwin)
+              archive aarch64-darwin build/bin
+              archive x86_64-darwin build/bin-x86_64
+              ;;
+          esac
 
       - name: Archive (zip)
         if: matrix.archive == 'zip'
         shell: pwsh
-        run: Compress-Archive -Path h2code.exe -DestinationPath "h2code-${{ matrix.target }}.zip"
+        run: Compress-Archive -Path build/bin/h2code.exe -DestinationPath "h2code-${{ matrix.target }}.zip"
 
       - name: Generate SHA256
         shell: bash
-        run: sha256sum h2code-${{ matrix.target }}.*
+        run: sha256sum h2code-*
 
       - name: Upload artifact
+        if: matrix.target != 'darwin'
         uses: actions/upload-artifact@v4
         with:
           name: h2code-${{ matrix.target }}
           path: |
             h2code-${{ matrix.target }}.*
-            h2code-deps-windows.zip
+            build/bin/h2code-deps-windows.zip
+
+      - name: Upload artifact (aarch64-darwin)
+        if: matrix.target == 'darwin'
+        uses: actions/upload-artifact@v4
+        with:
+          name: h2code-aarch64-darwin
+          path: h2code-aarch64-darwin.tar.gz
+
+      - name: Upload artifact (x86_64-darwin)
+        if: matrix.target == 'darwin'
+        uses: actions/upload-artifact@v4
+        with:
+          name: h2code-x86_64-darwin
+          path: h2code-x86_64-darwin.tar.gz
 
   release:
     needs: [compute-version, build]

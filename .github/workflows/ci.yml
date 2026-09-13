@@ -26,6 +26,11 @@ jobs:
       - name: Install ripgrep
         run: sudo apt-get update && sudo apt-get install -y ripgrep
 
+      - name: Validate crosspack.yml
+        run: |
+          gem install crosspack -v 0.6.2 --no-document # keep in sync with Gemfile.lock
+          crosspack validate
+
       - name: Install shards
         run: shards install
 
