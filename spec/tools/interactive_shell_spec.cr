@@ -9,13 +9,19 @@ def new_tool
 end
 
 # Read from a session until `pattern` appears in the accumulated output or
-# `timeout_s` elapses (interactive programs answer asynchronously).
+# `timeout_s` elapses (interactive programs answer asynchronously). Returns
+# early when the session dies — a dead session produces nothing more.
 def read_until(session : H2code::Tools::ShellSession, pattern : String, timeout_s : Int32 = 10) : String
   deadline = Time.monotonic + timeout_s.seconds
   accumulated = ""
   while Time.monotonic < deadline
     accumulated += session.read_new_output(200)
     return accumulated if accumulated.includes?(pattern)
+    unless session.alive?
+      # Drain the exit message the watcher may have appended after the last
+      # read so the failure output explains itself.
+      return accumulated + session.read_new_output(100)
+    end
   end
   accumulated
 end
@@ -94,8 +100,10 @@ describe "InteractiveShell python3 integration" do
       session_id = result.content[/session_id: (\S+)/, 1]
       session = H2code::Tools::InteractiveShell.service.not_nil!.get(session_id).not_nil!
 
-      # Wait for the banner so the REPL is really accepting input.
-      read_until(session, ">>>").should contain(">>>")
+      # Wait for the banner so the REPL is really accepting input. Generous
+      # 30s budget: on a stalled/loaded CI runner the banner can take well
+      # over the usual ~100ms; everything downstream hangs off this wait.
+      read_until(session, ">>>", 30).should contain(">>>")
 
       # hello world
       session.write("print('hello world')\n")
