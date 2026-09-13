@@ -424,8 +424,9 @@ module H2code
       # Renders the todo list. In the active zone (`active = true`) a khaki
       # vertical bar marks the mutable region like other live blocks; the frozen
       # `todo_snapshot` in the log is clean — no bar (immutable history).
-      # In the active zone a full-width solid progress bar (done/total, in
-      # percent) is drawn below the plan — see `TUI::ProgressBar`.
+      # In the active zone a solid progress bar (done/total, in percent) is
+      # drawn below the plan under the same left bar — the bar occupies the
+      # remaining line width — see `TUI::ProgressBar`.
       private def render_todo_panel(todos : Array({String, String}), cols : Int32, active : Bool = false) : Array(String)
         lines = [] of String
         accent = @theme.colors.primary
@@ -454,9 +455,11 @@ module H2code
         if active
           # Scroll the gradient carousel while the agent is working (the
           # 80ms tick is running and @spin_phase advances); flatten to the
-          # static base shade when idle.
+          # static base shade when idle. Like the todo rows above, the bar
+          # line carries the left vertical bar; the progress bar itself is
+          # narrowed by the lead's 2 visible columns.
           phase = @agent_busy ? @spin_phase : 0
-          lines << ProgressBar.render(done, todos.size, cols, khaki: @theme.colors.logo, phase: phase)
+          lines << lead + ProgressBar.render(done, todos.size, cols - 2, khaki: @theme.colors.logo, phase: phase)
         else
           lines << "" if pending > 0
         end
