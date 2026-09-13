@@ -119,17 +119,20 @@ module H2code
       end
 
       # Public entry point for external systems (cron scheduler, background-task
-      # completion) to deliver a prompt to the agent as a synthetic user message.
-      # When busy, the message is queued (without a wire-log write — cron fires
-      # are regenerated on resume from cron.json, and task notifications are
-      # transient). When idle, a fresh turn is started (persisted: true so the
-      # run_turn block skips writing a duplicate turn.prompt record).
+      # completion, CI observers) to deliver a prompt to the agent as a
+      # synthetic user message. When busy, the message is queued and — like a
+      # queued user prompt — persisted to the wire log, so it appears in the
+      # session transcript and the drain survives a resume. When idle, a fresh
+      # turn is started with `persisted: false`, letting the run_turn block
+      # write the `turn.prompt` record exactly once.
       #
-      # `<notification id="...">` payloads are deduplicated by id: each
-      # background task/CI outcome notifies exactly once, even if the source
-      # races and fires its delivery callback twice. Payloads without a
-      # notification id (cron fires, remote-control prompts) always pass
-      # through — their identity is not task-lifetime-scoped.
+      # Notification payloads carrying an id (`<notification id="...">` XML
+      # envelope or the plain-text `[notification id="..."]` marker line) are
+      # deduplicated by id: each background task/CI outcome notifies exactly
+      # once, even if the source races and fires its delivery callback twice.
+      # Payloads without a notification id (cron fires, remote-control
+      # prompts) always pass through — their identity is not
+      # task-lifetime-scoped.
       def deliver_external_prompt(text : String) : Nil
         return if text.strip.empty?
         if id = external_notification_id(text)
@@ -137,19 +140,21 @@ module H2code
           @delivered_notification_ids << id
         end
         if @agent_busy || @is_compacting || @defer_user_messages
-          enqueue_message(text, "external", persist: false)
+          enqueue_message(text, "external")
         else
-          start_turn(text, persisted: true)
+          start_turn(text)
         end
       end
 
-      # Id attribute of a `<notification id="...">` envelope, or nil when the
-      # text is not a notification (cron fire, remote prompt, ...). The id is
-      # producer-scoped (`task.{task_id}.{status}` / `ci.{sha}.{type}`), so it
-      # is stable across duplicate delivery attempts.
+      # Id of a notification payload — the `<notification id="...">` XML
+      # attribute (task/agent completions) or the plain-text
+      # `[notification id="..."]` marker line (CI completions) — or nil when
+      # the text is not a notification (cron fire, remote prompt, ...). The
+      # id is producer-scoped (`task.{task_id}.{status}` / `ci.{sha}.{type}`),
+      # so it is stable across duplicate delivery attempts.
       private def external_notification_id(text : String) : String?
-        match = text.match(/<notification\s+id="([^"]*)"/)
-        match.try(&.[1])
+        text.match(/<notification\s+id="([^"]*)"/).try(&.[1]) ||
+          text.match(/\[notification\s+id="([^"]*)"\]/).try(&.[1])
       end
 
       # Authoritative busy flag for the remote control socket (`op: status`):

@@ -363,16 +363,19 @@ module H2code::Tools
         Ci.render_notification(obs).should be_nil
       end
 
-      it "builds a fix-it notification for failure" do
+      it "builds a plain-text fix-it notification for failure" do
         obs = Ci::Observer.new("a" * 40)
         obs.status = Ci::Status::Failure
         obs.detail = "spec (failure)"
         obs.failure_log = "expected true, got false"
-        xml = Ci.render_notification(obs).not_nil!
-        xml.should contain("ci_completion")
-        xml.should contain("CI build failed")
-        xml.should contain("expected true, got false")
-        xml.should contain("commit and push again")
+        text = Ci.render_notification(obs).not_nil!
+        # The plain-text delivery marker (exactly-once dedup key).
+        text.should contain(%([notification id="ci.#{"a" * 40}.failure"]))
+        text.should contain("CI build failed")
+        text.should contain("expected true, got false")
+        text.should contain("commit and push again")
+        # No raw XML envelope reaches the model.
+        text.should_not contain("<notification")
       end
 
       it "mentions GitLab CI and glab for GitLab observers" do
@@ -380,8 +383,7 @@ module H2code::Tools
         obs.provider = Ci::Provider::Gitlab
         obs.status = Ci::Status::Failure
         obs.detail = "pipeline #7 (failed)"
-        xml = Ci.render_notification(obs).not_nil!
-        xml.should contain("GitLab CI pipeline")
+        Ci.render_notification(obs).not_nil!.should contain("GitLab CI pipeline")
 
         err = Ci::Observer.new("b" * 40)
         err.provider = Ci::Provider::Gitlab
@@ -397,8 +399,9 @@ module H2code::Tools
       with_tmpdir do |dir|
         Dir.mkdir_p(File.join(dir, ".github", "workflows"))
         runner = CiFakeRunner.new
-        runner.add(0, "git@github.com:acme/app.git") # git remote get-url origin
         runner.add(0, CI_SPEC_SHA)                   # git rev-parse HEAD
+        runner.add(0, "")                            # git branch -r --contains
+        runner.add(0, "git@github.com:acme/app.git") # git remote get-url origin
         svc = Tools.fake_ci_service(runner)
 
         svc.try_observe_push("git push", dir).should be_true
@@ -417,8 +420,9 @@ module H2code::Tools
         # at target/ is eligible. Detection must resolve HEAD in target/.
         Dir.mkdir_p(File.join(dir, "target", ".github", "workflows"))
         runner = CiFakeRunner.new
-        runner.add(0, "git@github.com:acme/target.git") # remote in target/
         runner.add(0, CI_SPEC_SHA)                      # HEAD in target/
+        runner.add(0, "")                               # git branch -r --contains
+        runner.add(0, "git@github.com:acme/target.git") # remote in target/
         svc = Tools.fake_ci_service(runner)
 
         svc.try_observe_push("git -C #{dir}/target push", dir).should be_true
@@ -445,6 +449,8 @@ module H2code::Tools
       with_tmpdir do |dir|
         Dir.mkdir_p(File.join(dir, ".github", "workflows"))
         runner = CiFakeRunner.new
+        runner.add(0, CI_SPEC_SHA)
+        runner.add(0, "")
         runner.add(0, "git@gitlab.com:acme/app.git")
         svc = Tools.fake_ci_service(runner)
 
@@ -476,8 +482,9 @@ module H2code::Tools
         YML
         delivered = [] of String
         runner = CiFakeRunner.new
-        runner.add(0, "git@github.com:acme/app.git") # git remote get-url origin
         runner.add(0, CI_SPEC_SHA)                   # git rev-parse HEAD
+        runner.add(0, "")                            # git branch -r --contains
+        runner.add(0, "git@github.com:acme/app.git") # git remote get-url origin
         runner.add(0, "feature/x")                   # git rev-parse --abbrev-ref HEAD
         svc = Tools.fake_ci_service(runner)
         svc.delivery = ->(xml : String) { delivered << xml; nil }
@@ -501,8 +508,9 @@ module H2code::Tools
               branches: [master, develop]
         YML
         runner = CiFakeRunner.new
-        runner.add(0, "git@github.com:acme/app.git")
         runner.add(0, CI_SPEC_SHA)
+        runner.add(0, "")
+        runner.add(0, "git@github.com:acme/app.git")
         runner.add(0, "develop")
         svc = Tools.fake_ci_service(runner)
 
@@ -755,15 +763,16 @@ module H2code::Tools
         with_tmpdir do |dir|
           File.write(File.join(dir, ".gitlab-ci.yml"), "test:\n  script: echo hi\n")
           runner = CiFakeRunner.new
-          runner.add(0, "git@gitlab.com:acme/app.git") # git remote get-url origin
           runner.add(0, CI_SPEC_SHA)                   # git rev-parse HEAD
+          runner.add(0, "")                            # git branch -r --contains
+          runner.add(0, "git@gitlab.com:acme/app.git") # git remote get-url origin
           svc = Tools.fake_ci_service(runner)
 
           svc.try_observe_push("git push", dir).should be_true
           obs = svc.observer_for(CI_SPEC_SHA).not_nil!
           obs.pending?.should be_true
           obs.provider.gitlab?.should be_true
-          obs.actions_url.should eq("https://gitlab.com/acme/app/-/commits/#{CI_SPEC_SHA}")
+          obs.actions_url.should eq("https://gitlab.com/acme/app/-/commit/#{CI_SPEC_SHA}")
         end
       end
 
@@ -771,8 +780,9 @@ module H2code::Tools
         with_tmpdir do |dir|
           File.write(File.join(dir, ".gitlab-ci.yml"), "")
           runner = CiFakeRunner.new
-          runner.add(0, "git@gitlab.corp.io:acme/app.git")
           runner.add(0, CI_SPEC_SHA)
+          runner.add(0, "")
+          runner.add(0, "git@gitlab.corp.io:acme/app.git")
           svc = Tools.fake_ci_service(runner)
           svc.gitlab_endpoint = "https://gitlab.corp.io"
 
@@ -780,7 +790,7 @@ module H2code::Tools
           obs = svc.observer_for(CI_SPEC_SHA).not_nil!
           obs.provider.gitlab?.should be_true
           # The wait-line link uses the configured endpoint base.
-          obs.actions_url.should eq("https://gitlab.corp.io/acme/app/-/commits/#{CI_SPEC_SHA}")
+          obs.actions_url.should eq("https://gitlab.corp.io/acme/app/-/commit/#{CI_SPEC_SHA}")
         end
       end
 
@@ -788,10 +798,81 @@ module H2code::Tools
         with_tmpdir do |dir|
           File.write(File.join(dir, ".gitlab-ci.yml"), "")
           runner = CiFakeRunner.new
+          runner.add(0, CI_SPEC_SHA)
+          runner.add(0, "")
           runner.add(0, "git@github.com:acme/app.git")
           svc = Tools.fake_ci_service(runner)
 
           svc.try_observe_push("git push", dir).should be_false
+        end
+      end
+
+      it "observes the remote the pushed commit landed on (two configs, non-origin push)" do
+        with_tmpdir do |dir|
+          # Both CI configs in the tree; origin is GitHub, but the push went
+          # to the self-hosted GitLab remote only — the observer must follow
+          # the commit, not the origin URL.
+          Dir.mkdir_p(File.join(dir, ".github", "workflows"))
+          File.write(File.join(dir, ".gitlab-ci.yml"), "")
+          runner = CiFakeRunner.new
+          runner.add(0, CI_SPEC_SHA)                   # git rev-parse HEAD
+          runner.add(0, "  gitlab/master\n")           # git branch -r --contains
+          runner.add(0, "git@gl.corp.io:h2/app.git")   # git remote get-url gitlab
+          runner.add(0, "git@github.com:acme/app.git") # git remote get-url origin (unused)
+          svc = Tools.fake_ci_service(runner)
+          svc.gitlab_endpoint = "https://gl.corp.io"
+
+          svc.try_observe_push("git push gitlab master", dir).should be_true
+          obs = svc.observer_for(CI_SPEC_SHA).not_nil!
+          obs.pending?.should be_true
+          obs.provider.gitlab?.should be_true
+          obs.actions_url.should eq("https://gl.corp.io/h2/app/-/commit/#{CI_SPEC_SHA}")
+          # The gitlab remote is resolved before origin.
+          runner.commands.index!("git remote get-url gitlab")
+            .should be < runner.commands.index!("git remote get-url origin")
+        end
+      end
+
+      it "observes a GitLab-bound push even when the GitHub workflow filters exclude the branch" do
+        with_tmpdir do |dir|
+          # Two configs again: the GitHub workflow only triggers on master,
+          # but the push went to the GitLab remote — .gitlab-ci.yml has no
+          # parsed branch filter, so the pipeline counts as covered.
+          Dir.mkdir_p(File.join(dir, ".github", "workflows"))
+          File.write(File.join(dir, ".github", "workflows", "ci.yml"),
+            "on:\n  push:\n    branches: [master]\n")
+          File.write(File.join(dir, ".gitlab-ci.yml"), "")
+          runner = CiFakeRunner.new
+          runner.add(0, CI_SPEC_SHA)                       # git rev-parse HEAD
+          runner.add(0, "  gitlab/feature/x\n")            # git branch -r --contains
+          runner.add(0, "https://gitlab.com/acme/app.git") # git remote get-url gitlab
+          svc = Tools.fake_ci_service(runner)
+
+          svc.try_observe_push("git push gitlab feature/x", dir).should be_true
+          obs = svc.observer_for(CI_SPEC_SHA).not_nil!
+          obs.pending?.should be_true
+          obs.provider.gitlab?.should be_true
+        end
+      end
+
+      it "re-resolves the remote per pushed commit" do
+        with_tmpdir do |dir|
+          Dir.mkdir_p(File.join(dir, ".github", "workflows"))
+          File.write(File.join(dir, ".gitlab-ci.yml"), "")
+          runner = CiFakeRunner.new
+          runner.add(0, "a" * 40)                      # rev-parse (push 1)
+          runner.add(0, "  gitlab/master\n")           # branch -r --contains (push 1)
+          runner.add(0, "git@gitlab.com:acme/app.git") # get-url gitlab (push 1)
+          runner.add(0, "")                            # get-url origin (push 1, unused)
+          runner.add(0, CI_SPEC_SHA)                   # rev-parse (push 2)
+          runner.add(0, "  origin/master\n")           # branch -r --contains (push 2)
+          runner.add(0, "git@github.com:acme/app.git") # get-url origin (push 2)
+          svc = Tools.fake_ci_service(runner)
+
+          svc.try_observe_push("git push gitlab master", dir).should be_true
+          svc.try_observe_push("git push origin master", dir).should be_true
+          svc.observer_for("a" * 40).not_nil!.provider.gitlab?.should be_true
+          svc.observer_for(CI_SPEC_SHA).not_nil!.provider.github?.should be_true
         end
       end
 
@@ -815,6 +896,99 @@ module H2code::Tools
           api_urls.should contain("/projects/acme%2Fapp/pipelines?sha=#{CI_SPEC_SHA}&per_page=20")
           # GitLab never touches the gh CLI.
           runner.commands.any?(&.starts_with?("gh ")).should be_false
+        end
+      end
+
+      it "ignores pipelines of other commits (client-side sha match)" do
+        with_tmpdir do |dir|
+          File.write(File.join(dir, ".gitlab-ci.yml"), "")
+          runner = CiFakeRunner.new
+          runner.add(0, "https://gitlab.com/acme/app.git")
+          # The server-side ?sha= filter is not trusted: the payload holds
+          # another commit's failed pipeline only — the observer must keep
+          # waiting instead of settling with a foreign verdict.
+          svc = Tools.fake_ci_service(runner)
+          svc.api_get = ->(_path : String) do
+            Ci::ApiResponse.new(200, %([{"id":9,"project_id":11,"sha":"#{"a" * 40}","status":"failed"}]))
+          end
+
+          svc.observe(CI_SPEC_SHA, dir)
+          obs = svc.observer_for(CI_SPEC_SHA).not_nil!
+          svc.poll_once(obs, dir)
+
+          obs.pending?.should be_true
+          obs.detail.should contain("no pipelines")
+        end
+      end
+
+      it "settles from the pipeline whose sha matches the commit" do
+        with_tmpdir do |dir|
+          File.write(File.join(dir, ".gitlab-ci.yml"), "")
+          runner = CiFakeRunner.new
+          runner.add(0, "https://gitlab.com/acme/app.git")
+          svc = Tools.fake_ci_service(runner)
+          svc.api_get = ->(_path : String) do
+            Ci::ApiResponse.new(200, %([
+              {"id":9,"project_id":11,"sha":"#{"a" * 40}","status":"failed"},
+              {"id":8,"project_id":11,"sha":"#{CI_SPEC_SHA}","status":"success"}
+            ]))
+          end
+
+          svc.observe(CI_SPEC_SHA, dir)
+          obs = svc.observer_for(CI_SPEC_SHA).not_nil!
+          svc.poll_once(obs, dir)
+
+          # Only the matching row counts: the foreign failed pipeline must
+          # not turn the verdict into a failure.
+          obs.status.success?.should be_true
+          obs.detail.should contain("1 pipeline(s) passed")
+          obs.detail.should_not contain("#9")
+        end
+      end
+
+      it "repoints the wait-line link to the commit's pipeline once it exists" do
+        with_tmpdir do |dir|
+          File.write(File.join(dir, ".gitlab-ci.yml"), "")
+          runner = CiFakeRunner.new
+          runner.add(0, "https://gitlab.com/acme/app.git")
+          svc = Tools.fake_ci_service(runner)
+          svc.api_get = ->(_path : String) do
+            Ci::ApiResponse.new(200, %([
+              {"id":8,"project_id":11,"sha":"#{CI_SPEC_SHA}","status":"running",
+               "web_url":"https://gitlab.com/acme/app/-/pipelines/8"}
+            ]))
+          end
+
+          # Resolve the repo first (populates the per-cwd cache, same as a
+          # push does), so observe can link the wait line before the first
+          # poll.
+          svc.repo_info(dir).not_nil!.provider.gitlab?.should be_true
+          svc.observe(CI_SPEC_SHA, dir)
+          obs = svc.observer_for(CI_SPEC_SHA).not_nil!
+          obs.actions_url.should eq("https://gitlab.com/acme/app/-/commit/#{CI_SPEC_SHA}")
+          svc.poll_once(obs, dir)
+
+          obs.pending?.should be_true
+          obs.actions_url.should eq("https://gitlab.com/acme/app/-/pipelines/8")
+        end
+      end
+
+      it "constructs the pipeline link when the row has no web_url" do
+        with_tmpdir do |dir|
+          File.write(File.join(dir, ".gitlab-ci.yml"), "")
+          runner = CiFakeRunner.new
+          runner.add(0, "https://gitlab.com/acme/app.git")
+          svc = Tools.fake_ci_service(runner)
+          svc.api_get = ->(_path : String) do
+            Ci::ApiResponse.new(200, %([{"id":7,"project_id":11,"sha":"#{CI_SPEC_SHA}","status":"running"}]))
+          end
+
+          svc.observe(CI_SPEC_SHA, dir)
+          obs = svc.observer_for(CI_SPEC_SHA).not_nil!
+          svc.poll_once(obs, dir)
+
+          obs.pending?.should be_true
+          obs.actions_url.should eq("https://gitlab.com/acme/app/-/pipelines/7")
         end
       end
 
@@ -848,13 +1022,44 @@ module H2code::Tools
         end
       end
 
-      it "treats 401 as transient with a token setup hint" do
+      it "records why the failure log could not be fetched (fine-grained PAT)" do
         with_tmpdir do |dir|
           File.write(File.join(dir, ".gitlab-ci.yml"), "")
           runner = CiFakeRunner.new
           runner.add(0, "git@gitlab.com:acme/app.git")
           svc = Tools.fake_ci_service(runner)
-          # glab not installed → no CLI fallback, the hint is the only path.
+          # glab not installed → no CLI fallback for the denied trace.
+          svc.glab_probed = true
+          svc.glab_available = false
+          svc.api_get = ->(path : String) do
+            if path.includes?("/jobs?")
+              Ci::ApiResponse.new(200, %([{"id":501,"status":"failed","allow_failure":false}]))
+            elsif path.includes?("/trace")
+              Ci::ApiResponse.new(403, %({"error":"insufficient_granular_scope","error_description":"Access denied: requires a fine-grained personal access token with the following project permissions: [Job: Read]."}))
+            else
+              Ci::ApiResponse.new(200, %([{"id":7,"project_id":11,"status":"failed"}]))
+            end
+          end
+
+          svc.observe(CI_SPEC_SHA, dir)
+          obs = svc.observer_for(CI_SPEC_SHA).not_nil!
+          svc.poll_once(obs, dir)
+
+          obs.status.failure?.should be_true
+          obs.failure_log.empty?.should be_true
+          obs.failure_log_error.should contain("HTTP 403")
+          obs.failure_log_error.should contain("Job: Read")
+          Ci.render_notification(obs).not_nil!.should contain("Could not fetch the CI failure log")
+        end
+      end
+
+      it "errors immediately on 401 when no token and no glab exist (no endless wait)" do
+        with_tmpdir do |dir|
+          File.write(File.join(dir, ".gitlab-ci.yml"), "")
+          runner = CiFakeRunner.new
+          runner.add(0, "git@gitlab.com:acme/app.git")
+          svc = Tools.fake_ci_service(runner)
+          # glab not installed → no CLI fallback.
           svc.glab_probed = true
           svc.glab_available = false
           svc.api_get = ->(_path : String) { Ci::ApiResponse.new(401, "401 Unauthorized") }
@@ -863,9 +1068,55 @@ module H2code::Tools
           obs = svc.observer_for(CI_SPEC_SHA).not_nil!
           svc.poll_once(obs, dir)
 
-          obs.pending?.should be_true
-          obs.detail.should contain("GitLab token")
+          obs.status.error?.should be_true
+          obs.detail.should contain("no GitLab token is configured")
+          obs.detail.should contain("glab auth login")
           runner.commands.any?(&.starts_with?("glab")).should be_false
+        end
+      end
+
+      it "errors immediately on 404 from a private project without a token" do
+        with_tmpdir do |dir|
+          File.write(File.join(dir, ".gitlab-ci.yml"), "")
+          runner = CiFakeRunner.new
+          runner.add(0, "git@gl.corp.io:h2/app.git")
+          svc = Tools.fake_ci_service(runner)
+          svc.gitlab_endpoint = "https://gl.corp.io"
+          svc.glab_probed = true
+          svc.glab_available = false
+          # GitLab hides private projects behind 404 for anonymous queries.
+          svc.api_get = ->(_path : String) { Ci::ApiResponse.new(404, %({"message":"404 Project Not Found"})) }
+
+          svc.observe(CI_SPEC_SHA, dir)
+          obs = svc.observer_for(CI_SPEC_SHA).not_nil!
+          svc.poll_once(obs, dir)
+
+          obs.status.error?.should be_true
+          obs.detail.should contain("404")
+          obs.detail.should contain("gitlab.token")
+          # The wait line is gone on the first poll, not after the
+          # failure threshold / MAX_WAIT_S.
+          svc.pending?.should be_false
+        end
+      end
+
+      it "errors immediately when the configured GitLab token is rejected" do
+        with_tmpdir do |dir|
+          File.write(File.join(dir, ".gitlab-ci.yml"), "")
+          runner = CiFakeRunner.new
+          runner.add(0, "git@gitlab.com:acme/app.git")
+          svc = Tools.fake_ci_service(runner)
+          svc.gitlab_token = "glpat-bad"
+          svc.glab_probed = true
+          svc.glab_available = false
+          svc.api_get = ->(_path : String) { Ci::ApiResponse.new(403, "403 Forbidden") }
+
+          svc.observe(CI_SPEC_SHA, dir)
+          obs = svc.observer_for(CI_SPEC_SHA).not_nil!
+          svc.poll_once(obs, dir)
+
+          obs.status.error?.should be_true
+          obs.detail.should contain("token was rejected")
         end
       end
 
@@ -985,6 +1236,152 @@ module H2code::Tools
           obs.status.success?.should be_true
           api_called.should be_false
         end
+      end
+    end
+
+    describe "ci.json provider bindings" do
+      it "detects a bound self-hosted GitLab host without gitlab.endpoint" do
+        with_tmpdir do |dir|
+          Dir.mkdir_p(File.join(dir, ".github", "workflows"))
+          File.write(File.join(dir, ".gitlab-ci.yml"), "")
+          runner = CiFakeRunner.new
+          runner.add(0, CI_SPEC_SHA)                   # git rev-parse HEAD
+          runner.add(0, "  gitlab/master\n")           # git branch -r --contains
+          runner.add(0, "git@gl.corp.io:h2/app.git")   # git remote get-url gitlab
+          runner.add(0, "git@github.com:acme/app.git") # git remote get-url origin
+          svc = Tools.fake_ci_service(runner)
+          svc.bindings.set("gl.corp.io",
+            ["git@gl.corp.io:h2/app.git"], Ci::Provider::Gitlab)
+
+          svc.try_observe_push("git push gitlab master", dir).should be_true
+          obs = svc.observer_for(CI_SPEC_SHA).not_nil!
+          obs.provider.gitlab?.should be_true
+          obs.actions_url.should eq("https://gl.corp.io/h2/app/-/commit/#{CI_SPEC_SHA}")
+        end
+      end
+
+      it "propagates a host binding to other repositories on the host" do
+        with_tmpdir do |dir|
+          File.write(File.join(dir, ".gitlab-ci.yml"), "")
+          runner = CiFakeRunner.new
+          runner.add(0, CI_SPEC_SHA)                     # git rev-parse HEAD
+          runner.add(0, "")                              # branch -r --contains: origin fallback
+          runner.add(0, "https://gl.corp.io/other/proj") # git remote get-url origin
+          svc = Tools.fake_ci_service(runner)
+          # Bound via a different repository's URL; only the host matches.
+          svc.bindings.set("gl.corp.io", ["git@gl.corp.io:h2/app.git"], Ci::Provider::Gitlab)
+
+          svc.try_observe_push("git push", dir).should be_true
+          svc.observer_for(CI_SPEC_SHA).not_nil!.provider.gitlab?.should be_true
+        end
+      end
+    end
+  end
+
+  describe Ci::Bindings do
+    it "binds a host and propagates to every URL on it" do
+      with_tmpdir do |_dir|
+        b = Ci::Bindings.new
+        b.set("gl.corp.io", ["git@gl.corp.io:h2/app.git"], Ci::Provider::Gitlab)
+        b.provider_for_url("git@gl.corp.io:h2/app.git").try(&.gitlab?).should be_true
+        # Another repository on the same host — detected via the hosts entry.
+        b.provider_for_url("https://gl.corp.io/other/proj.git").try(&.gitlab?).should be_true
+        b.provider_for_host("GL.CORP.IO").try(&.gitlab?).should be_true
+        b.gitlab_hosts.should contain("gl.corp.io")
+        b.provider_for_url("git@github.com:acme/app.git").should be_nil
+      end
+    end
+
+    it "persists to ci.json and reloads" do
+      with_tmpdir do |dir|
+        path = File.join(dir, "ci.json")
+        Ci::Bindings.new(path).set("gl.corp.io",
+          ["git@gl.corp.io:h2/app.git"], Ci::Provider::Gitlab)
+        File.exists?(path).should be_true
+        reloaded = Ci::Bindings.new(path)
+        reloaded.provider_for_url("git@gl.corp.io:h2/app.git").try(&.gitlab?).should be_true
+        reloaded.provider_for_host("gl.corp.io").try(&.gitlab?).should be_true
+      end
+    end
+
+    it "treats a broken file as no bindings" do
+      with_tmpdir do |dir|
+        path = File.join(dir, "ci.json")
+        File.write(path, "{not json")
+        Ci::Bindings.new(path).provider_for_host("gl.corp.io").should be_nil
+      end
+    end
+  end
+
+  describe ".token_warning_tip" do
+    it "shows the GitLab token tip for a GitLab repo without a token" do
+      with_tmpdir do |dir|
+        File.write(File.join(dir, ".gitlab-ci.yml"), "")
+        runner = CiFakeRunner.new
+        runner.add(0, CI_SPEC_SHA)                       # rev-parse HEAD
+        runner.add(0, "")                                # branch -r --contains
+        runner.add(0, "https://gitlab.com/acme/app.git") # get-url origin
+        svc = Tools.fake_ci_service(runner)
+
+        Ci.token_warning_tip(svc, "", "", dir)
+          .should eq(H2code.t("ui.ci_token_tip_gitlab"))
+      end
+    end
+
+    it "shows no GitLab tip once the token is configured" do
+      with_tmpdir do |dir|
+        File.write(File.join(dir, ".gitlab-ci.yml"), "")
+        runner = CiFakeRunner.new
+        runner.add(0, CI_SPEC_SHA)
+        runner.add(0, "")
+        runner.add(0, "https://gitlab.com/acme/app.git")
+        svc = Tools.fake_ci_service(runner)
+
+        Ci.token_warning_tip(svc, "", "glpat-x", dir).should be_nil
+      end
+    end
+
+    it "follows the commit, not origin: HEAD on the gitlab remote → GitLab tip" do
+      with_tmpdir do |dir|
+        # Both CI configs; origin is GitHub, the HEAD commit sits on the
+        # gitlab remote only — the GitLab tip must win over the GitHub one.
+        Dir.mkdir_p(File.join(dir, ".github", "workflows"))
+        File.write(File.join(dir, ".gitlab-ci.yml"), "")
+        runner = CiFakeRunner.new
+        runner.add(0, CI_SPEC_SHA)                   # rev-parse HEAD
+        runner.add(0, "  gitlab/master\n")           # branch -r --contains
+        runner.add(0, "git@gl.corp.io:h2/app.git")   # get-url gitlab
+        runner.add(0, "git@github.com:acme/app.git") # get-url origin
+        svc = Tools.fake_ci_service(runner)
+        svc.bindings.set("gl.corp.io", ["git@gl.corp.io:h2/app.git"], Ci::Provider::Gitlab)
+
+        Ci.token_warning_tip(svc, "", "", dir)
+          .should eq(H2code.t("ui.ci_token_tip_gitlab"))
+      end
+    end
+
+    it "shows the GitHub tip for a GitHub repo without a token" do
+      with_tmpdir do |dir|
+        Dir.mkdir_p(File.join(dir, ".github", "workflows"))
+        runner = CiFakeRunner.new
+        runner.add(0, CI_SPEC_SHA)
+        runner.add(0, "")
+        runner.add(0, "git@github.com:acme/app.git")
+        svc = Tools.fake_ci_service(runner)
+
+        Ci.token_warning_tip(svc, "", "", dir)
+          .should eq(H2code.t("ui.ci_token_tip"))
+        Ci.token_warning_tip(svc, "ghp_x", "", dir).should be_nil
+      end
+    end
+
+    it "shows nothing for a CI-ineligible repo" do
+      with_tmpdir do |dir|
+        runner = CiFakeRunner.new
+        runner.add(0, CI_SPEC_SHA)
+        svc = Tools.fake_ci_service(runner)
+
+        Ci.token_warning_tip(svc, "", "", dir).should be_nil
       end
     end
   end

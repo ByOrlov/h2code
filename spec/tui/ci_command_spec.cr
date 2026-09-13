@@ -155,4 +155,114 @@ describe "/ci command" do
       end
     end
   end
+
+  it "/ci type gitlab binds the non-github host and detection follows" do
+    old = H2code::Tools::Ci.service
+    with_tmpdir do |dir|
+      head = init_ci_repo(dir)
+      H2code::Tools::Ci.run_shell("git remote add gitlab https://gl.corp.io/h2/app.git", dir)
+      File.write(File.join(dir, ".gitlab-ci.yml"), "")
+      bindings_path = File.join(dir, "ci.json")
+      svc = H2code::Tools::Ci::LiveCiService.new
+      svc.autostart = false
+      svc.bindings = H2code::Tools::Ci::Bindings.new(bindings_path)
+      H2code::Tools::Ci.service = svc
+      begin
+        app = CiCommandApp.new
+        app.work_dir = dir
+        app.run_cmd_ci("type gitlab")
+        app.@messages.last.role.should eq("system")
+        app.@messages.last.content.should contain("gl.corp.io")
+        File.exists?(bindings_path).should be_true
+
+        # The binding drives detection: a push recorded on the gitlab
+        # remote is observed as GitLab, not GitHub — no endpoint config.
+        H2code::Tools::Ci.run_shell("git update-ref refs/remotes/gitlab/master #{head}", dir)
+        svc.try_observe_push("git push gitlab master", dir).should be_true
+        svc.observer_for(head).not_nil!.provider.gitlab?.should be_true
+      ensure
+        H2code::Tools::Ci.service = old
+      end
+    end
+  end
+
+  it "/ci check is an explicit alias of /ci (observes HEAD)" do
+    old = H2code::Tools::Ci.service
+    with_tmpdir do |dir|
+      head = init_ci_repo(dir)
+      svc = H2code::Tools::Ci::LiveCiService.new
+      svc.autostart = false
+      H2code::Tools::Ci.service = svc
+      begin
+        app = CiCommandApp.new
+        app.work_dir = dir
+        app.run_cmd_ci("check")
+        app.@messages.last.role.should eq("system")
+        app.@messages.last.content.should contain("Watching CI")
+        svc.observer_for(head).should_not be_nil
+
+        # check also accepts an explicit commit, like /ci <commit>.
+        app.run_cmd_ci("check #{head[0, 7]}")
+        svc.pending_observers.size.should eq(1)
+      ensure
+        H2code::Tools::Ci.service = old
+      end
+    end
+  end
+
+  it "/ci type lists the effective binding per remote" do
+    old = H2code::Tools::Ci.service
+    with_tmpdir do |dir|
+      init_ci_repo(dir)
+      H2code::Tools::Ci.run_shell("git remote add gitlab https://gl.corp.io/h2/app.git", dir)
+      svc = H2code::Tools::Ci::LiveCiService.new
+      svc.autostart = false
+      H2code::Tools::Ci.service = svc
+      begin
+        app = CiCommandApp.new
+        app.work_dir = dir
+        app.run_cmd_ci("type")
+        app.@messages.last.role.should eq("system")
+        content = app.@messages.last.content
+        content.should contain("github.com")
+        content.should contain("gl.corp.io")
+        content.should contain("auto")
+        # The allowed types are spelled out.
+        content.should contain("'gitlab'")
+        content.should contain("'github'")
+      ensure
+        H2code::Tools::Ci.service = old
+      end
+    end
+  end
+
+  it "/ci type gitlab asks for the host when several remotes qualify" do
+    old = H2code::Tools::Ci.service
+    with_tmpdir do |dir|
+      init_ci_repo(dir)
+      H2code::Tools::Ci.run_shell("git remote add one https://gl1.corp.io/h2/app.git", dir)
+      H2code::Tools::Ci.run_shell("git remote add two https://gl2.corp.io/h2/app.git", dir)
+      svc = H2code::Tools::Ci::LiveCiService.new
+      svc.autostart = false
+      H2code::Tools::Ci.service = svc
+      begin
+        app = CiCommandApp.new
+        app.work_dir = dir
+        app.run_cmd_ci("type gitlab")
+        app.@messages.last.role.should eq("error")
+        app.@messages.last.content.should contain("gl1.corp.io")
+        app.@messages.last.content.should contain("gl2.corp.io")
+        svc.bindings.provider_for_host("gl1.corp.io").should be_nil
+
+        # The explicit host binds only that one.
+        app.run_cmd_ci("type gitlab gl2.corp.io")
+        app.@messages.last.role.should eq("system")
+        svc.bindings.provider_for_host("gl2.corp.io").try(&.gitlab?).should be_true
+        svc.bindings.provider_for_url("https://gl2.corp.io/h2/app.git").try(&.gitlab?).should be_true
+        svc.bindings.provider_for_host("gl1.corp.io").should be_nil
+      ensure
+        H2code::Tools::Ci.service = old
+      end
+    end
+  end
 end

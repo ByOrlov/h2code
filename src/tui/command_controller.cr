@@ -762,6 +762,90 @@ module H2code
         emit_to_log(Message.new("system", settings.strip))
       end
 
+      # `/set [<key> [<value>]]` — show or change a config setting. The
+      # key and value are validated against `Config::SETTING_SCHEMA`
+      # (allowed keys, value types, enum members) before anything is
+      # applied — a typo can never corrupt config.json. Token / GitLab
+      # endpoint changes also reach the live CI service (same as the
+      # token wizards); most other settings are read at startup —
+      # `/reload` or a restart picks them up.
+      private def cmd_set(args : String) : Nil
+        tokens = args.strip.split(/\s+/).reject(&.empty?)
+        cfg = @app_config
+        if cfg.nil?
+          emit_to_log(Message.new("error", H2code.t("ui.github_token_no_config")))
+          return
+        end
+        case tokens.size
+        when 0
+          lines = Config::Config::SETTING_SCHEMA.map do |spec|
+            "#{spec.key} = #{setting_display(cfg, spec)} (#{Config::Config.setting_type_hint(spec)})"
+          end
+          emit_to_log(Message.new("system",
+            "#{H2code.t("ui.set_list_title")}\n#{lines.join('\n')}"))
+        when 1
+          if spec = Config::Config.setting_spec(tokens[0])
+            emit_to_log(Message.new("system",
+              H2code.t("ui.set_current", {key: spec.key, value: setting_display(cfg, spec)})))
+          else
+            emit_to_log(Message.new("error", unknown_setting_message(tokens[0])))
+          end
+        else
+          key = tokens[0]
+          raw = tokens.skip(1).join(" ").strip
+          if (spec = Config::Config.setting_spec(key)).nil?
+            emit_to_log(Message.new("error", unknown_setting_message(key)))
+            return
+          end
+          value = Config::Config.parse_setting_value(spec, raw)
+          if value.nil?
+            # Token keys get a format-specific error that never echoes
+            # the (secret) input; other keys show the generic message.
+            msg = case key
+                  when "github.token" then H2code.t("ui.github_token_invalid")
+                  when "gitlab.token" then H2code.t("ui.gitlab_token_invalid")
+                  else
+                    H2code.t("ui.set_bad_value",
+                      {key: key, value: raw, expected: Config::Config.setting_type_hint(spec)})
+                  end
+            emit_to_log(Message.new("error", msg))
+            return
+          end
+          cfg.apply_setting(key, value)
+          cfg.save
+          apply_live_setting(key, value)
+          emit_to_log(Message.new("system", H2code.t("ui.set_saved", {key: key})))
+        end
+      end
+
+      # Display form of a setting's current value — secrets are masked,
+      # empty values render as "()" so unset keys stay visible.
+      private def setting_display(cfg : Config::Config, spec : Config::Config::SettingSpec) : String
+        value = cfg.setting_value(spec.key)
+        if spec.secret
+          value.empty? ? "()" : mask_secret(value)
+        else
+          value.empty? ? "()" : value
+        end
+      end
+
+      private def unknown_setting_message(key : String) : String
+        H2code.t("ui.set_unknown_key",
+          {key: key, keys: Config::Config::SETTING_SCHEMA.map(&.key).join(", ")})
+      end
+
+      # Settings whose live consumers update without a reload: the CI
+      # observer service reads the tokens / endpoint directly.
+      private def apply_live_setting(key : String, value : String) : Nil
+        if service = Tools::Ci.service.as?(Tools::Ci::LiveCiService)
+          case key
+          when "github.token"    then service.github_token = value
+          when "gitlab.token"    then service.gitlab_token = value
+          when "gitlab.endpoint" then service.gitlab_endpoint = value
+          end
+        end
+      end
+
       # Mirrors TS `handleInitCommand` → `session.init()`: defer any user
       # messages typed during the run, then send the AGENTS.md generation
       # prompt as a regular turn. The agent walks the repo (Bash, Read, Glob)
@@ -1102,11 +1186,18 @@ module H2code
       private def submit_github_token(text : String) : Nil
         token = text.strip
         emit_to_log(Message.new("user", "#{"•" * {token.size, 8}.min}"))
-        exit_github_token_wizard
         if token.empty?
+          exit_github_token_wizard
           emit_to_log(Message.new("error", H2code.t("ui.github_token_empty")))
           return
         end
+        unless Config::Config.valid_github_token?(token)
+          # Garbage instead of the expected format: keep the wizard open
+          # so the correct token can be pasted right away (Esc cancels).
+          emit_to_log(Message.new("error", H2code.t("ui.github_token_invalid")))
+          return
+        end
+        exit_github_token_wizard
         if cfg = @app_config
           cfg.github_token = token
           cfg.save
@@ -1198,11 +1289,18 @@ module H2code
       private def submit_gitlab_token(text : String) : Nil
         token = text.strip
         emit_to_log(Message.new("user", "#{"•" * {token.size, 8}.min}"))
-        exit_gitlab_token_wizard
         if token.empty?
+          exit_gitlab_token_wizard
           emit_to_log(Message.new("error", H2code.t("ui.gitlab_token_empty")))
           return
         end
+        unless Config::Config.valid_gitlab_token?(token)
+          # Garbage instead of the expected format: keep the wizard open
+          # so the correct token can be pasted right away (Esc cancels).
+          emit_to_log(Message.new("error", H2code.t("ui.gitlab_token_invalid")))
+          return
+        end
+        exit_gitlab_token_wizard
         if cfg = @app_config
           cfg.gitlab_token = token
           cfg.save
@@ -1242,16 +1340,27 @@ module H2code
         emit_to_log(Message.new("system", H2code.t("ui.gitlab_token_cleared")))
       end
 
-      # `/ci [<commit>]` — manually start the CI observer. `<commit>` is
-      # anything `git rev-parse` resolves (full/short SHA, branch, tag);
-      # without it the current HEAD is observed. From there the flow is the
-      # automatic one: a wait line in the active zone while pending, a log
-      # line (+ agent notification on failure) when CI finishes.
+      # `/ci [<commit>]` — manually start the CI observer; `/ci check
+      # [<commit>]` is the same thing spelled out. `<commit>` is anything
+      # `git rev-parse` resolves (full/short SHA, branch, tag); without it
+      # the current HEAD is observed. From there the flow is the automatic
+      # one: a wait line in the active zone while pending, a log line
+      # (+ agent notification on failure) when CI finishes.
       private def cmd_ci(args : String) : Nil
         svc = Tools::Ci.service
         if svc.nil?
           emit_to_log(Message.new("error", H2code.t("ui.ci_unavailable")))
           return
+        end
+        tokens = args.strip.split(/\s+/)
+        case tokens.first?
+        when "type"
+          cmd_ci_type(tokens.skip(1))
+          return
+        when "check"
+          ref = tokens.skip(1).join(" ").strip
+        else
+          ref = args.strip
         end
         # Same eligibility gate as the automatic push detection, so a repo
         # without CI never gets a stuck wait line.
@@ -1259,7 +1368,6 @@ module H2code
           emit_to_log(Message.new("error", H2code.t("ui.ci_not_eligible")))
           return
         end
-        ref = args.strip
         sha = if ref.empty?
                 svc.head_sha(@work_dir)
               else
@@ -1276,6 +1384,72 @@ module H2code
         else
           emit_to_log(Message.new("error", H2code.t("ui.ci_not_eligible")))
         end
+      end
+
+      # `/ci type <gitlab|github> [host]` — persist a CI provider binding
+      # in ci.json: the urls section pins this repository, the hosts
+      # section makes every repository from that host auto-detect as the
+      # provider (so a self-hosted GitLab needs no gitlab.endpoint config).
+      # The host is inferred from the repo's remotes — the one remote that
+      # is not the other provider's builtin host — or given explicitly when
+      # several candidates exist. `/ci type` alone lists the effective
+      # binding per remote.
+      private def cmd_ci_type(tokens : Array(String)) : Nil
+        svc = Tools::Ci.service.as?(Tools::Ci::LiveCiService)
+        if svc.nil?
+          emit_to_log(Message.new("error", H2code.t("ui.ci_unavailable")))
+          return
+        end
+        urls = svc.remote_urls(@work_dir)
+        if tokens.empty?
+          if urls.empty?
+            emit_to_log(Message.new("error", H2code.t("ui.ci_type_no_remotes")))
+          else
+            lines = urls.map do |url|
+              provider = svc.bindings.provider_for_url(url)
+                .try(&.to_s.downcase) || H2code.t("ui.ci_type_auto")
+              "#{url} → #{provider}"
+            end
+            emit_to_log(Message.new("system",
+              "#{H2code.t("ui.ci_type_list")}\n#{lines.join('\n')}\n#{H2code.t("ui.ci_type_allowed")}"))
+          end
+          return
+        end
+        provider_name = tokens.first.downcase
+        provider = case provider_name
+                   when "gitlab" then Tools::Ci::Provider::Gitlab
+                   when "github" then Tools::Ci::Provider::Github
+                   else
+                     emit_to_log(Message.new("error",
+                       H2code.t("ui.ci_type_bad_provider", provider: tokens.first)))
+                     return
+                   end
+        host = tokens[1]?
+        if host.nil?
+          other_builtin = provider.gitlab? ? "github.com" : "gitlab.com"
+          other = provider.gitlab? ? Tools::Ci::Provider::Github : Tools::Ci::Provider::Gitlab
+          candidates = urls.compact_map { |u| Tools::Ci.remote_host(u).try(&.downcase) }
+          candidates.uniq!
+          candidates.reject! { |h| h == other_builtin || svc.bindings.provider_for_host(h) == other }
+          case candidates.size
+          when 1
+            host = candidates.first
+          when 0
+            emit_to_log(Message.new("error",
+              H2code.t("ui.ci_type_no_candidate", provider: provider_name)))
+            return
+          else
+            emit_to_log(Message.new("error", H2code.t("ui.ci_type_ambiguous",
+              provider: provider_name, hosts: candidates.join(", "))))
+            return
+          end
+        else
+          host = host.downcase
+        end
+        bound_urls = urls.select { |u| Tools::Ci.remote_host(u).try(&.downcase) == host }
+        svc.bind_provider(@work_dir, host, bound_urls, provider)
+        emit_to_log(Message.new("system",
+          H2code.t("ui.ci_type_bound", host: host, provider: provider_name)))
       end
 
       # Full 40-hex SHA of a user-supplied revision, or nil when it does not

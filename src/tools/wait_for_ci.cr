@@ -97,7 +97,10 @@ module H2code
                   # Skip observing (and waiting for) a HEAD whose branch no
                   # workflow's `on.push` trigger covers — that build will
                   # never start, so the wait would just run to its timeout.
-                  unless Ci.push_covers_branch?(@work_dir, svc.current_branch(@work_dir))
+                  # GitLab-bound repos have no parsed equivalent
+                  # (`workflow:rules`), so they always pass this gate.
+                  unless svc.gitlab_repo?(@work_dir) ||
+                         Ci.push_covers_branch?(@work_dir, svc.current_branch(@work_dir))
                     return ToolResult.success(
                       "No CI workflow triggers on pushes to branch #{svc.current_branch(@work_dir)} — " \
                       "no CI build will run for this commit, nothing to wait for.",
@@ -144,6 +147,9 @@ module H2code
             buf << "Failed runs: #{obs.detail}\n"
             unless obs.failure_log.empty?
               buf << "Failure log (excerpt):\n#{obs.failure_log}\n"
+            end
+            unless obs.failure_log_error.empty?
+              buf << "Could not fetch the CI failure log: #{obs.failure_log_error}\n"
             end
             buf << "Fix the failures, then commit and push again."
           end

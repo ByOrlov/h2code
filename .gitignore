@@ -33,3 +33,6 @@ vendor/miniaudio/.bridge_stamp
 *.exe.prev
 *.pdb
 tmp_lmstudio_test.json
+
+# self-hosted GitLab runner state (contains the registration token)
+/ci/runner/data/

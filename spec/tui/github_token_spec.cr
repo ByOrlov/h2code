@@ -31,19 +31,20 @@ describe "GitHub token wizard" do
         app.github_token_mode?.should be_true
         app.@messages.any? { |m| m.role == "system" && m.content.includes?("personal access token") }.should be_true
 
-        app.run_submit_github_token("ghp_testtoken123")
+        token = "ghp_" + "a" * 36
+        app.run_submit_github_token(token)
         app.github_token_mode?.should be_false
-        cfg.github_token.should eq("ghp_testtoken123")
+        cfg.github_token.should eq(token)
 
         # Persisted to disk in H2CODE_HOME, not the real config.
         config_path = File.join(dir, "config.json")
         File.exists?(config_path).should be_true
-        File.read(config_path).should contain("ghp_testtoken123")
+        File.read(config_path).should contain(token)
 
         # The transcript only ever shows a mask, never the raw token.
         joined = app.@messages.map(&.content).join('\n')
         joined.should contain("•")
-        joined.should_not contain("ghp_testtoken123")
+        joined.should_not contain(token)
 
         # The saved message is reported.
         app.@messages.any? { |m| m.role == "system" && m.content.includes?("api.github.com") }.should be_true
@@ -51,6 +52,25 @@ describe "GitHub token wizard" do
         ENV.delete("H2CODE_HOME")
       end
     end
+  end
+
+  it "rejects a malformed token with an error and keeps the wizard open" do
+    app = GithubApp.new
+    cfg = H2code::Config::Config.new
+    app.app_config = cfg
+
+    app.run_cmd_github("token")
+    app.github_token_mode?.should be_true
+
+    app.run_submit_github_token("not-a-github-token")
+    # The wizard stays open so the correct token can be pasted right away.
+    app.github_token_mode?.should be_true
+    (app.app_config.try(&.github_token) || "").should be_empty
+    error = app.@messages.reverse_each.find { |m| m.role == "error" }
+    error.should_not be_nil
+    (error || raise "error should not be nil").content.should contain("ghp_")
+    # The garbage input is never echoed back in plain text.
+    app.@messages.map(&.content).join.should_not contain("not-a-github-token")
   end
 
   it "Escape cancels the wizard without saving" do

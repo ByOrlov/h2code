@@ -4,17 +4,37 @@ require "uri"
 require "compress/zip"
 require "yaml"
 
+require "./ci/port"
+require "./ci/github_api"
+require "./ci/github_cli"
+require "./ci/github_client"
+require "./ci/gitlab_api"
+require "./ci/gitlab_cli"
+require "./ci/gitlab_client"
+
 module H2code
   module Tools
     # Full CI integration — automatic GitHub Actions / GitLab CI observation
     # after the agent pushes ("ping-pong" architecture).
     #
+    # Access layer (hexagonal): `Ci::Port` is the single CI access
+    # interface — check a commit's status and fetch its failed run's log —
+    # implemented by the `GithubClient` / `GitlabClient` adapters. Each
+    # adapter encapsulates its access variants: `GithubApi` (REST) /
+    # `GithubCli` (gh) and `GitlabApi` (REST, token optional) /
+    # `GitlabCli` (glab api). Which adapter is used is decided by the
+    # service from its provider detection (see `LiveCiService#poll_once`).
+    #
     # Flow:
     #   1. The Bash tool detects a successful `git push` (sudo-detect style)
     #      and calls `Ci.service.try_observe_push`.
-    #   2. If the repo has GitHub Actions workflows and a github.com remote,
-    #      an `Observer` polls right away and then every 30 s (gives up
-    #      after 60 min).
+    #   2. The remote the pushed commit actually landed on decides the
+    #      provider — `git branch -r --contains <sha>` right after the push
+    #      names the remotes that received it (origin is the fallback), so
+    #      a repo with two remotes (github.com origin + a GitLab mirror)
+    #      is observed where the commit really went. If the repo has
+    #      GitHub Actions workflows and a github.com remote, an `Observer`
+    #      polls right away and then every 30 s (gives up after 60 min).
     #      With a GitHub token
     #      configured (config `github.token` / GITHUB_TOKEN / GH_TOKEN)
     #      the observer polls api.github.com directly via `GithubApi` —
@@ -27,6 +47,10 @@ module H2code
     #      is optional — public projects answer anonymous queries; private
     #      ones (401/403/404) are retried through the `glab` CLI
     #      (`glab api`, when installed) so its login covers them too.
+    #      Manual bindings from `~/.h2code/ci.json` (written by the
+    #      `/ci type <provider> [host]` command) take precedence over
+    #      the host whitelists: once a host is bound, every repository
+    #      on it is detected as that provider.
     #   3. While pending, the TUI shows one animated "Waiting for CI for
     #      commit <sha>" line per watched commit in the active zone (with a
     #      `link:` to the commit's Actions checks page) and guards the
@@ -96,94 +120,109 @@ module H2code
         end
       end
 
-      # Direct GitHub REST client — the "own Crystal analog" of `gh run
-      # list` / `gh run view --log-failed`. Used whenever a token is
-      # available (config `github.token` / GITHUB_TOKEN / GH_TOKEN), so CI
-      # observation never touches the gh CLI (and its browser login) at
-      # all. Token goes only into the Authorization header; it is never
-      # included in observer details or logs.
-      class GithubApi
-        API_BASE = "https://api.github.com"
-        # Redirect hops followed per request — renamed repositories answer
-        # 301 with the canonical `repositories/{id}` path, run logs answer
-        # 302 with a signed URL.
-        MAX_REDIRECTS = 3
-
-        def initialize(@token : String? = nil)
-        end
-
-        def get(path : String) : ApiResponse
-          url = path.starts_with?("http") ? path : "#{API_BASE}#{path}"
-          MAX_REDIRECTS.times do
-            uri = URI.parse(url)
-            resp = HTTP::Client.new(uri) do |client|
-              client.connect_timeout = 10.seconds
-              client.read_timeout = 15.seconds
-              client.get(uri.request_target, self.class.headers(@token))
-            end
-            target = self.class.redirect_target(resp)
-            if target
-              url = target.starts_with?("http") ? target : "#{uri.scheme}://#{uri.host}#{target}"
-              next
-            end
-            return ApiResponse.new(resp.status_code, resp.body, resp.headers["Location"]?)
-          end
-          ApiResponse.new(0, "too many redirects: #{url}")
-        rescue ex
-          ApiResponse.new(0, ex.message.to_s)
-        end
-
-        # Redirect target of a 3xx GitHub API response: the Location
-        # header, or the `url` field of the JSON body (GitHub's
-        # moved-repository notices carry the canonical URL in the body).
-        # Nil for non-redirect responses without a usable target.
-        def self.redirect_target(resp : HTTP::Client::Response) : String?
-          return nil unless resp.status.redirection?
-          location = resp.headers["Location"]?
-          return location if location && !location.empty?
-          resp.body.match(/"url":\s*"(https?:[^"]+)"/).try(&.[1].gsub("\\/", "/"))
-        end
-
-        def self.headers(token : String?) : HTTP::Headers
-          headers = HTTP::Headers{
-            "Accept"               => "application/vnd.github+json",
-            "X-GitHub-Api-Version" => "2022-11-28",
-            "User-Agent"           => "h2code",
-          }
-          headers["Authorization"] = "Bearer #{token}" if token && !token.empty?
-          headers
-        end
+      # Host of a git remote URL (SSH and HTTPS forms, credentials and port
+      # stripped), or nil for inputs that parse as neither.
+      def self.remote_host(url : String) : String?
+        url = url.strip
+        ssh = url.match(%r{git@([^:\s/]+):(.+?)(?:\.git)?$})
+        https = url.match(%r{(?:https?|ssh)://(?:[^@\s]+@)?([^/:\s]+)(?::\d+)?/(.+?)(?:\.git)?$})
+        (ssh || https).try { |m| m[1].downcase.split(':')[0]? }
       end
 
-      # Direct GitLab v4 REST client. The base URL comes from the remote host
-      # (gitlab.com or a self-hosted endpoint). The token is optional —
-      # public projects answer anonymous pipeline queries; private ones need
-      # a personal access token (config `gitlab.token` / GITLAB_TOKEN /
-      # GITLAB_PRIVATE_TOKEN) sent via the Private-Token header, which never
-      # reaches observer details or logs.
-      class GitlabApi
-        def initialize(@base_url : String = "https://gitlab.com", @token : String? = nil)
+      # Manual CI provider bindings, persisted as `<h2code home>/ci.json`:
+      #
+      #   {"hosts": {"gl.example.com": "gitlab"},
+      #    "urls":  {"git@gl.example.com:acme/app.git": "gitlab"}}
+      #
+      # Written by the `/ci type <provider> [host]` command: the urls entry
+      # pins the exact repository, the hosts entry makes every repository
+      # from that host auto-detect as the provider — one `/ci type gitlab`
+      # per GitLab instance covers all of a user's repositories on it, with
+      # no `gitlab.endpoint` config needed. Detection consults bindings
+      # before the builtin/configured host whitelists. A nil path keeps
+      # the bindings in memory only (tests, service fakes).
+      class Bindings
+        getter path : String?
+
+        @mutex = Mutex.new
+        @hosts = {} of String => Provider
+        @urls = {} of String => Provider
+
+        def initialize(@path : String? = nil)
+          load
         end
 
-        def get(path : String) : ApiResponse
-          uri = URI.parse("#{@base_url}/api/v4#{path}")
-          resp = HTTP::Client.new(uri) do |client|
-            client.connect_timeout = 10.seconds
-            client.read_timeout = 15.seconds
-            client.get(uri.request_target, self.class.headers(@token))
+        # Provider bound for a remote URL: the exact urls entry (a ".git"
+        # suffix is tolerated) or the entry of the URL's host. Nil when
+        # unbound.
+        def provider_for_url(url : String) : Provider?
+          url = url.strip
+          base = url.ends_with?(".git") ? url[0...url.size - 4] : url
+          @mutex.synchronize do
+            @urls[url]? ||
+              @urls[base]? ||
+              Ci.remote_host(url).try { |host| @hosts[host]? }
           end
-          ApiResponse.new(resp.status_code, resp.body, resp.headers["Location"]?)
-        rescue ex
-          ApiResponse.new(0, ex.message.to_s)
         end
 
-        def self.headers(token : String?) : HTTP::Headers
-          headers = HTTP::Headers{
-            "Accept"     => "application/json",
-            "User-Agent" => "h2code",
-          }
-          headers["Private-Token"] = token if token && !token.empty?
-          headers
+        # Provider bound for a host, or nil.
+        def provider_for_host(host : String) : Provider?
+          @mutex.synchronize { @hosts[host.downcase]? }
+        end
+
+        # Hosts bound to GitLab — feeds the remote host whitelist of
+        # detection (see `LiveCiService#gitlab_hosts`).
+        def gitlab_hosts : Array(String)
+          @mutex.synchronize { @hosts.select { |_, p| p.gitlab? }.keys }
+        end
+
+        # Record a binding: the host plus every given remote URL on it.
+        def set(host : String, urls : Array(String), provider : Provider) : Nil
+          @mutex.synchronize do
+            @hosts[host.downcase] = provider
+            urls.each { |url| @urls[url.strip] = provider }
+            save
+          end
+        end
+
+        private def load : Nil
+          path = @path
+          return if path.nil? || !File.exists?(path)
+          root = JSON.parse(File.read(path))
+          @hosts = parse_map(root["hosts"]?)
+          @urls = parse_map(root["urls"]?)
+        rescue JSON::ParseException | IO::Error | File::NotFoundError
+          # Best-effort: a broken ci.json behaves as no bindings at all.
+        end
+
+        private def parse_map(value : JSON::Any?) : Hash(String, Provider)
+          map = {} of String => Provider
+          hash = value.try(&.raw.as?(Hash))
+          return map if hash.nil?
+          hash.each do |key, v|
+            case v.to_s.downcase
+            when "gitlab" then map[key.to_s] = Provider::Gitlab
+            when "github" then map[key.to_s] = Provider::Github
+            end
+          end
+          map
+        end
+
+        private def save : Nil
+          path = @path
+          return if path.nil?
+          json = JSON.build do |b|
+            b.object do
+              b.field("hosts") { b.object { @hosts.each { |k, p| b.field(k, p.to_s.downcase) } } }
+              b.field("urls") { b.object { @urls.each { |k, p| b.field(k, p.to_s.downcase) } } }
+            end
+          end
+          dir = File.dirname(path)
+          Dir.mkdir_p(dir) unless Dir.exists?(dir)
+          File.write(path, json + "\n")
+        rescue IO::Error | File::NotFoundError | ArgumentError
+          # Best-effort persistence: a failed write keeps the in-memory
+          # bindings working for this session.
         end
       end
 
@@ -257,6 +296,10 @@ module H2code
         property provider : Provider = Provider::Github
         property detail : String = ""
         property failure_log : String = ""
+        # Причина, почему лог упавшего прогона получить не удалось (пуст,
+        # когда лог получен). Показывается отдельной ошибкой в TUI и
+        # строкой в нотификации — отсутствие лога не должно быть молчаливым.
+        property failure_log_error : String = ""
         # Set by WaitForCI: the tool result replaces the automatic completion
         # notification, so delivery is suppressed for this observer.
         property? claimed : Bool = false
@@ -373,9 +416,9 @@ module H2code
       # `[...]`) matched with `File.match?`. Undecidable input (empty or
       # detached branch, no workflow files, YAML the parser rejects)
       # counts as covered, so observation degrades to the old behavior
-      # instead of skipping a real build. GitLab repos have no workflows
-      # dir and stay covered — `.gitlab-ci.yml` `workflow:rules` are not
-      # parsed.
+      # instead of skipping a real build. GitLab-bound pushes skip this
+      # gate entirely (see `observe_push_branch?`) — `.gitlab-ci.yml`
+      # `workflow:rules` are not parsed.
       def self.push_covers_branch?(repo_dir : String, branch : String) : Bool
         return true if branch.empty? || branch == "HEAD"
         paths = Dir.glob(File.join(repo_dir, ".github", "workflows", "*.{yml,yaml}"))
@@ -446,66 +489,19 @@ module H2code
         end
       end
 
-      # Aggregate `gh run list --json` / Actions API run rows into an observer
-      # status. Pending while any run is in progress or none is registered
-      # yet. `event: dynamic` rows (Dependabot's dependabot-updates
-      # bookkeeping runs, which attach to the default branch head month after
-      # month) are not builds of the commit and are ignored — counted in,
-      # they drown out the commit's real runs and fabricate a pass verdict.
+      # Aggregate GitHub Actions run rows (`gh run list --json` / Actions
+      # API) into an observer status — thin wrapper over the universal
+      # Port.aggregate with the runs normalized by GithubClient.
       def self.aggregate_runs(runs : Array(JSON::Any)) : {Status, String}
-        runs = runs.reject { |run| run["event"]?.try(&.to_s) == "dynamic" }
-        return {Status::Pending, "no runs reported yet"} if runs.empty?
-        in_progress = [] of String
-        failed = [] of String
-        passed = 0
-        runs.each do |run|
-          name = run["name"]?.try(&.to_s) || "run"
-          status = run["status"]?.try(&.to_s) || ""
-          conclusion = run["conclusion"]?.try(&.to_s) || ""
-          if status != "completed"
-            in_progress << name
-          elsif BAD_CONCLUSIONS.includes?(conclusion)
-            failed << "#{name} (#{conclusion})"
-          else
-            passed += 1
-          end
-        end
-        unless in_progress.empty?
-          return {Status::Pending, "in progress: #{in_progress.join(", ")}"}
-        end
-        if failed.empty?
-          {Status::Success, "#{passed} run(s) passed"}
-        else
-          {Status::Failure, failed.join(", ")}
-        end
+        mapped = GithubClient.map_runs(runs)
+        Port.aggregate(mapped, "no runs reported yet", "run(s)")
       end
 
-      # Aggregate GitLab pipeline rows into an observer status. Pending while
-      # any pipeline is in progress or none is registered yet.
+      # Aggregate GitLab pipeline rows into an observer status — thin
+      # wrapper over Port.aggregate (see aggregate_runs).
       def self.aggregate_pipelines(pipelines : Array(JSON::Any)) : {Status, String}
-        return {Status::Pending, "no pipelines reported yet"} if pipelines.empty?
-        in_progress = [] of String
-        failed = [] of String
-        passed = 0
-        pipelines.each do |pipeline|
-          name = "pipeline ##{pipeline["id"]?.try(&.to_s) || "?"}"
-          status = pipeline["status"]?.try(&.to_s) || ""
-          if GITLAB_BAD_STATUSES.includes?(status)
-            failed << "#{name} (#{status})"
-          elsif GITLAB_GOOD_STATUSES.includes?(status)
-            passed += 1
-          else
-            in_progress << name
-          end
-        end
-        unless in_progress.empty?
-          return {Status::Pending, "in progress: #{in_progress.join(", ")}"}
-        end
-        if failed.empty?
-          {Status::Success, "#{passed} pipeline(s) passed"}
-        else
-          {Status::Failure, failed.join(", ")}
-        end
+        mapped = GitlabClient.map_pipelines(pipelines, nil, "")
+        Port.aggregate(mapped, "no pipelines reported yet", "pipeline(s)")
       end
 
       # Keep at most `bytes` of a string; on cut keep the tail (errors and
@@ -530,6 +526,13 @@ module H2code
         # simple; `LiveCiService` overrides.
         def current_branch(cwd : String) : String
           ""
+        end
+
+        # True when the CI repo at `cwd` resolves to GitLab — GitHub
+        # workflow branch filters do not apply to its pushes. Concrete
+        # default keeps test doubles simple; `LiveCiService` overrides.
+        def gitlab_repo?(cwd : String) : Bool
+          false
         end
       end
 
@@ -560,6 +563,11 @@ module H2code
         # Injectable in tests to skip the probe subprocess.
         property? glab_available : Bool = false
         property? glab_probed : Bool = false
+        # Manual CI provider bindings (ci.json) — `/ci type gitlab|github
+        # [host]` writes them; detection consults them before the
+        # host whitelists. Memory-only by default; the wiring sites point
+        # it at <h2code home>/ci.json.
+        property bindings : Bindings = Bindings.new
         # Injectable REST GET for tests; defaults to real GithubApi/GitlabApi.
         property api_get : (String -> ApiResponse)? = nil
 
@@ -569,7 +577,7 @@ module H2code
         @repo_cache = {} of String => RepoInfo?
 
         def initialize(@github_token : String = "", @gitlab_token : String = "",
-                       @gitlab_endpoint : String = "")
+                       @gitlab_endpoint : String = "", @bindings : Bindings = Bindings.new)
         end
 
         # Token for direct REST polling (nil → gh CLI fallback mode).
@@ -577,25 +585,11 @@ module H2code
           @github_token.presence
         end
 
-        # Resolved REST-poll target for the GitHub repo at cwd, or nil when
-        # no token is available or the repo is not GitHub (→ gh CLI fallback
-        # on GitHub, dedicated GitLab path on GitLab). The remote is resolved
-        # once per cwd.
-        private record ApiTarget, repo : RepoInfo, token : String
-
-        private def api_target(cwd : String) : ApiTarget?
-          token = api_token
-          return nil if token.nil?
-          info = resolve_repo(cwd)
-          return nil if info.nil? || !info.provider.github?
-          ApiTarget.new(info, token)
-        end
-
         # GitLab hosts whose remotes are observed: gitlab.com plus the host
         # of the configured self-hosted endpoint. Public for the
         # MergeRequest tool's remote detection.
         def gitlab_hosts : Array(String)
-          hosts = ["gitlab.com"]
+          hosts = ["gitlab.com"] + @bindings.gitlab_hosts
           if ep = @gitlab_endpoint.presence
             begin
               host = URI.parse(ep.starts_with?("http") ? ep : "https://#{ep}").host
@@ -622,64 +616,135 @@ module H2code
         end
 
         # Resolve (and cache per-cwd) the CI repo info for the repo at `cwd`.
-        private def resolve_repo(cwd : String) : RepoInfo?
-          cached = @mutex.synchronize { @repo_cache[cwd]? }
-          return cached if cached
-          return nil if @mutex.synchronize { @repo_cache.has_key?(cwd) }
-          info = detect_repo(cwd)
+        # A nil `sha` serves the cached entry (the poll loop); a concrete sha
+        # forces a fresh, sha-aware detection — after a push the commit may
+        # live on a different remote than a cached resolution says.
+        private def resolve_repo(cwd : String, sha : String? = nil) : RepoInfo?
+          if sha.nil?
+            cached = @mutex.synchronize { @repo_cache[cwd]? }
+            return cached if cached
+            return nil if @mutex.synchronize { @repo_cache.has_key?(cwd) }
+          end
+          info = detect_repo(cwd, sha)
           @mutex.synchronize { @repo_cache[cwd] = info }
           info
         end
 
-        # Provider detection for the repo at cwd: GitHub Actions
-        # (`.github/workflows` + github.com remote) takes precedence, then
-        # GitLab CI (`.gitlab-ci.yml` + a gitlab.com / configured-endpoint
-        # remote). Marker directories are checked first so repos that are
-        # not CI-eligible resolve to nil without spawning any command. Nil
+        # Provider detection for the repo at cwd: the candidate remotes are
+        # checked in order (see `candidate_remote_urls`) and the first one
+        # whose host matches a CI marker wins — GitHub Actions
+        # (`.github/workflows` + github.com remote), then GitLab CI
+        # (`.gitlab-ci.yml` + a gitlab.com / configured-endpoint remote).
+        # Marker directories are checked first so repos that are not
+        # CI-eligible resolve to nil without spawning any command. Nil
         # when the repo is not eligible for CI observation.
-        private def detect_repo(cwd : String) : RepoInfo?
+        private def detect_repo(cwd : String, sha : String? = nil) : RepoInfo?
           gh_marker = Dir.exists?(File.join(cwd, ".github", "workflows"))
           gl_marker = File.exists?(File.join(cwd, ".gitlab-ci.yml"))
           return nil unless gh_marker || gl_marker
-          remote = run("git remote get-url origin", cwd)
-          return nil if remote.exit_code != 0
-          url = remote.output.strip
-          info = gh_marker ? Ci.parse_github_remote(url) : nil
-          info ||= gl_marker ? Ci.parse_gitlab_remote(url, gitlab_hosts) : nil
-          info
+          candidate_remote_urls(cwd, sha).each do |url|
+            info = bound_repo_info(url)
+            return info if info
+            info = gh_marker ? Ci.parse_github_remote(url) : nil
+            info ||= gl_marker ? Ci.parse_gitlab_remote(url, gitlab_hosts) : nil
+            return info if info
+          end
+          nil
         end
 
-        private def api_call(path : String) : ApiResponse
-          getter = @api_get
-          return getter.call(path) if getter
-          GithubApi.new(api_token).get(path)
+        # RepoInfo from a ci.json binding: the urls entry pins this exact
+        # repository, the hosts entry every repository from that host. The
+        # host needs no whitelist here — the user's binding says what it
+        # is; the generic git-URL parsing extracts host + project path.
+        private def bound_repo_info(url : String) : RepoInfo?
+          provider = @bindings.provider_for_url(url)
+          return nil if provider.nil?
+          host = Ci.remote_host(url)
+          return nil if host.nil?
+          Ci.parse_gitlab_remote(url, [host]).try { |info| RepoInfo.new(provider, host, info.path) }
         end
 
-        # REST GET against the GitLab host of `info` (test-injectable via
-        # the same api_get hook; tests distinguish providers by path shape).
-        private def api_call_gitlab(info : RepoInfo, path : String) : ApiResponse
-          getter = @api_get
-          return getter.call(path) if getter
-          GitlabApi.new(gitlab_api_base(info), @gitlab_token.presence).get(path)
+        # URLs of the remotes to test for CI eligibility, best-candidate
+        # order: when `sha` is known (right after a push), the remotes whose
+        # tracking refs contain the commit come first — `git branch -r
+        # --contains` reports exactly where the commit went (a successful
+        # push updates the tracking refs), so a non-origin `git push gitlab
+        # master` is detected on the gitlab remote even when origin is
+        # github.com and both CI configs sit in the tree. origin follows as
+        # the fallback (and for the sha-less resolution). A commit pushed
+        # to several CI-eligible remotes is observed on the first one
+        # listed — one observer per commit.
+        private def candidate_remote_urls(cwd : String, sha : String?) : Array(String)
+          names = [] of String
+          if sha
+            res = run("git branch -r --contains #{sha}", cwd)
+            if res.exit_code == 0
+              res.output.each_line do |line|
+                next if line.includes?("->") # origin/HEAD -> origin/master
+                name = line.strip.split('/')[0]?
+                # Remote names are word chars / dots / dashes; anything else
+                # is noise and must never reach the shell.
+                next if name.nil? || name.empty? || !(name =~ /\A[\w.-]+\z/)
+                names << name unless names.includes?(name)
+              end
+            end
+          end
+          names << "origin" unless names.includes?("origin")
+          names.compact_map do |name|
+            res = run("git remote get-url #{name}", cwd)
+            url = res.output.strip
+            res.exit_code == 0 && !url.empty? ? url : nil
+          end
+        end
+
+        # Port-adapter for the GitHub repo at cwd: REST (GithubApi) when a
+        # token is configured and the repo is resolved, otherwise the gh
+        # CLI (GithubCli). The api_get hook (tests) rides on the API variant.
+        private def github_client(info : RepoInfo?, cwd : String) : GithubClient
+          api = info && api_token ? GithubApi.new(api_token, @api_get) : nil
+          GithubClient.new(info, api, GithubCli.new(@runner, cwd))
+        end
+
+        # Port-adapter for the GitLab repo: GitlabApi (token optional;
+        # private projects fall back to glab inside the adapter) with the
+        # api_get hook (tests) riding along.
+        private def gitlab_client(info : RepoInfo, cwd : String) : GitlabClient
+          GitlabClient.new(
+            info,
+            GitlabApi.new(gitlab_api_base(info), @gitlab_token.presence, @api_get),
+            GitlabCli.new(@runner, cwd, info.host),
+            -> { glab_ready?(cwd) },
+          )
         end
 
         def try_observe_push(command : String, cwd : String) : Bool
           return false unless Ci.push_command?(command)
           repo_dir = Ci.repo_dir_from_command(command, cwd)
-          sha = head_sha(repo_dir)
+          sha = rev_parse_head(repo_dir)
           return false if sha.nil?
-          return false unless observe_push_branch?(repo_dir)
+          # Resolve the repo with the sha in hand: right after the push the
+          # remote tracking refs already say which remote received the
+          # commit, so `git push gitlab master` in a repo whose origin is
+          # GitHub is observed on GitLab, not on GitHub.
+          info = resolve_repo(repo_dir, sha)
+          return false if info.nil?
+          return false unless observe_push_branch?(repo_dir, info)
           observe(sha, repo_dir)
         end
 
         # A plain `git push` publishes the current branch, so before
         # observing, check that branch against the workflows' `on.push`
-        # triggers. When no workflow covers it, CI never runs for the
-        # sha — report that instead of parking a "Waiting for CI" line
-        # until MAX_WAIT_S. Refspec pushes (`git push origin HEAD:master`)
-        # are not parsed; an undeterminable branch (empty / detached HEAD)
-        # falls through to observing, same as before.
-        private def observe_push_branch?(repo_dir : String) : Bool
+        # triggers. GitLab-bound pushes skip the gate — `.gitlab-ci.yml`
+        # `workflow:rules` are not parsed, so the pipeline counts as
+        # covered (and the GitHub workflows in a two-config tree say
+        # nothing about a GitLab push). When no workflow covers the sha's
+        # branch, CI never runs for it — report that instead of parking a
+        # "Waiting for CI" line until MAX_WAIT_S. Refspec pushes
+        # (`git push origin HEAD:master`) are not parsed; an undeterminable
+        # branch (empty / detached HEAD) falls through to observing, same
+        # as before.
+        private def observe_push_branch?(repo_dir : String, info : RepoInfo) : Bool
+          return true if info.provider.gitlab?
           branch = current_branch(repo_dir)
           return true if Ci.push_covers_branch?(repo_dir, branch)
           notify_uncovered_branch(branch)
@@ -693,17 +758,9 @@ module H2code
                  "No CI workflow triggers on pushes to this branch, so no CI build will run for it. " \
                  "Nothing is being observed. Check the `on: push` branch filters in .github/workflows " \
                  "if you expected a build."
-          data = {
-            "id"          => JSON::Any.new("ci.noci.#{branch}"),
-            "category"    => JSON::Any.new("ci_completion"),
-            "type"        => JSON::Any.new("skipped"),
-            "source_kind" => JSON::Any.new("ci"),
-            "source_id"   => JSON::Any.new(branch),
-            "title"       => JSON::Any.new("No CI build for this branch"),
-            "severity"    => JSON::Any.new("info"),
-            "body"        => JSON::Any.new(body),
-          } of String => JSON::Any
-          @delivery.try(&.call(Tools.render_notification_xml(data)))
+          text = "[notification id=\"ci.noci.#{branch}\"]\n" \
+                 "No CI build for this branch\n#{body}"
+          @delivery.try(&.call(text))
         end
 
         # Branch of the repo at `cwd`, "" when HEAD is detached or the
@@ -713,12 +770,27 @@ module H2code
           res.exit_code == 0 ? res.output.strip : ""
         end
 
+        # True when the resolved CI repo at `cwd` is GitLab-bound. Uses the
+        # per-cwd cache (populated by head_sha / try_observe_push), so this
+        # spawns no subprocess on the WaitForCI path.
+        def gitlab_repo?(cwd : String) : Bool
+          resolve_repo(cwd).try(&.provider.gitlab?) || false
+        end
+
         # HEAD sha of the repo at `cwd`, or nil when the repo is not eligible
-        # for CI observation (see `detect_repo`: GitHub needs
+        # for CI observation (see `detect_repo`; GitHub needs
         # `.github/workflows` + a github.com remote, GitLab needs
-        # `.gitlab-ci.yml` + a GitLab remote).
+        # `.gitlab-ci.yml` + a GitLab remote — resolved sha-aware, so a HEAD
+        # published to a non-origin remote is detected there).
         def head_sha(cwd : String) : String?
-          return nil if resolve_repo(cwd).nil?
+          sha = rev_parse_head(cwd)
+          return nil if sha.nil?
+          resolve_repo(cwd, sha).nil? ? nil : sha
+        end
+
+        # HEAD sha of the repo at `cwd` — 40 hex chars — or nil when
+        # rev-parse fails or returns anything else.
+        private def rev_parse_head(cwd : String) : String?
           rev = run("git rev-parse HEAD", cwd)
           sha = rev.output.strip
           return nil if rev.exit_code != 0 || sha.size != 40 || sha =~ /[^0-9a-f]/
@@ -729,6 +801,26 @@ module H2code
         # same eligibility as head_sha) — used by the startup token tip.
         def repo_info(cwd : String) : RepoInfo?
           resolve_repo(cwd)
+        end
+
+        # URLs of all remotes configured for the repo at `cwd` — `/ci type`
+        # picks the host to bind from them. Empty when the lookup fails.
+        def remote_urls(cwd : String) : Array(String)
+          res = run("git config --local --get-regexp '^remote\\..*\\.url$'", cwd)
+          return [] of String unless res.exit_code == 0
+          res.output.lines.compact_map do |line|
+            value = line.strip.split(' ', 2)[1]?
+            value.try(&.strip).presence
+          end
+        end
+
+        # `/ci type`: persist the provider binding (ci.json) and drop the
+        # cached repo resolution, so the next detection — a push, /ci,
+        # WaitForCI — sees it immediately.
+        def bind_provider(cwd : String, host : String, urls : Array(String),
+                          provider : Provider) : Nil
+          @bindings.set(host, urls, provider)
+          @mutex.synchronize { @repo_cache.delete(cwd) }
         end
 
         def observe(sha : String, cwd : String) : Bool
@@ -793,144 +885,69 @@ module H2code
         end
 
         # One polling step. Public so tests can drive the state machine with
-        # a scripted runner. GitLab observers poll the GitLab REST API
-        # directly (token optional; denied access falls back to the glab
-        # CLI). GitHub observers use the REST API when
-        # a token is available (config / env); otherwise they fall back to
-        # the gh CLI. Transient failures (non-zero gh exit, HTTP 5xx
-        # / rate limits, output that is not valid JSON — stderr is merged
-        # into stdout on the gh path) only count towards
-        # `consecutive_failures`; the observer stays Pending until
-        # MAX_CONSECUTIVE_FAILURES in a row, so the "Waiting for CI" line
-        # does not vanish while the build is still running.
+        # a scripted runner. Which port adapter is used follows the current
+        # provider logic: GitLab observers (or a repo that resolves to
+        # GitLab — e.g. WaitForCI on a fresh sha) go through GitlabClient
+        # (GitlabApi REST, glab fallback inside the adapter); GitHub
+        # observers use GithubClient — its REST variant when a token is
+        # available (config / env), else the gh CLI. Transient failures
+        # (non-zero CLI exit, HTTP 5xx / rate limits, output that is not
+        # valid JSON) only count towards `consecutive_failures`; the
+        # observer stays Pending until MAX_CONSECUTIVE_FAILURES in a row,
+        # so the "Waiting for CI" line does not vanish while the build is
+        # still running. Permanent errors (GitLab access denied, no glab)
+        # settle as Error right away.
         def poll_once(obs : Observer, cwd : String) : Nil
           return unless obs.pending?
-          if obs.provider.gitlab?
-            poll_once_via_gitlab(obs, cwd)
-          elsif target = api_target(cwd)
-            poll_once_via_api(obs, target)
-          elsif resolve_repo(cwd).try(&.provider.gitlab?)
-            # GitLab repo observed without a prior push detection (e.g.
-            # WaitForCI on a fresh sha): switch the observer to GitLab.
-            obs.provider = Ci::Provider::Gitlab
-            poll_once_via_gitlab(obs, cwd)
-          else
-            poll_once_via_gh(obs, cwd)
-          end
-        end
-
-        # Direct REST polling (token mode): GET /actions/runs?head_sha=…,
-        # map onto the same aggregation as the gh path.
-        private def poll_once_via_api(obs : Observer, target : ApiTarget) : Nil
-          # per_page=100: runs come back newest-first, and bookkeeping runs
-          # (Dependabot updates) must not crowd the commit's real runs off
-          # the first page before aggregation filters them out.
-          res = api_call("/repos/#{target.repo.path}/actions/runs?head_sha=#{obs.sha}&per_page=100")
-          unless res.status_code == 200
-            record_poll_failure(obs, "GitHub API HTTP #{res.status_code}: #{Ci.excerpt(res.body, DETAIL_EXCERPT_BYTES)}")
-            return
-          end
-          begin
-            runs = JSON.parse(res.body)["workflow_runs"].as_a
-          rescue JSON::ParseException | KeyError | TypeCastError
-            record_poll_failure(obs, "unexpected GitHub API output: #{Ci.excerpt(res.body, DETAIL_EXCERPT_BYTES)}")
-            return
-          end
-          obs.consecutive_failures = 0
-          status, detail = Ci.aggregate_runs(runs)
-          obs.detail = detail
-          if status.terminal?
-            obs.failure_log = Ci.excerpt(api_fetch_failure_log(target, runs), FAILURE_LOG_MAX_BYTES) if status.failure?
-            obs.status = status
-            settle(obs)
-          end
-        end
-
-        # GitLab REST polling: GET /projects/<ref>/pipelines?sha=… — the
-        # token is optional (public projects answer anonymously). Private
-        # projects deny that access (GitLab answers 404 to avoid leaking
-        # existence); when that happens and the glab CLI is installed, the
-        # poll is retried through `glab api` — its login covers private
-        # projects without a token in h2code's config.
-        private def poll_once_via_gitlab(obs : Observer, cwd : String) : Nil
           info = resolve_repo(cwd)
-          if info.nil? || !info.provider.gitlab?
-            record_poll_failure(obs, "repository is no longer GitLab-connected")
+          if obs.provider.gitlab?
+            if info.nil? || !info.provider.gitlab?
+              record_poll_failure(obs, "repository is no longer GitLab-connected")
+            else
+              poll_via_client(obs, gitlab_client(info, cwd))
+            end
+          elsif (gl_info = info) && gl_info.provider.gitlab?
+            # GitLab repo observed without a prior push detection:
+            # switch the observer to GitLab.
+            obs.provider = Ci::Provider::Gitlab
+            poll_via_client(obs, gitlab_client(gl_info, cwd))
+          elsif info && api_token
+            poll_via_client(obs, github_client(info, cwd))
+          else
+            poll_via_client(obs, github_client(nil, cwd))
+          end
+        end
+
+        # One check through a CI port adapter: map the universal Check onto
+        # the observer — wait-line link from the run's web_url, failure-log
+        # excerpt on failure, transient-error accounting via
+        # record_poll_failure, immediate settle on permanent errors.
+        private def poll_via_client(obs : Observer, client : Port) : Nil
+          check = client.runs(obs.sha)
+          if check.status.error?
+            if check.permanent_error
+              obs.status = Status::Error
+              obs.detail = check.detail
+              settle(obs)
+            else
+              record_poll_failure(obs, check.detail)
+            end
             return
           end
-          res = api_call_gitlab(info, gitlab_pipelines_path(info, obs))
-          if {401, 403, 404}.includes?(res.status_code) && glab_ready?(cwd)
-            poll_once_via_glab(obs, info, cwd)
-          else
-            handle_gitlab_poll_response(obs, info, cwd, res)
-          end
-        end
-
-        private def gitlab_pipelines_path(info : RepoInfo, obs : Observer) : String
-          "/projects/#{info.gitlab_project_ref}/pipelines?sha=#{obs.sha}&per_page=20"
-        end
-
-        private def handle_gitlab_poll_response(obs : Observer, info : RepoInfo,
-                                                cwd : String, res : ApiResponse) : Nil
-          case res.status_code
-          when 200
-            begin
-              pipelines = JSON.parse(res.body).as_a
-            rescue JSON::ParseException | TypeCastError
-              record_poll_failure(obs, "unexpected GitLab API output: #{Ci.excerpt(res.body, DETAIL_EXCERPT_BYTES)}")
-              return
-            end
-            settle_gitlab_pipelines(obs, info, cwd, pipelines, via_glab: false)
-          when 401, 403
-            record_poll_failure(obs, "GitLab API HTTP #{res.status_code}: set a GitLab token (config gitlab.token / GITLAB_TOKEN env) or log in with `glab auth login` to observe private projects")
-          when 404
-            record_poll_failure(obs, "GitLab API HTTP 404: project not found — check the remote URL and token access")
-          else
-            record_poll_failure(obs, "GitLab API HTTP #{res.status_code}: #{Ci.excerpt(res.body, DETAIL_EXCERPT_BYTES)}")
-          end
-        end
-
-        # Shared terminal handling for both GitLab backends: aggregate the
-        # pipelines, capture the failure-log excerpt on failure, settle.
-        private def settle_gitlab_pipelines(obs : Observer, info : RepoInfo, cwd : String,
-                                            pipelines : Array(JSON::Any), via_glab : Bool) : Nil
           obs.consecutive_failures = 0
-          status, detail = Ci.aggregate_pipelines(pipelines)
-          obs.detail = detail
-          if status.terminal?
-            if status.failure?
-              log = via_glab ? glab_fetch_failure_log(info, pipelines, cwd) : gitlab_fetch_failure_log(info, pipelines)
-              obs.failure_log = Ci.excerpt(log, FAILURE_LOG_MAX_BYTES)
+          obs.detail = check.detail
+          if run = check.runs.first?
+            obs.actions_url = run.web_url unless run.web_url.empty?
+          end
+          if check.status.terminal?
+            if check.status.failure?
+              log = client.failure_log(check)
+              obs.failure_log = Ci.excerpt(log.text, FAILURE_LOG_MAX_BYTES) unless log.text.empty?
+              obs.failure_log_error = log.error
             end
-            obs.status = status
+            obs.status = check.status
             settle(obs)
           end
-        end
-
-        # glab CLI polling: `glab api` is an authenticated passthrough to
-        # the same v4 endpoints (its login covers private projects). The
-        # explicit `-X GET` matters: with --hostname alone glab flips its
-        # default method to POST.
-        private def poll_once_via_glab(obs : Observer, info : RepoInfo, cwd : String) : Nil
-          res = run(glab_api_command(info, gitlab_pipelines_path(info, obs)), cwd)
-          unless res.exit_code == 0
-            record_poll_failure(obs, "glab failed (exit #{res.exit_code}): #{Ci.excerpt(res.output, DETAIL_EXCERPT_BYTES)}")
-            return
-          end
-          begin
-            pipelines = JSON.parse(res.output).as_a
-          rescue JSON::ParseException | TypeCastError
-            record_poll_failure(obs, "unexpected glab output: #{Ci.excerpt(res.output, DETAIL_EXCERPT_BYTES)}")
-            return
-          end
-          settle_gitlab_pipelines(obs, info, cwd, pipelines, via_glab: true)
-        end
-
-        # Shell invocation of `glab api` for one v4 endpoint path. The path
-        # is single-quoted (it carries ?/&/%); its bytes come from the
-        # percent-encoded project ref and hex/numeric ids, never a quote.
-        private def glab_api_command(info : RepoInfo, path : String) : String
-          "glab api --hostname #{info.host} -X GET '#{path.lchop('/')}'"
         end
 
         # True when the glab CLI is installed (probed once per service;
@@ -940,32 +957,6 @@ module H2code
           @glab_probed = true
           @glab_available = run("glab --version", cwd).exit_code == 0
           @glab_available
-        end
-
-        # gh CLI polling (fallback mode — needs an interactive gh login).
-        private def poll_once_via_gh(obs : Observer, cwd : String) : Nil
-          # event is requested so aggregation can drop Dependabot's dynamic
-          # bookkeeping runs; --limit 100 keeps real runs from being crowded
-          # off the newest-first listing.
-          res = run("gh run list -c #{obs.sha} --json databaseId,name,status,conclusion,event --limit 100", cwd)
-          unless res.exit_code == 0
-            record_poll_failure(obs, "gh failed (exit #{res.exit_code}): #{Ci.excerpt(res.output, DETAIL_EXCERPT_BYTES)}")
-            return
-          end
-          begin
-            runs = JSON.parse(res.output).as_a
-          rescue JSON::ParseException
-            record_poll_failure(obs, "unexpected gh output: #{Ci.excerpt(res.output, DETAIL_EXCERPT_BYTES)}")
-            return
-          end
-          obs.consecutive_failures = 0
-          status, detail = Ci.aggregate_runs(runs)
-          obs.detail = detail
-          if status.terminal?
-            obs.failure_log = fetch_failure_log(runs, cwd) if status.failure?
-            obs.status = status
-            settle(obs)
-          end
         end
 
         # Count a failed poll. Terminal Error only after MAX_CONSECUTIVE_FAILURES
@@ -999,109 +990,15 @@ module H2code
                             when .gitlab?
                               # gitlab_api_base carries the configured
                               # endpoint's scheme/port; the web UI lives on
-                              # the same base as the API.
-                              "#{gitlab_api_base(info)}/#{info.path}/-/commits/#{obs.sha}"
+                              # the same base as the API. `/commit/<sha>`
+                              # (singular) is the commit page; `/commits/`
+                              # is an unfiltered listing. Replaced by the
+                              # direct pipeline link once a poll sees one
+                              # (settle_gitlab_pipelines).
+                              "#{gitlab_api_base(info)}/#{info.path}/-/commit/#{obs.sha}"
                             else
                               "https://github.com/#{info.path}/commit/#{obs.sha}/checks"
                             end
-        end
-
-        # Excerpt of the failed-step log for the first failed run.
-        private def fetch_failure_log(runs : Array(JSON::Any), cwd : String) : String
-          failed_id = nil
-          runs.each do |run|
-            conclusion = run["conclusion"]?.try(&.to_s) || ""
-            next unless run["status"]?.try(&.to_s) == "completed"
-            next unless Ci::BAD_CONCLUSIONS.includes?(conclusion)
-            failed_id = run["databaseId"]?.try(&.to_s)
-            break
-          end
-          return "" if failed_id.nil?
-          res = run("gh run view #{failed_id} --log-failed", cwd)
-          return "" unless res.exit_code == 0
-          Ci.excerpt(res.output, FAILURE_LOG_MAX_BYTES)
-        end
-
-        # Same as fetch_failure_log but over the REST API: the run-logs
-        # endpoint answers 302 with a signed URL, whose body is a zip of
-        # plain-text step logs. Best-effort — any failure yields "".
-        private def api_fetch_failure_log(target : ApiTarget, runs : Array(JSON::Any)) : String
-          failed_run = runs.find do |run|
-            run["status"]?.try(&.to_s) == "completed" &&
-              Ci::BAD_CONCLUSIONS.includes?(run["conclusion"]?.try(&.to_s) || "")
-          end
-          failed_id = failed_run.try { |r| r["id"]?.try(&.to_s) }
-          return "" if failed_id.nil?
-          res = api_call("/repos/#{target.repo.path}/actions/runs/#{failed_id}/logs")
-          if res.status_code == 302 && (loc = res.location)
-            res = api_call(loc)
-          end
-          return "" unless res.status_code == 200
-          Ci.extract_zip_text(res.body)
-        rescue
-          ""
-        end
-
-        # GitLab failure log: the first failed pipeline → its jobs → the
-        # first hard-failed job (allow_failure jobs do not fail the
-        # pipeline) → the job's trace (plain text). Best-effort — any
-        # failure yields "".
-        private def gitlab_fetch_failure_log(info : RepoInfo, pipelines : Array(JSON::Any)) : String
-          ids = gitlab_failed_pipeline_ids(pipelines)
-          return "" if ids.nil?
-          project_id, pipeline_id = ids
-          res = api_call_gitlab(info, "/projects/#{project_id}/pipelines/#{pipeline_id}/jobs?per_page=50")
-          return "" unless res.status_code == 200
-          begin
-            jobs = JSON.parse(res.body).as_a
-          rescue JSON::ParseException | TypeCastError
-            return ""
-          end
-          job_id = gitlab_failed_job_id(jobs)
-          return "" if job_id.nil?
-          res = api_call_gitlab(info, "/projects/#{project_id}/jobs/#{job_id}/trace")
-          res.status_code == 200 ? res.body : ""
-        rescue
-          ""
-        end
-
-        # Same as gitlab_fetch_failure_log but through `glab api`.
-        private def glab_fetch_failure_log(info : RepoInfo, pipelines : Array(JSON::Any), cwd : String) : String
-          ids = gitlab_failed_pipeline_ids(pipelines)
-          return "" if ids.nil?
-          project_id, pipeline_id = ids
-          res = run(glab_api_command(info, "/projects/#{project_id}/pipelines/#{pipeline_id}/jobs?per_page=50"), cwd)
-          return "" unless res.exit_code == 0
-          begin
-            jobs = JSON.parse(res.output).as_a
-          rescue JSON::ParseException | TypeCastError
-            return ""
-          end
-          job_id = gitlab_failed_job_id(jobs)
-          return "" if job_id.nil?
-          res = run(glab_api_command(info, "/projects/#{project_id}/jobs/#{job_id}/trace"), cwd)
-          res.exit_code == 0 ? res.output : ""
-        rescue
-          ""
-        end
-
-        # {project_id, pipeline_id} of the first failed pipeline, if any.
-        private def gitlab_failed_pipeline_ids(pipelines : Array(JSON::Any)) : {String, String}?
-          failed = pipelines.find do |pipeline|
-            Ci::GITLAB_BAD_STATUSES.includes?(pipeline["status"]?.try(&.to_s) || "")
-          end
-          project_id = failed.try { |p| p["project_id"]?.try(&.to_s) }
-          pipeline_id = failed.try { |p| p["id"]?.try(&.to_s) }
-          {project_id, pipeline_id} if project_id && pipeline_id
-        end
-
-        # Id of the first hard-failed job (allow_failure jobs do not fail
-        # the pipeline).
-        private def gitlab_failed_job_id(jobs : Array(JSON::Any)) : String?
-          job = jobs.find do |j|
-            j["status"]?.try(&.to_s) == "failed" && j["allow_failure"]?.try(&.as_bool?) != true
-          end
-          job.try { |j| j["id"]?.try(&.to_s) }
         end
 
         private def settle(obs : Observer) : Nil
@@ -1117,8 +1014,31 @@ module H2code
         end
       end
 
-      # Notification prompt for a finished observer. Nil for non-actionable
-      # outcomes (success is log-only; pending never reaches here).
+      # Startup CI-token warning tip for the repo at `cwd`: resolves the
+      # provider sha-aware (like the post-push detection — the remote the
+      # HEAD commit actually lives on decides, not origin, so a repo whose
+      # origin is GitHub but whose HEAD sits on a GitLab remote gets the
+      # GitLab tip) and returns the i18n tip text when the matching token
+      # is not configured. Nil when the repo is not CI-eligible or the
+      # token is already set.
+      def self.token_warning_tip(service : LiveCiService, github_token : String,
+                                 gitlab_token : String, cwd : String) : String?
+        service.head_sha(cwd)
+        case service.repo_info(cwd).try(&.provider)
+        when Provider::Gitlab
+          gitlab_token.empty? ? H2code.t("ui.ci_token_tip_gitlab") : nil
+        when Provider::Github
+          github_token.empty? ? H2code.t("ui.ci_token_tip") : nil
+        else
+          nil
+        end
+      end
+
+      # Notification prompt for a finished observer, as plain readable text
+      # the model sees directly — no XML envelope. The bracketed id line on
+      # top is the exactly-once delivery marker (the TUI / ACP dedup key).
+      # Nil for non-actionable outcomes (success is log-only; pending never
+      # reaches here).
       def self.render_notification(obs : Observer) : String?
         gitlab = obs.provider.gitlab?
         case obs.status
@@ -1131,35 +1051,31 @@ module H2code
             unless obs.failure_log.empty?
               s << "Failure log (excerpt):\n#{obs.failure_log}\n"
             end
+            unless obs.failure_log_error.empty?
+              s << "Could not fetch the CI failure log: #{obs.failure_log_error}\n"
+            end
             if gitlab
               s << "The GitLab CI pipeline for this commit failed. Investigate the failures above, fix the code, then commit and push again — a new CI observer will start automatically."
             else
               s << "The GitHub Actions build for this commit failed. Investigate the failures above, fix the code, then commit and push again — a new CI observer will start automatically."
             end
           end
-          notification_xml(obs, "failure", "warning", "CI build failed", body)
+          notification_text(obs, "failure", "CI build failed", body)
         when .error?
           body = "Commit: #{obs.sha}\nThe CI observer could not query #{gitlab ? "GitLab CI" : "GitHub Actions"}: #{obs.detail}\nCheck the build status manually with #{gitlab ? "`glab ci status`" : "`gh run list` / `gh run view`"}."
-          notification_xml(obs, "error", "warning", "CI observer error", body)
+          notification_text(obs, "error", "CI observer error", body)
         when .timeout?
           body = "Commit: #{obs.sha}\nThe CI observer gave up after #{MAX_WAIT_S}s without a terminal status. Check the build status manually with #{gitlab ? "`glab ci status`" : "`gh run list`"}."
-          notification_xml(obs, "timeout", "warning", "CI status unknown", body)
+          notification_text(obs, "timeout", "CI status unknown", body)
         end
       end
 
-      private def self.notification_xml(obs : Observer, type : String, severity : String,
-                                        title : String, body : String) : String
-        data = {
-          "id"          => JSON::Any.new("ci.#{obs.sha}.#{type}"),
-          "category"    => JSON::Any.new("ci_completion"),
-          "type"        => JSON::Any.new(type),
-          "source_kind" => JSON::Any.new("ci"),
-          "source_id"   => JSON::Any.new(obs.sha),
-          "title"       => JSON::Any.new(title),
-          "severity"    => JSON::Any.new(severity),
-          "body"        => JSON::Any.new(body),
-        } of String => JSON::Any
-        Tools.render_notification_xml(data)
+      # Plain-text notification: the id marker line + title + body. The
+      # marker format must stay parseable by `external_notification_id`
+      # (TUI TurnController and Acp::Session).
+      private def self.notification_text(obs : Observer, type : String,
+                                         title : String, body : String) : String
+        "[notification id=\"ci.#{obs.sha}.#{type}\"]\n#{title}\n#{body}"
       end
     end
   end

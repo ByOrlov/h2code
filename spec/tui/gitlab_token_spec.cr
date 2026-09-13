@@ -31,19 +31,20 @@ describe "GitLab token wizard" do
         app.gitlab_token_mode?.should be_true
         app.@messages.any? { |m| m.role == "system" && m.content.includes?("personal access token") }.should be_true
 
-        app.run_submit_gitlab_token("glpat_testtoken123")
+        token = "glpat-" + "x" * 20
+        app.run_submit_gitlab_token(token)
         app.gitlab_token_mode?.should be_false
-        cfg.gitlab_token.should eq("glpat_testtoken123")
+        cfg.gitlab_token.should eq(token)
 
         # Persisted to disk in H2CODE_HOME, not the real config.
         config_path = File.join(dir, "config.json")
         File.exists?(config_path).should be_true
-        File.read(config_path).should contain("glpat_testtoken123")
+        File.read(config_path).should contain(token)
 
         # The transcript only ever shows a mask, never the raw token.
         joined = app.@messages.map(&.content).join('\n')
         joined.should contain("•")
-        joined.should_not contain("glpat_testtoken123")
+        joined.should_not contain(token)
 
         # The saved message is reported.
         app.@messages.any? { |m| m.role == "system" && m.content.includes?("GitLab") }.should be_true
@@ -51,6 +52,25 @@ describe "GitLab token wizard" do
         ENV.delete("H2CODE_HOME")
       end
     end
+  end
+
+  it "rejects a malformed token with an error and keeps the wizard open" do
+    app = GitlabApp.new
+    cfg = H2code::Config::Config.new
+    app.app_config = cfg
+
+    app.run_cmd_gitlab("token")
+    app.gitlab_token_mode?.should be_true
+
+    app.run_submit_gitlab_token("garbage-input")
+    # The wizard stays open so the correct token can be pasted right away.
+    app.gitlab_token_mode?.should be_true
+    (app.app_config.try(&.gitlab_token) || "").should be_empty
+    error = app.@messages.reverse_each.find { |m| m.role == "error" }
+    error.should_not be_nil
+    (error || raise "error should not be nil").content.should contain("glpat-")
+    # The garbage input is never echoed back in plain text.
+    app.@messages.map(&.content).join.should_not contain("garbage-input")
   end
 
   it "Escape cancels the wizard without saving" do

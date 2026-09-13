@@ -387,6 +387,7 @@ module H2code
         github_token: config.github_token,
         gitlab_token: config.gitlab_token,
         gitlab_endpoint: config.gitlab_endpoint,
+        bindings: Tools::Ci::Bindings.new(File.join(Config::Config.h2code_home, "ci.json")),
       )
       tools.register(Tools::CurrentTime.new)
       tools.register(Tools::GetContextRemaining.new(memory))
@@ -1012,18 +1013,13 @@ module H2code
       # + github.com remote, or .gitlab-ci.yml + a GitLab remote) but the
       # matching token is not configured, CI polling runs in its fallback
       # mode (gh CLI on GitHub; anonymous API on GitLab) — show a
-      # warning-yellow tip with the token instructions instead.
+      # warning-yellow tip with the token instructions instead. The
+      # provider resolution follows the commit (sha-aware), so a repo
+      # whose origin is GitHub but whose CI lives on GitLab shows the
+      # GitLab tip.
       if ci_service = Tools::Ci.service.as?(Tools::Ci::LiveCiService)
-        case ci_service.repo_info(work_dir).try(&.provider)
-        when Tools::Ci::Provider::Gitlab
-          if config.gitlab_token.empty?
-            app.startup_warning_tip = H2code.t("ui.ci_token_tip_gitlab")
-          end
-        when Tools::Ci::Provider::Github
-          if config.github_token.empty?
-            app.startup_warning_tip = H2code.t("ui.ci_token_tip")
-          end
-        end
+        app.startup_warning_tip = Tools::Ci.token_warning_tip(
+          ci_service, config.github_token, config.gitlab_token, work_dir)
       end
       app.model = agent.provider.model_name
       app.provider_name = config.provider_name.to_s

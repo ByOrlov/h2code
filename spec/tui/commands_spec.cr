@@ -33,6 +33,12 @@ describe H2code::TUI::CommandRegistry do
       matches.map(&.name).should contain("/compact")
     end
 
+    it "offers /ci type alongside /ci while typing" do
+      matches = H2code::TUI::CommandRegistry.match("/ci").map(&.name)
+      matches.should contain("/ci")
+      matches.should contain("/ci type")
+    end
+
     it "returns empty for no match" do
       matches = H2code::TUI::CommandRegistry.match("/xyz")
       matches.should be_empty
