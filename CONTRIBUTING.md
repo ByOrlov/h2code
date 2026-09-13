@@ -49,11 +49,15 @@ If you are uncomfortable with the CLA, you are still free to fork H2Code under t
 git clone https://github.com/<fork>/h2code.git
 cd h2code
 shards install          # install dependencies
-rake build              # build the h2code binary
+rake build              # build the h2code binary (debug)
 rake spec               # run the test suite
 rake coverage           # run the suite under kcov and report total src/ coverage
 rake mock:default       # self-test with the mock provider (no API key needed)
 ```
+
+Dependency setup, cross-platform release builds and packaging are configured
+in one file — `crosspack.yml` — and driven by the [crosspack](https://github.com/OrelSokolov/crosspack)
+gem (`bundle install`, then `bundle exec crosspack deps|build|pack <target>`).
 
 The `mock:*` tasks run the TUI against a scripted provider, so you can exercise the agent loop, tools, and rendering without an API key or network access.
 

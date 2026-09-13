@@ -1,0 +1,16 @@
+GEM
+  remote: https://rubygems.org/
+  specs:
+    colorize (1.1.0)
+    crosspack (0.6.2)
+      colorize (~> 1.0)
+
+PLATFORMS
+  ruby
+  x86_64-linux
+
+DEPENDENCIES
+  crosspack (~> 0.6.0)
+
+BUNDLED WITH
+   2.7.1

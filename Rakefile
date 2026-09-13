@@ -28,152 +28,30 @@ rescue Errno::ENOENT, RuntimeError
 end
 
 MINIAUDIO_DIR = File.expand_path("vendor/miniaudio", __dir__)
-MINIAUDIO_LIB = File.join(MINIAUDIO_DIR, "libminiaudio_bridge.a")
 
 def windows?
   RUBY_PLATFORM =~ /mingw|mswin|cygwin/i
 end
 
-# Locate a Visual Studio installation via vswhere. Returns the installation
-# path (forward slashes) or nil.
-def find_vs_install
-  vswhere = [
-    "C:/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe",
-    "C:/Program Files/Microsoft Visual Studio/Installer/vswhere.exe",
-  ].find { |p| File.file?(p) }
-  return nil unless vswhere
-  install_path = `"#{vswhere}" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`.strip
-  return nil if install_path.empty?
-  install_path.tr("\\", "/")
-end
-
-# Locate an MSVC cl.exe on Windows. Crystal uses MSVC as its native toolchain,
-# so the bridge must be compiled with cl.exe too — mixing a MinGW-compiled
-# archive with the MSVC link step causes C-runtime symbol mismatches.
-def find_msvc_cl
-  # Already on PATH (Developer Command Prompt)?
-  exts = ENV["PATHEXT"] ? ENV["PATHEXT"].split(";") : [".EXE", ".BAT", ".CMD"]
-  ENV["PATH"].split(File::PATH_SEPARATOR).each do |dir|
-    exts.each do |ext|
-      candidate = File.join(dir, "cl#{ext}")
-      return candidate if File.file?(candidate) && File.executable?(candidate)
-    end
-  end
-  # Locate via vswhere (covers "Developer Command Prompt not open" cases).
-  install_path = find_vs_install
-  return nil unless install_path
-  Dir.glob("#{install_path}/VC/Tools/MSVC/*/bin/Hostx64/x64/cl.exe").sort.last
-end
-
-# Set up the MSVC environment (INCLUDE, LIB, PATH) by running vcvarsall.bat.
-# When cl.exe is launched from a plain cmd.exe the SDK headers/libs are not on
-# the default search paths, so #include <stdio.h> fails with C1083.
-# Idempotent: no-op if INCLUDE is already set (Developer Command Prompt).
-def setup_msvc_environment
-  return if ENV["INCLUDE"] && !ENV["INCLUDE"].empty?
-  install_path = find_vs_install
-  return unless install_path
-  vcvarsall = "#{install_path}/VC/Auxiliary/Build/vcvarsall.bat"
-  return unless File.file?(vcvarsall)
-  # `call` runs vcvarsall inside the SAME cmd.exe instance that later executes
-  # `set`. A bare `cmd /c "vcvarsall" ... && set` would lose the variables:
-  # `&& set` runs in the outer shell, while vcvarsall only modified the child
-  # cmd process which has already exited — leaving INCLUDE/LIB unset and
-  # cl.exe failing with C1083 (stdio.h not found).
-  output = `call "#{vcvarsall}" x64 >nul 2>nul & set`
-  output.each_line do |line|
-    key, val = line.chomp.split("=", 2)
-    next unless key && val
-    # Console output arrives in the OEM codepage; keep invalid bytes from
-    # aborting ENV[]= for values with non-ASCII characters.
-    ENV[key] = val.scrub
-  end
-  return if ENV["INCLUDE"] && !ENV["INCLUDE"].empty?
-  warn "warning: vcvarsall ran but did not set INCLUDE — the Windows SDK may be missing.\n" \
-       "Install the \"Desktop development with C++\" workload (includes the Windows SDK),\n" \
-       "or build from the \"Developer Command Prompt for VS\"."
-end
-
-# Prefer the mold linker when available: it cuts link time substantially on
-# large Crystal binaries and is a drop-in replacement for bfd. No-op on
-# Windows (MSVC link) and when mold is not installed.
-def mold_link_flag
-  return "" if windows?
-  return @mold_link_flag if instance_variable_defined?(:@mold_link_flag)
-  @mold_link_flag = begin
-    _out, status = Open3.capture2("mold", "-v", err: File::NULL)
-    status.success? ? "-fuse-ld=mold" : ""
-  rescue Errno::ENOENT
-    ""
-  end
-end
-
-# Combined link flags for crystal invocations: miniaudio bridge plus the
-# fastest available linker.
-def crystal_link_flags
-  [mold_link_flag, miniaudio_link_flags].reject(&:empty?).join(" ")
-end
-
-# Full linker flags for miniaudio: the object/archive path plus platform-specific
-# backend libraries. On Linux the backend (PulseAudio/ALSA) is dlopened at
-# runtime, so only -ldl/-lpthread/-lm are needed.
-def miniaudio_link_flags
-  if windows?
-    "#{File.join(MINIAUDIO_DIR, "miniaudio_bridge.obj")} winmm.lib ole32.lib ksuser.lib"
-  else
-    extra = case RUBY_PLATFORM
-            when /darwin/
-              "-framework CoreAudio -framework AudioToolbox -framework CoreFoundation"
-            else
-              "-ldl -lpthread -lm"
-            end
-    "-L#{MINIAUDIO_DIR} -lminiaudio_bridge #{extra}"
-  end
-end
-
-# True when libminiaudio_bridge.a is already up to date: sources unchanged and
-# built in the same mode (debug/release). `rake build`/`rake spec` otherwise
-# pay ~4s of cc+ar on every invocation for a bridge that rarely changes. A
-# stamp file next to the archive records the mode so a debug→release switch
-# still rebuilds.
-def miniaudio_bridge_fresh?(release)
-  return false if windows?
-  stamp = File.join(MINIAUDIO_DIR, ".bridge_stamp")
-  return false unless File.file?(MINIAUDIO_LIB) && File.file?(stamp)
-  return false unless File.read(stamp).strip == (release ? "release" : "debug")
-  Dir.glob("#{MINIAUDIO_DIR}/*.{c,h}").all? { |src| File.mtime(src) <= File.mtime(MINIAUDIO_LIB) }
-end
-
-def build_miniaudio_bridge(release: false)
-  return if miniaudio_bridge_fresh?(release)
-  if windows?
-    setup_msvc_environment
-    cl = find_msvc_cl
-    unless cl
-      abort "Could not find MSVC cl.exe. Open the \"Developer Command Prompt for VS\" " \
-            "or install Visual Studio Build Tools with the \"Desktop development with C++\" workload."
-    end
-    obj = File.join(MINIAUDIO_DIR, "miniaudio_bridge.obj")
-    rm_f Dir.glob("#{MINIAUDIO_DIR}/miniaudio_bridge.{o,a,obj,lib}")
-    opt = release ? "-O2" : "-Od -Z7"
-    sh "\"#{cl}\" -nologo #{opt} -c -I\"#{MINIAUDIO_DIR}\" " \
-       "\"#{File.join(MINIAUDIO_DIR, "miniaudio_bridge.c")}\" -Fo\"#{obj}\""
-  else
-    cflags = release ? "-O2" : "-O0 -g"
-    sh "cc -c #{cflags} -I#{MINIAUDIO_DIR} " \
-       "#{File.join(MINIAUDIO_DIR, "miniaudio_bridge.c")} " \
-       "-o #{File.join(MINIAUDIO_DIR, "miniaudio_bridge.o")}"
-    sh "ar rcs #{MINIAUDIO_LIB} #{File.join(MINIAUDIO_DIR, "miniaudio_bridge.o")}"
-  end
-  File.write(File.join(MINIAUDIO_DIR, ".bridge_stamp"), release ? "release" : "debug")
+# Build the miniaudio C bridge via scripts/build_miniaudio.sh and return the
+# link flags it prints. The script is the single source of truth for the
+# bridge build and link flags — shared by the Rakefile, CI
+# (.github/workflows) and crosspack (crosspack.yml) — including the MSVC path
+# on Windows (bash from Git for Windows). CFLAGS selects the optimization
+# level; the Windows/MSVC branch of the script always builds -O2. The script
+# rebuilds unconditionally, so rake pays the ~4s cc+ar on every spec run.
+def miniaudio_link_flags(release: false)
+  out, status = Open3.capture2({ "CFLAGS" => release ? "-O2" : "-O0 -g" },
+    "bash", File.expand_path("scripts/build_miniaudio.sh", __dir__))
+  abort "miniaudio bridge build failed (scripts/build_miniaudio.sh)" unless status.success?
+  out.lines.last.to_s.strip
 end
 
 # Run `crystal spec` for *path* (the whole suite when nil), building the
 # miniaudio bridge first and wiring its link flags in — the single place that
 # knows how to assemble a working spec invocation.
 def run_specs(path = nil)
-  build_miniaudio_bridge
-  link_flags = crystal_link_flags
+  link_flags = miniaudio_link_flags
   target = path ? "spec #{path}" : "spec"
   # Fail-fast in CI (GitHub Actions sets CI=true): stop at the first failing
   # example — the remaining failures are almost always cascades of the same
@@ -240,9 +118,8 @@ def rotate_windows_output(output)
 end
 
 def build_h2code(output = "h2code", release: false)
-  build_miniaudio_bridge(release: release)
+  link_flags = miniaudio_link_flags(release: release)
   rotate_windows_output(output)
-  link_flags = crystal_link_flags
   flags = ["--warnings none", "--no-color"]
   flags << "--release" if release
   flags << "--link-flags \"#{link_flags}\""
@@ -250,14 +127,18 @@ def build_h2code(output = "h2code", release: false)
   sh "crystal build src/h2code.cr -o #{output} #{flags.join(' ')}"
 end
 
-desc "Build the h2code binary"
+desc "Build the h2code binary (debug — for development and the mock demos)"
 task :build do
   build_h2code
 end
 
-desc "Build the h2code binary with --release"
+# Release builds for distribution flow through crosspack (crosspack.yml:
+# crosspack deps/build/pack <target>). This task only feeds local dev flows
+# (rake run:release, rake install) that want a release binary at ./h2code.
+desc "Build a release binary at ./h2code (distribution builds: crosspack build, see crosspack.yml)"
 task :build_release do
-  build_h2code(release: true)
+  building "h2code (release)"
+  sh "bash scripts/build_h2code.sh \"\" h2code"
 end
 
 # `rake install` — same flow as the installers (runtime deps, install dir, PATH),
@@ -369,14 +250,14 @@ task :coverage do
     abort "kcov not found. Install it (the repo ships kcov_43+dfsg-2_amd64.deb: sudo dpkg -i), " \
           "or extract it locally: dpkg-deb -x kcov_43+dfsg-2_amd64.deb tmp/kcov-extract"
   end
-  build_miniaudio_bridge
+  link_flags = miniaudio_link_flags
   spec_dir = File.expand_path("spec", __dir__)
   spec_files = Dir.glob("#{spec_dir}/**/*_spec.cr").sort.map { |p| p.delete_prefix("#{spec_dir}/") }
   File.write(COVERAGE_ENTRY,
     "# Generated by `rake coverage` — do not edit.\n" \
     "require \"../spec/spec_helper\"\n" +
     spec_files.map { |rel| "require \"../spec/#{rel}\"" }.join("\n") + "\n")
-  sh "crystal build #{COVERAGE_ENTRY} -o #{COVERAGE_BIN} --warnings none --no-color --link-flags \"#{crystal_link_flags}\""
+  sh "crystal build #{COVERAGE_ENTRY} -o #{COVERAGE_BIN} --warnings none --no-color --link-flags \"#{link_flags}\""
   rm_rf COVERAGE_DIR
   sh "#{kcov} --include-path=#{File.expand_path("src", __dir__)} " \
      "--exclude-path=#{spec_dir},#{File.expand_path("lib", __dir__)} " \
@@ -607,4 +488,7 @@ task :clean do
   rm_f(windows? ? Dir.glob("h2code.exe{,.old,.prev}") : "h2code")
   rm_f Dir.glob("#{MINIAUDIO_DIR}/miniaudio_bridge.{o,a,obj,lib}")
   rm_f File.join(MINIAUDIO_DIR, ".bridge_stamp")
+  # crosspack trees: build/ (matrix artifacts.from) and builds/ + crosspacks/
+  # (the staged build/pack output, see crosspack.yml)
+  rm_rf %w[build builds crosspacks]
 end

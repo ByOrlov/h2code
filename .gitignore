@@ -36,3 +36,8 @@ tmp_lmstudio_test.json
 
 # self-hosted GitLab runner state (contains the registration token)
 /ci/runner/data/
+
+# crosspack (crosspack.yml): matrix output + staged build/pack trees
+/build/
+/builds/
+/crosspacks/

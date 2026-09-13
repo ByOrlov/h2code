@@ -108,7 +108,14 @@ brew install ripgrep          # macOS
 git clone https://github.com/ByOrlov/H2Code
 cd H2Code
 shards install
-rake build            # → ./h2code (release flags)
+rake build            # → ./h2code (debug, for development)
+
+# Cross-platform release pipeline — deps → build → pack in one config
+# (crosspack.yml, gem crosspack):
+gem install crosspack
+crosspack deps ubuntu-24.04     # verify/install host build deps (crystal, cc, git)
+crosspack build ubuntu-24.04    # release build → builds/ubuntu/24.04/<arch>/
+crosspack pack ubuntu-24.04     # native package (.deb) → crosspacks/
 
 # Or build + install in one go — same as the installers (deps, install dir, PATH)
 rake install
