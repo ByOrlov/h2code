@@ -48,6 +48,16 @@ module H2code
       GET_CONTEXT_REMAINING = "GetContextRemaining"
       APPLY_PATCH           = "ApplyPatch"
       INTERACTIVE_SHELL     = "InteractiveShell"
+      # Z.AI Vision tools (native port of the official `@z_ai/mcp-server`
+      # Vision MCP; registered only for Z.AI providers with a configured key).
+      UI_TO_ARTIFACT               = "UiToArtifact"
+      EXTRACT_TEXT_FROM_SCREENSHOT = "ExtractTextFromScreenshot"
+      DIAGNOSE_ERROR_SCREENSHOT    = "DiagnoseErrorScreenshot"
+      UNDERSTAND_TECHNICAL_DIAGRAM = "UnderstandTechnicalDiagram"
+      ANALYZE_DATA_VISUALIZATION   = "AnalyzeDataVisualization"
+      UI_DIFF_CHECK                = "UiDiffCheck"
+      ANALYZE_IMAGE                = "AnalyzeImage"
+      ANALYZE_VIDEO                = "AnalyzeVideo"
     end
   end
 end

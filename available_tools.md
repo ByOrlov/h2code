@@ -216,6 +216,25 @@ inactivity; missed fires coalesce.
 View an image or video file, with automatic downsampling, region crops at
 full fidelity, and per-call byte limits.
 
+### Z.AI Vision tools
+Native Crystal port of Z.AI's official Vision MCP server
+(`@z_ai/mcp-server`, Apache-2.0): `UiToArtifact`,
+`ExtractTextFromScreenshot`, `DiagnoseErrorScreenshot`,
+`UnderstandTechnicalDiagram`, `AnalyzeDataVisualization`, `UiDiffCheck`,
+`AnalyzeImage`, and `AnalyzeVideo`. Each sends the image/video (local file
+≤5/8 MB, or remote URL) to Z.AI's vision model (`glm-5.3-flash` by default)
+over `chat/completions` and returns the textual analysis.
+
+Registered on demand — only when the active provider is `zai-coding-plan`
+(Z.AI Coding Plan) and its API key is configured (the same key as the chat
+provider; no Node.js involved). The coding-plan chat models are text-only
+and reject image content parts, so analysis runs through the natively
+multimodal `glm-5.3-flash` (covered by the subscription on the coding
+endpoint), using Z.AI's recommended settings (temperature 1, top_p 0.95,
+reasoning_effort max). End-to-end check: `rake integration:zai_vision_mcp`.
+
+- **Approval:** auto-approved (read-only analysis).
+
 ## MCP
 
 - **`mcp__<server>__<tool>`** — proxy tools registered by configured MCP

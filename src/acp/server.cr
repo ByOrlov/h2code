@@ -629,6 +629,13 @@ module H2code
         tools.register(Tools::AskUserQuestion.new)
         tools.register(Tools::FetchURL.new)
         tools.register(Tools::WebSearch.new)
+        # Z.AI Vision tools, same on-demand rule as the main path: Z.AI
+        # provider + configured key.
+        if Tools::ZaiVision::Tool.available?(@config.provider_name, @config.zai_api_key)
+          Tools::ZaiVision::Tool.service = Tools::ZaiVision::Service.for_provider(
+            @config.provider_name.to_s, @config.zai_api_key)
+          Tools::ZaiVision::Tool.all.each { |t| tools.register(t) }
+        end
         tools.register(Tools::Skill.new)
         tools.register(Tools::EnterPlanMode.new)
         tools.register(Tools::ExitPlanMode.new)
