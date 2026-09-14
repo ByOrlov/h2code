@@ -292,6 +292,16 @@ end
 desc "Run integration specs only (alias of spec:integration)"
 task :spec_integration => "spec:integration"
 
+namespace :integration do
+  desc "Z.AI Vision (native port of the Vision MCP) end-to-end: renders " \
+       "'Hello, please calculate 40 plus 2' into a PNG via ImageMagick, runs " \
+       "AnalyzeImage with the configured Z.AI key, expects the answer 42"
+  task :zai_vision_mcp do
+    ENV["H2CODE_ZAI_VISION_INTEGRATION"] = "1"
+    run_specs("spec/integration/zai_vision_mcp_spec.cr")
+  end
+end
+
 namespace :mock do
   desc "Run TUI with mock provider — default self-test script (parallel tools)"
   task :default => :build do

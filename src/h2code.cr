@@ -59,6 +59,7 @@ require "./tools/agent"
 require "./tools/ask_user_question"
 require "./tools/fetch_url"
 require "./tools/web_search"
+require "./tools/zai_vision"
 require "./tools/skill"
 require "./tools/plan_mode"
 require "./tools/goal"
@@ -349,6 +350,14 @@ module H2code
       tools.register(Tools::AskUserQuestion.new)
       tools.register(Tools::FetchURL.new)
       tools.register(Tools::WebSearch.new) if web_search_service.get_web_search_provider
+      # Z.AI Vision tools: native port of the official Vision MCP server,
+      # loaded on demand for Z.AI providers (pay-as-you-go and Coding Plan)
+      # with a configured key — the GLM coding-plan endpoint is text-only, so
+      # this is the vision path for Coding Plan users.
+      if Tools::ZaiVision::Tool.available?(provider.name, config.zai_api_key)
+        Tools::ZaiVision::Tool.service = Tools::ZaiVision::Service.for_provider(provider.name, config.zai_api_key)
+        Tools::ZaiVision::Tool.all.each { |t| tools.register(t) }
+      end
       tools.register(Tools::Skill.new)
       tools.register(Tools::EnterPlanMode.new)
       tools.register(Tools::ExitPlanMode.new)
