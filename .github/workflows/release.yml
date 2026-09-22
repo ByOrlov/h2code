@@ -264,11 +264,12 @@ jobs:
         shell: pwsh
         run: |
           # h2code.exe links dynamically against OpenSSL (libcrypto/libssl),
-          # libyaml and pcre2. The Crystal Windows install bundles these DLLs;
-          # ship them in a separate deps asset so install.ps1 can drop them
-          # next to h2code.exe on machines that lack a package manager.
+          # libyaml, pcre2, zlib, libiconv and the Boehm GC. The Crystal
+          # Windows install bundles these DLLs; ship them in a separate deps
+          # asset so install.ps1 can drop them next to h2code.exe on machines
+          # that lack a package manager.
           $crystalDir = Split-Path (Get-Command crystal).Source
-          $needed = @('libcrypto-3-x64.dll','libssl-3-x64.dll','pcre2-8.dll','yaml.dll')
+          $needed = @('libcrypto-3-x64.dll','libssl-3-x64.dll','pcre2-8.dll','yaml.dll','zlib1.dll','iconv-2.dll','gc.dll')
           $found = @{}
           Get-ChildItem -Path $crystalDir -Recurse -Filter *.dll -ErrorAction SilentlyContinue |
             Where-Object { $needed -contains $_.Name -and -not $found.ContainsKey($_.Name) } |

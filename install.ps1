@@ -41,10 +41,11 @@ function Test-H2codeStarts($path) {
     }
 }
 
-# Installs the Windows runtime dependencies (OpenSSL, libyaml, pcre2) required
-# by h2code.exe. Tries winget/choco for OpenSSL first, then unconditionally
-# extracts the pinned DLL bundle next to the binary so all four DLLs are
-# present regardless of which package manager (if any) is available.
+# Installs the Windows runtime dependencies (OpenSSL, libyaml, pcre2, zlib,
+# libiconv, Boehm GC) required by h2code.exe. Tries winget/choco for OpenSSL
+# first, then unconditionally extracts the pinned DLL bundle next to the
+# binary so all seven DLLs are present regardless of which package manager
+# (if any) is available.
 function Ensure-WindowsDeps($binPath) {
     if (Test-H2codeStarts $binPath) {
         Write-Info "Runtime dependencies already available."
@@ -74,7 +75,7 @@ function Ensure-WindowsDeps($binPath) {
         Invoke-WebRequest -Uri $depsUrl -OutFile $depsZip -UseBasicParsing
     } catch {
         Write-Err "Could not download runtime DLL bundle."
-        Write-Err "Install OpenSSL (libcrypto/libssl), libyaml and pcre2 manually next to h2code.exe."
+        Write-Err "Install OpenSSL (libcrypto/libssl), libyaml, pcre2, zlib, libiconv and the Boehm GC (gc.dll) manually next to h2code.exe."
         return
     }
     try {
@@ -236,11 +237,12 @@ try {
         }
 
         # --- Runtime dependencies -------------------------------------------------
-        # h2code.exe links dynamically against OpenSSL (libcrypto/libssl), libyaml
-        # and pcre2. These DLLs are not present on a stock Windows install, so we
-        # detect a missing-DLL failure by trying to run the binary and, on failure,
-        # install the dependencies: OpenSSL via winget/choco when available, then
-        # always drop the pinned runtime DLL bundle next to the binary.
+        # h2code.exe links dynamically against OpenSSL (libcrypto/libssl),
+        # libyaml, pcre2, zlib, libiconv and the Boehm GC. These DLLs are not
+        # present on a stock Windows install, so we detect a missing-DLL
+        # failure by trying to run the binary and, on failure, install the
+        # dependencies: OpenSSL via winget/choco when available, then always
+        # drop the pinned runtime DLL bundle next to the binary.
         Ensure-WindowsDeps $Dest
 
         # ripgrep (rg.exe) -- required by the Grep and Glob tools. Installed via
