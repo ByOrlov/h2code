@@ -345,6 +345,10 @@ module H2code
       # provider-specific in shape but the TUI uses the neutral words.
       property on_get_effort : (-> String)?
       property on_set_effort : (String -> Nil)?
+      # Provider retry count (transient network/429/5xx failures), shown and
+      # set via `/retry [<n>]`.
+      property on_get_max_retries : (-> Int32)?
+      property on_set_max_retries : (Int32 -> Nil)?
       # Plan-mode toggle: receives the next desired state, returns true if it
       # was applied (false → not wired up / not supported by this provider).
       property on_plan_mode : (Bool -> Bool)?

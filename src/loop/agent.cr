@@ -25,6 +25,9 @@ module H2code
 
       @overflow_recovery : Context::Overflow::Recovery = Context::Overflow::Recovery.new
       @max_steps : Int32 = 150
+      # Retries for transient provider failures (network drops, 429, 5xx)
+      # before the turn fails. Default 3; changed at runtime via `/retry`.
+      property max_retries : Int32 = 3
       @busy : Bool = false
 
       def busy? : Bool
@@ -322,7 +325,7 @@ module H2code
         # change between retries), never appended twice.
         select_service = Tools::ToolSelect.service
 
-        retry_policy = RetryPolicy.new
+        retry_policy = RetryPolicy.new(max_retries: @max_retries)
         retry_count = 0
 
         loop do

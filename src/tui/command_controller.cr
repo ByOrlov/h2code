@@ -642,6 +642,28 @@ module H2code
         end
       end
 
+      # `/retry [<n>]` — show or set how many times a transient provider
+      # failure (network drop, 429, 5xx) is retried before the turn fails.
+      # The value is persisted in config (`agent.max_retries`).
+      private def cmd_retry(args : String) : Nil
+        current = @on_get_max_retries.try(&.call) || 3
+        if args.empty?
+          emit_to_log(Message.new("system", H2code.t("ui.retry_status", current: current)))
+          return
+        end
+        val = args.strip.to_i?
+        if val.nil? || val < 0 || val > 50
+          emit_to_log(Message.new("error", H2code.t("ui.retry_invalid", current: current)))
+          return
+        end
+        if cb = @on_set_max_retries
+          cb.call(val)
+          emit_to_log(Message.new("system", H2code.t("ui.retry_set", value: val)))
+        else
+          emit_to_log(Message.new("system", H2code.t("ui.retry_not_wired")))
+        end
+      end
+
       private def cmd_todos(args : String) : Nil
         todos = current_todos
         if todos.nil? || todos.empty?

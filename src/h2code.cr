@@ -521,6 +521,7 @@ module H2code
 
       agent = Loop::Agent.new(provider, memory, tools, permission)
       agent.debug = config.debug?
+      agent.max_retries = config.max_retries
       # Persist the per-model text-only mark when the agent intercepts the
       # "content.type is invalid, allowed values: ['text']" 400.
       agent.on_text_only_detected = ->(model_name : String) { config.mark_text_only_model!(model_name) }
@@ -1596,6 +1597,16 @@ module H2code
                      else                         effort.downcase
                      end
         agent.provider.thinking_effort = normalized
+        nil
+      end
+
+      # `/retry <n>`: raise the transient-failure retry count and persist it
+      # in config (`agent.max_retries`) so it survives restarts.
+      app.on_get_max_retries = -> : Int32 { agent.max_retries }
+      app.on_set_max_retries = ->(n : Int32) do
+        agent.max_retries = n
+        config.max_retries = n
+        config.save
         nil
       end
 

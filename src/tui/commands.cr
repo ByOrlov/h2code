@@ -38,6 +38,7 @@ module H2code
         CommandInfo.new("/clear", "Clear conversation history", description_key: "clear"),
         CommandInfo.new("/compact", "Summarize context to free space", description_key: "compact"),
         CommandInfo.new("/model", "Switch model", description_key: "model"),
+        CommandInfo.new("/retry", "Show or set provider retry count", "[<n>]", "retry"),
         CommandInfo.new("/provider", "Switch LLM provider", description_key: "provider"),
         CommandInfo.new("/status", "Show session status", description_key: "status"),
         CommandInfo.new("/undo", "Undo last turn", description_key: "undo"),

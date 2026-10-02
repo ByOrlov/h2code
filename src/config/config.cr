@@ -135,6 +135,9 @@ module H2code
       # `gitlab.endpoint`; the GITLAB_HOST env var overrides.
       property gitlab_endpoint : String = ""
       property max_steps : Int32 = 150
+      # Retries for transient provider failures (network drops, 429, 5xx)
+      # before the turn fails. Set via `/retry <n>` or `/set agent.max_retries`.
+      property max_retries : Int32 = 3
       property max_context_tokens : Int32 = 262144
       property temperature : Float64? = nil
       property proxy : String? = nil
@@ -202,6 +205,7 @@ module H2code
         SettingSpec.new("permission.mode", "enum", ["manual", "auto", "yolo"]),
         SettingSpec.new("permission.sudo_mode", "enum", ["off", "request", "always"]),
         SettingSpec.new("agent.max_steps", "int"),
+        SettingSpec.new("agent.max_retries", "int"),
         SettingSpec.new("agent.max_context_tokens", "int"),
         SettingSpec.new("github.token", "string", secret: true),
         SettingSpec.new("gitlab.token", "string", secret: true),
@@ -278,6 +282,7 @@ module H2code
         when "permission.mode"          then @permission_mode
         when "permission.sudo_mode"     then @sudo_mode
         when "agent.max_steps"          then @max_steps.to_s
+        when "agent.max_retries"        then @max_retries.to_s
         when "agent.max_context_tokens" then @max_context_tokens.to_s
         when "github.token"             then @github_token
         when "gitlab.token"             then @gitlab_token
@@ -297,6 +302,7 @@ module H2code
         when "permission.mode"          then @permission_mode = value
         when "permission.sudo_mode"     then @sudo_mode = value
         when "agent.max_steps"          then @max_steps = value.to_i
+        when "agent.max_retries"        then @max_retries = value.to_i
         when "agent.max_context_tokens" then @max_context_tokens = value.to_i
         when "github.token"             then @github_token = value
         when "gitlab.token"             then @gitlab_token = value
@@ -584,6 +590,7 @@ module H2code
 
         if agent = root["agent"]?.try(&.as_h?)
           config.max_steps = agent["max_steps"]?.try(&.as_i?) || 150
+          config.max_retries = agent["max_retries"]?.try(&.as_i?) || 3
           config.max_context_tokens = agent["max_context_tokens"]?.try(&.as_i?) || 262144
           config.temperature = agent["temperature"]?.try(&.as_f?)
         end
@@ -832,6 +839,7 @@ module H2code
             json.field("agent") do
               json.object do
                 json.field("max_steps", @max_steps)
+                json.field("max_retries", @max_retries)
                 json.field("max_context_tokens", @max_context_tokens)
                 if temp = @temperature
                   json.field("temperature", temp)

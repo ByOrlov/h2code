@@ -640,6 +640,8 @@ module H2code
           cmd_manual
         when "/model"
           open_model_selector
+        when "/retry"
+          cmd_retry(args)
         when "/provider"
           open_provider_selector
         when "/export-md"
