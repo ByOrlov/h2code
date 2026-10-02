@@ -17,7 +17,13 @@ module H2code
     #     as "The messages parameter is illegal"), the history is shrunk to
     #     the most recent messages within a token budget (70% → 50% → 35%)
     #     and retried; messages trimmed this way are not covered by the
-    #     summary, reported via `CompactionResult#dropped_count`;
+    #     summary, reported via `CompactionResult#dropped_count`. On the
+    #     first attempt the provider's usage figure backs up the local
+    #     estimate, which can badly undercount a near-full history;
+    #   - if the input rejection persists past the shrink budget, the
+    #     history is hard-truncated to the most recent messages within a
+    #     fraction of the context window — keeping the full history would
+    #     guarantee the next regular request fails the same way;
     #   - a 413 first retries with media parts replaced by text markers;
     #   - an empty or truncated summary drops the oldest message and retries;
     #   - transient provider failures (429/5xx/network) back off and retry.
@@ -121,6 +127,27 @@ module H2code
           status = CompactionStatus::Cancelled
           summary = "[Compaction cancelled — keeping full history]"
           kept = old_messages
+        rescue ex : LLM::ApiError
+          # Last resort when the summarizer request keeps being rejected as
+          # oversized input (Z.AI/GLM reports it as a 400 "The messages
+          # parameter is illegal"): keeping the full history would guarantee
+          # the next regular request fails the same way, so hard-truncate to
+          # the most recent messages within a fraction of the window and
+          # insert an explicit no-summary marker.
+          truncated = nil
+          if old_messages.size > 1 && Compaction.input_rejection?(ex)
+            truncated = hard_truncate(old_messages, tokens_before)
+          end
+          if truncated && truncated.size < old_messages.size
+            status = CompactionStatus::Completed
+            summary = "[Context truncated without a summary — the summarizer request was rejected by the provider (#{ex.message}). Only the most recent messages remain; re-read key files or re-ask about anything that was dropped.]"
+            kept = truncated
+            dropped_count = old_messages.size - truncated.size
+          else
+            status = CompactionStatus::Failed
+            summary = "[Compaction failed — keeping full history]"
+            kept = old_messages
+          end
         rescue
           status = CompactionStatus::Failed
           summary = "[Compaction failed — keeping full history]"
@@ -152,6 +179,7 @@ module H2code
         # conversation — summarizing them wastes tokens. Mirrors the TS
         # `stripDynamicToolContext` boundary.
         messages = history.reject(&.origin.injection?)
+        full_size = messages.size
         dropped = 0
         media_stripped = false
         overflow_shrinks = 0
@@ -162,6 +190,13 @@ module H2code
           request = Compaction.project(messages.map(&.message))
           request << LLM::Message.user(INSTRUCTION)
           estimated = LLM::TokenCounter.estimate(request)
+          # Overflow evidence for the ratio gate in `overflow_error?`. On the
+          # first attempt the request is (nearly) the whole live history, so
+          # the provider's usage figure — authoritative, and often far above
+          # the local estimate for a near-full window — counts too. Once the
+          # slice has been shrunk, only the local estimate of what is
+          # actually being sent is meaningful.
+          gate_tokens = messages.size == full_size ? Math.max(estimated, @context.token_count) : estimated
 
           begin
             result = @provider.chat(request, nil, nil) do |part|
@@ -200,7 +235,7 @@ module H2code
 
             # Overflow: the summarizer request itself does not fit. Shrink to
             # the most recent messages within a token budget and retry.
-            if Compaction.overflow_error?(ex, estimated, @context.max_context_tokens) && messages.size > 1
+            if Compaction.overflow_error?(ex, gate_tokens, @context.max_context_tokens) && messages.size > 1
               if overflow_shrinks >= MAX_OVERFLOW_SHRINK_ATTEMPTS
                 raise ex
               end
@@ -228,6 +263,21 @@ module H2code
             sleep Math.min(2 ** retries, MAX_RETRY_DELAY).seconds
           end
         end
+      end
+
+      # Keep the most recent messages within 35% of the context window,
+      # scaled down when the local estimator undercounts the provider's
+      # usage figure (`usage_tokens`): the budget is expressed in local
+      # tokens, so the same undercount must be applied to it. Used by the
+      # last-resort truncation in `#compact`.
+      private def hard_truncate(messages : Array(ContextMessage), usage_tokens : Int32) : Array(ContextMessage)
+        history_est = LLM::TokenCounter.estimate(messages.map(&.message))
+        budget = (@context.max_context_tokens * 0.35).to_i
+        if usage_tokens > history_est && history_est > 0
+          budget = (budget.to_f64 * history_est.to_f64 / usage_tokens.to_f64).to_i
+        end
+        budget = 1 if budget < 1
+        Compaction.take_recent_within_token_budget(messages, budget)
       end
 
       # --- Request-building helpers, unit-testable in isolation ---
@@ -327,21 +377,29 @@ module H2code
         messages[start..]
       end
 
+      # Does the provider blame the request input itself — either a plain
+      # "too large" (HTTP 413) or a 400 whose body points at the input
+      # (Z.AI/GLM reports oversized input as "The messages parameter is
+      # illegal")? No size assumption is made; callers that can shrink the
+      # input should combine this with their own evidence via
+      # `overflow_error?`.
+      def self.input_rejection?(error : LLM::ApiError) : Bool
+        return true if error.status_code == 413
+        error.status_code == 400 &&
+          error.message.to_s.matches?(/context|token|message|length|too (large|long)|exceed|maximum|illegal/i)
+      end
+
       # Does this provider failure mean "the summarizer request itself does
-      # not fit"? A 413 qualifies when the estimated request occupies at
-      # least `OVERFLOW_RECOVERY_RATIO` of the context window (mirrors
-      # `shouldRecoverFromContextOverflow` in full.ts). Z.AI/GLM reports
-      # oversized input as a 400 whose body blames the input ("The messages
-      # parameter is illegal"), so a 400 with a matching body qualifies under
-      # the same ratio gate; a 400 with a small request cannot be an input
-      # overflow and is left to propagate.
+      # not fit"? An input rejection qualifies when the estimated request
+      # occupies at least `OVERFLOW_RECOVERY_RATIO` of the context window
+      # (mirrors `shouldRecoverFromContextOverflow` in full.ts) — with a
+      # small request, shrinking cannot be the fix, so the error is left to
+      # propagate.
       def self.overflow_error?(error : LLM::ApiError, estimated_tokens : Int32,
                                max_context_tokens : Int32) : Bool
         return false if max_context_tokens <= 0
         return false unless estimated_tokens >= (max_context_tokens * OVERFLOW_RECOVERY_RATIO).to_i32
-        return true if error.status_code == 413
-        error.status_code == 400 &&
-          error.message.to_s.matches?(/context|token|message|length|too (large|long)|exceed|maximum|illegal/i)
+        input_rejection?(error)
       end
     end
 

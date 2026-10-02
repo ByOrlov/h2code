@@ -161,6 +161,51 @@ describe H2code::Context::Compaction do
     end
   end
 
+  it "uses the provider usage figure as overflow evidence when the local estimate undercounts" do
+    memory = H2code::Context::Memory.new
+    memory.max_context_tokens = 100_000
+    4.times do |i|
+      memory.add_user("question #{i}")
+      memory.add_assistant("answer #{i}")
+    end
+    # Local estimate of this tiny history is far below the 50% gate, but the
+    # provider's usage says the live context was near the window — the Z.AI
+    # 400 is an input overflow all the same.
+    memory.update_token_count_from_usage(95_000, 0)
+
+    provider = ScriptedProvider.new([zai_overflow_error, "Recovered summary."])
+    compactor = H2code::Context::Compaction.new(provider, memory, kept_count: 2)
+
+    result = compactor.compact { }
+
+    result.completed?.should be_true
+    result.summary.should eq("Recovered summary.")
+    result.dropped_count.should be > 0
+    provider.requests[1].size.should be < provider.requests[0].size
+  end
+
+  it "hard-truncates history when the input rejection persists past the shrink budget" do
+    memory = H2code::Context::Memory.new
+    memory.max_context_tokens = 1000
+    20.times do |i|
+      memory.add_user("question number #{i} with some padding text to give it tokens")
+      memory.add_assistant("answer number #{i} with some padding text to give it tokens")
+    end
+
+    # Every summarizer attempt — the initial one and the shrink retries — is
+    # rejected as oversized input; the last-resort truncation must kick in
+    # instead of retaining the unusable full history.
+    provider = ScriptedProvider.new([zai_overflow_error] * 5)
+    compactor = H2code::Context::Compaction.new(provider, memory, kept_count: 2)
+
+    result = compactor.compact { }
+
+    result.completed?.should be_true
+    result.dropped_count.should be > 0
+    memory.history.size.should be < 41 # 40 messages + summary marker if retained
+    memory.history.first.message.text.should contain("truncated without a summary")
+  end
+
   it "does not treat a small-request 400 as overflow" do
     memory = H2code::Context::Memory.new
     memory.add_user("hello")
@@ -230,6 +275,18 @@ describe H2code::Context::Compaction do
       kept = H2code::Context::Compaction.take_recent_within_token_budget(cms, 10)
       kept.size.should eq(1)
       kept.first.message.text.should eq("short")
+    end
+  end
+
+  describe ".input_rejection?" do
+    it "matches 413 and input-blaming 400s regardless of request size" do
+      overflow_413 = H2code::LLM::ApiError.new(413, "Chat API error 413: too large")
+      H2code::Context::Compaction.input_rejection?(overflow_413).should be_true
+      H2code::Context::Compaction.input_rejection?(zai_overflow_error).should be_true
+      other_400 = H2code::LLM::ApiError.new(400, "Chat API error 400: invalid model id", retryable: false)
+      H2code::Context::Compaction.input_rejection?(other_400).should be_false
+      rate_limited = H2code::LLM::ApiError.new(429, "Chat API error 429: rate limited")
+      H2code::Context::Compaction.input_rejection?(rate_limited).should be_false
     end
   end
 

@@ -400,10 +400,15 @@ module H2code
               next
             end
 
-            # 413 (request too large) has its own recovery path: degrade →
-            # strip → compact. It is non-retryable by the generic backoff,
-            # so intercept it before the fail-fast branch.
-            if ex.is_a?(LLM::ApiError) && Context::Overflow.request_too_large?(ex)
+            # A request-body rejection has its own recovery path: degrade →
+            # strip → compact. Besides HTTP 413 this covers the Z.AI/GLM
+            # encoding of an oversized input — a 400 whose body blames the
+            # input ("The messages parameter is illegal") — which the
+            # generic backoff treats as non-retryable, so intercept it before
+            # the fail-fast branch.
+            if ex.is_a?(LLM::ApiError) &&
+               (Context::Overflow.request_too_large?(ex) ||
+               Context::Compaction.input_rejection?(ex))
               Context::Overflow.apply_learned_limit!(@context, @overflow_recovery, ex)
               action = Context::Overflow.recover_from_413(@overflow_recovery, Context::Overflow.has_media?(@context))
               case action
