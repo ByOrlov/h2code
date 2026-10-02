@@ -18,6 +18,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Refresh apt indexes before install-crystal: the ubuntu runner image
+      # ships a stale mirror list (mirror+file:/etc/apt/apt-mirrors.txt) and
+      # the action's apt-get hits 404 on libevent-dev without an update first.
+      - name: Update apt indexes (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update
+
       - name: Install Crystal
         uses: crystal-lang/install-crystal@v1
         with:
@@ -65,6 +72,12 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+
+      # See the check job: stale apt mirror list on the ubuntu image breaks
+      # install-crystal's apt-get until the indexes are refreshed.
+      - name: Update apt indexes (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update
 
       - name: Install Crystal
         uses: crystal-lang/install-crystal@v1
