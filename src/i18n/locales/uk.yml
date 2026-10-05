@@ -59,6 +59,7 @@ uk:
     moonshot_hint: "Отримати ключ: https://www.kimi.com/code/console"
     ollama: "Локально — Ollama"
     lmstudio: "Локально — LM Studio"
+    strata: "Локально — Strata"
     zai: "Z.AI / Zhipu (GLM)"
     zai_hint: "Отримати ключ: https://z.ai"
   commands:

@@ -302,6 +302,13 @@ module H2code
       # between turns; a turn in flight continues against the old provider.
       def swap_provider!(provider : LLM::Provider) : Nil
         @provider = provider
+        # Adopt the backend's effective context window — a local server like
+        # Strata may report a smaller limit than the global config — so the
+        # usage gauge and compaction threshold match what the endpoint
+        # actually accepts.
+        if (limit = provider.max_context_tokens) && limit > 0
+          @context.max_context_tokens = limit
+        end
       end
 
       def trigger_compaction_tui(system_prompt : String?, &on_event : Event ->) : Nil

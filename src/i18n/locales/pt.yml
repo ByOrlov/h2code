@@ -59,6 +59,7 @@ pt:
     moonshot_hint: "Obtenha uma chave em https://www.kimi.com/code/console"
     ollama: "Local — Ollama"
     lmstudio: "Local — LM Studio"
+    strata: "Local — Strata"
     zai: "Z.AI / Zhipu (GLM)"
     zai_hint: "Obtenha uma chave em https://z.ai"
   commands:

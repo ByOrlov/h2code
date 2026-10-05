@@ -172,16 +172,20 @@ module H2code
 
       # Resolve the effective completion budget for the next request.
       # Mirrors TS `applyCompletionBudget` + `withMaxCompletionTokens`: clamp the
-      # configured cap against the context window's remaining headroom so the
-      # model always has room to emit its answer. OpenAI-compatible endpoints
-      # additionally cap at 128k (some reject a larger `max_tokens`). Returns
-      # nil when no budget context is available, leaving the cap unset.
-      private def effective_max_completion_tokens : Int32?
+      # configured cap against the context window's headroom so the model
+      # always has room to emit its answer. The headroom is computed from the
+      # actual wire prompt (system prompt + history + tool schemas — see
+      # wire_prompt_tokens), not just the caller's conversation counter, so a
+      # large system prompt cannot silently blow the window.
+      # OpenAI-compatible endpoints additionally cap at 128k (some reject a
+      # larger `max_tokens`). Returns nil when no budget context is available,
+      # leaving the cap unset.
+      private def effective_max_completion_tokens(prompt_tokens : Int32) : Int32?
         configured = @max_completion_tokens || @max_tokens
         max_ctx = @max_context_tokens
 
         cap = if max_ctx && max_ctx > 0
-                remaining = max_ctx - @used_context_tokens
+                remaining = max_ctx - prompt_tokens
                 remaining = 1 if remaining < 1
                 base = configured || max_ctx
                 Math.min(base, remaining)
@@ -192,6 +196,23 @@ module H2code
         return cap unless cap
         cap = Math.min(cap, 128 * 1024) unless @uses_max_completion_tokens
         cap
+      end
+
+      # Token estimate of what this step puts on the wire: every message
+      # (including the system prompt folded in by `chat`) plus every tool
+      # schema. The caller's `used_context_tokens` counter tracks only the
+      # conversation history and can be far smaller than the real prompt
+      # (a 20k-token system prompt + tools versus a 6-token "Привет"), so it
+      # may raise — but never lower — this estimate. Subclasses whose backend
+      # counts tokens exactly and rejects any overflow may override to add
+      # headroom (see StrataProvider).
+      private def wire_prompt_tokens(messages : Array(Message), tools : Array(ToolDefinition)?) : Int32
+        total = TokenCounter.estimate(messages)
+        tools.try &.each do |t|
+          total += TokenCounter.estimate(String.build { |io| t.to_json(io) })
+        end
+        used = @used_context_tokens
+        used > total ? used : total
       end
 
       # Bearer token sent in the Authorization header. Subclasses override to
@@ -358,7 +379,7 @@ module H2code
         # tool-driven steps (read a file, read the next, ...) only reprocess the
         # delta instead of the full growing context every step.
         request.prompt_cache_key = @prompt_cache_key
-        if cap = effective_max_completion_tokens
+        if cap = effective_max_completion_tokens(wire_prompt_tokens(messages, tools))
           if @uses_max_completion_tokens
             request.max_completion_tokens = cap
           else
@@ -483,19 +504,15 @@ module H2code
         # inside a blocking socket read. That lets us poll the abort flag from
         # the consumer loop below and tear the connection down mid-flight —
         # which is the only way to interrupt a request that is still connecting.
+        # Serialize up front and send as a String body so the request carries
+        # Content-Length: an IO body goes out with Transfer-Encoding: chunked,
+        # which some local backends (Strata's stdlib-Python server reads
+        # exactly Content-Length bytes) cannot read — they would see an empty
+        # body and answer "No messages provided".
+        body = String.build { |io| request.to_json(io) }
         spawn do
           begin
-            reader, writer = IO.pipe
-            spawn do
-              begin
-                request.to_json(writer)
-              rescue ex : IO::Error | Channel::ClosedError
-                # Consumer closed the pipe (abort / network drop) mid-write.
-              ensure
-                writer.close rescue nil
-              end
-            end
-            @transport.request_stream("POST", uri, headers, reader, active) do |response|
+            @transport.request_stream("POST", uri, headers, body, active) do |response|
               if response.status_code != 200
                 error_body = response.body_io.gets_to_end
                 status = response.status_code
@@ -539,7 +556,6 @@ module H2code
           rescue ex
             active.error = ex
           ensure
-            reader.try(&.close) rescue nil
             chunks.close
           end
         end

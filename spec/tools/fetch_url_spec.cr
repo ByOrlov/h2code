@@ -336,7 +336,7 @@ private class CountingMockTransport < H2code::HttpTransport
   end
 
   def request_stream(method : String, uri : URI, headers : HTTP::Headers,
-                     body_io : IO, session : H2code::HttpTransport::Session,
+                     body : String, session : H2code::HttpTransport::Session,
                      &_block : HTTP::Client::Response, IO ->)
     raise NotImplementedError.new("CountingMockTransport does not support streaming")
   end

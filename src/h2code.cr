@@ -31,6 +31,7 @@ require "./auth/oauth"
 require "./llm/zai_provider"
 require "./llm/ollama_provider"
 require "./llm/lmstudio_provider"
+require "./llm/strata_provider"
 require "./llm/deepseek_provider"
 require "./llm/groq_provider"
 require "./llm/openrouter_provider"
@@ -518,6 +519,7 @@ module H2code
       # the full growing context from scratch.
       sid_for_cache = (store.read_state.try(&.id) || store.meta_id? || session_id || Random::Secure.hex(12))
       configure_provider(provider, config, sid_for_cache)
+      sync_context_memory(provider, memory)
 
       agent = Loop::Agent.new(provider, memory, tools, permission)
       agent.debug = config.debug?
@@ -619,11 +621,29 @@ module H2code
     def self.configure_provider(provider, config, cache_key : String?) : Nil
       provider.thinking_effort = config.thinking_effort
       provider.max_context_tokens = config.max_context_tokens
+      # Dynamic context limit: backends with a server-reported fixed window
+      # (local engines like Strata) know their real size — clamp the
+      # configured window to it so the completion budget never exceeds the
+      # actual context. Memoized in the provider; a discovery failure
+      # degrades to the configured window.
+      if (limit = provider.fetch_context_limit) && limit > 0 && limit < config.max_context_tokens
+        provider.max_context_tokens = limit
+      end
       provider.prompt_cache_key = cache_key
       provider.debug = config.debug?
       # Per-model text-only mark (persisted in [model] text_only_models):
       # media blocks are stripped from history before sending.
       provider.text_only = config.text_only_model?(provider.model_name)
+    end
+
+    # Reflect the provider's effective context window (the configured one,
+    # possibly clamped to a backend-reported limit in configure_provider) in
+    # the agent's context memory — it drives the footer usage gauge and the
+    # compaction threshold.
+    def self.sync_context_memory(provider, memory) : Nil
+      if (limit = provider.max_context_tokens) && limit > 0
+        memory.max_context_tokens = limit
+      end
     end
 
     # Build the WebSearch service for the current session. Explicit
@@ -1424,6 +1444,7 @@ module H2code
           config.save
           mcp_manager.reconcile(name)
           app.model = provider.model_name
+          app.max_context_tokens = agent.context.max_context_tokens
           true
         rescue ex : ProviderConfigError
           app.add_message("error", H2code.t("errors.provider_switch_failed", message: ex.message.to_s))
@@ -1447,12 +1468,15 @@ module H2code
             config.ollama_model = model
           when "lmstudio"
             config.lmstudio_model = model
+          when "strata"
+            config.strata_model = model
           end
           provider = build_named_provider(config.provider_name, config, oauth)
           configure_provider(provider, config, store.meta_id?)
           agent.swap_provider!(provider)
           Tools::WebSearch.service = build_web_search_service(config, provider)
           config.save
+          app.max_context_tokens = agent.context.max_context_tokens
           true
         rescue ex : ProviderConfigError
           app.add_message("error", H2code.t("errors.model_switch_failed", message: ex.message.to_s))

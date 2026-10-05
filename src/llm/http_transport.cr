@@ -34,9 +34,11 @@ module H2code
 
     # Streaming request: yields the response and its body IO to the block so
     # the caller can read the SSE event stream. `session.close!` aborts the
-    # read by closing the underlying socket.
+    # read by closing the underlying socket. The body is a String (not an IO)
+    # so it is sent with Content-Length — a chunked body is unreadable by some
+    # local backends (e.g. Strata's stdlib-Python server).
     abstract def request_stream(method : String, uri : URI, headers : HTTP::Headers,
-                                body_io : IO, session : Session,
+                                body : String, session : Session,
                                 &block : HTTP::Client::Response, IO ->)
 
     # Production transport: builds an `HTTP::Client` per call via the
@@ -56,12 +58,12 @@ module H2code
       end
 
       def request_stream(method : String, uri : URI, headers : HTTP::Headers,
-                         body_io : IO, session : Session,
+                         body : String, session : Session,
                          & : HTTP::Client::Response, IO ->)
         client = @make_client.call(uri)
         session.close = -> { client.close rescue nil }
         begin
-          client.exec(method, uri.request_target, headers, body_io) do |resp|
+          client.exec(method, uri.request_target, headers, body) do |resp|
             yield resp, resp.body_io
           end
         ensure

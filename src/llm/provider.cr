@@ -75,6 +75,23 @@ module H2code
       def used_context_tokens=(tokens : Int32) : Nil
       end
 
+      # The context window this provider clamps the completion budget
+      # against, when known. The base returns nil (unknown); OpenAIChatProvider
+      # exposes its configured (and possibly dynamically clamped) value.
+      def max_context_tokens : Int32?
+        nil
+      end
+
+      # Dynamically discover the backend's real context-window limit, in
+      # tokens. Only backends with a server-reported fixed window (local
+      # engines like Strata: GET /health `max_context`) override this — the
+      # base returns nil, meaning "not discoverable, keep the configured
+      # window". Implementations memoize and swallow network failures so a
+      # discovery hiccup never breaks chat.
+      def fetch_context_limit : Int32?
+        nil
+      end
+
       # Provider base URL / endpoint, when the backend has one. Used by the
       # WebSearch service to derive the Moonshot search URL. Base Provider
       # returns nil; OpenAIChatProvider overrides with its endpoint.

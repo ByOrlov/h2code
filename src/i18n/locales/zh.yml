@@ -59,6 +59,7 @@ zh:
     moonshot_hint: "在 https://www.kimi.com/code/console 获取密钥"
     ollama: "本地 — Ollama"
     lmstudio: "本地 — LM Studio"
+    strata: "本地 — Strata"
     zai: "Z.AI / Zhipu (GLM)"
     zai_hint: "在 https://z.ai 获取密钥"
   commands:

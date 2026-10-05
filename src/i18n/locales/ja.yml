@@ -59,6 +59,7 @@ ja:
     moonshot_hint: "キーを取得: https://www.kimi.com/code/console"
     ollama: "ローカル — Ollama"
     lmstudio: "ローカル — LM Studio"
+    strata: "ローカル — Strata"
     zai: "Z.AI / Zhipu (GLM)"
     zai_hint: "キーを取得: https://z.ai"
   commands:

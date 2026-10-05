@@ -59,6 +59,7 @@ hi:
     moonshot_hint: "कुंजी प्राप्त करें: https://www.kimi.com/code/console"
     ollama: "स्थानीय — Ollama"
     lmstudio: "स्थानीय — LM Studio"
+    strata: "स्थानीय — Strata"
     zai: "Z.AI / Zhipu (GLM)"
     zai_hint: "कुंजी प्राप्त करें: https://z.ai"
   commands:

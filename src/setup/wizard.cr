@@ -185,6 +185,9 @@ module H2code
         when "lmstudio"
           config.lmstudio_endpoint = endpoint
           config.lmstudio_model = model
+        when "strata"
+          config.strata_endpoint = endpoint
+          config.strata_model = model
         else
           if applier = CLOUD_APPLIERS[provider_name || ""]?
             applier.call(config, api_key, endpoint, model)

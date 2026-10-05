@@ -45,10 +45,11 @@ module H2code
     end
 
     def request_stream(method : String, uri : URI, headers : HTTP::Headers,
-                       body_io : IO, session : Session,
+                       body : String, session : Session,
                        & : HTTP::Client::Response, IO ->)
       @last_uri = uri
       @last_headers = headers
+      @last_body = body
 
       case @mode
       when .error_status?

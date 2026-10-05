@@ -511,6 +511,9 @@ module H2code
         # Build memory
         memory = Context::Memory.new
         memory.max_context_tokens = @config.max_context_tokens
+        # Adopt a backend-reported context limit (e.g. Strata's fixed engine
+        # window) over the configured default when it is smaller.
+        CLI.sync_context_memory(provider, memory)
 
         # Interactive shell sessions are process-global (one registry
         # shared across ACP sessions, killed when the server stops).

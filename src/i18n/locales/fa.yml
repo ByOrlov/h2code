@@ -59,6 +59,7 @@ fa:
     moonshot_hint: "دریافت کلید از https://www.kimi.com/code/console"
     ollama: "محلی — Ollama"
     lmstudio: "محلی — LM Studio"
+    strata: "محلی — Strata"
     zai: "Z.AI / Zhipu (GLM)"
     zai_hint: "دریافت کلید از https://z.ai"
   commands:

@@ -101,6 +101,11 @@ module H2code
       property ollama_model : String? = nil
       property lmstudio_endpoint : String? = nil
       property lmstudio_model : String? = nil
+      # Strata (local GPU server): optional — only set when Strata runs with
+      # `--api-key`.
+      property strata_endpoint : String? = nil
+      property strata_model : String? = nil
+      property strata_api_key : String = ""
       property deepseek_api_key : String = ""
       property deepseek_endpoint : String = "https://api.deepseek.com/v1"
       property deepseek_model : String = "deepseek-chat"
@@ -352,6 +357,15 @@ module H2code
         if model = ENV["LMSTUDIO_MODEL"]?
           config.lmstudio_model = model
         end
+        if key = ENV["STRATA_API_KEY"]?
+          config.strata_api_key = key
+        end
+        if ep = ENV["STRATA_ENDPOINT"]?
+          config.strata_endpoint = ep
+        end
+        if model = ENV["STRATA_MODEL"]?
+          config.strata_model = model
+        end
         if key = ENV["DEEPSEEK_API_KEY"]?
           config.deepseek_api_key = key
         end
@@ -523,6 +537,11 @@ module H2code
           if lmstudio = provider["lmstudio"]?.try(&.as_h?)
             config.lmstudio_endpoint = lmstudio["endpoint"]?.try(&.as_s?)
             config.lmstudio_model = lmstudio["model"]?.try(&.as_s?)
+          end
+          if strata = provider["strata"]?.try(&.as_h?)
+            config.strata_api_key = strata["api_key"]?.try(&.as_s?) || ""
+            config.strata_endpoint = strata["endpoint"]?.try(&.as_s?)
+            config.strata_model = strata["model"]?.try(&.as_s?)
           end
           if deepseek = provider["deepseek"]?.try(&.as_h?)
             config.deepseek_api_key = deepseek["api_key"]?.try(&.as_s?) || ""
@@ -745,6 +764,21 @@ module H2code
                     end
                   end
                 end
+                if @strata_endpoint || @strata_model || !@strata_api_key.empty?
+                  json.field("strata") do
+                    json.object do
+                      unless @strata_api_key.empty?
+                        json.field("api_key", @strata_api_key)
+                      end
+                      if ep = @strata_endpoint
+                        json.field("endpoint", ep)
+                      end
+                      if m = @strata_model
+                        json.field("model", m)
+                      end
+                    end
+                  end
+                end
                 json.field("deepseek") do
                   json.object do
                     json.field("api_key", @deepseek_api_key)
@@ -935,6 +969,7 @@ module H2code
         when "zai-coding-plan" then !zai_api_key.empty?
         when "ollama"          then true
         when "lmstudio"        then true
+        when "strata"          then true
         when "deepseek"        then !deepseek_api_key.empty?
         when "groq"            then !groq_api_key.empty?
         when "openrouter"      then !openrouter_api_key.empty?
