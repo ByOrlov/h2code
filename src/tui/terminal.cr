@@ -210,9 +210,10 @@ module H2code
         {% if flag?(:unix) %}
           return {nil, [] of UInt8} unless @raw && tty?
 
-          STDOUT.write(String.build do |io|
+          probe = String.build do |io|
             candidates.each { |cp| io << "\r" << cp.chr << "\e[6n" }
-          end)
+          end
+          STDOUT << probe
           STDOUT.flush
 
           data = String::Builder.new
