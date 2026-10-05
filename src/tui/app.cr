@@ -184,9 +184,12 @@ module H2code
       @on_provider_change : (String -> Bool)?
       @on_model_change : (String -> Bool)?
       @on_fetch_models : (-> Array(String))?
-      # Fetch the model list for an arbitrary provider name — used by the
-      # setup wizard's Model step to call the real provider API.
-      @on_fetch_models_for : (String -> Array(String))?
+      # Fetch the model list for the provider being set up — used by the
+      # setup wizard's Model step to call the real provider API. Receives the
+      # wizard itself (not just the name) so the host can build a throwaway
+      # provider from the wizard's collected key: the real config is only
+      # written when the wizard completes.
+      @on_fetch_models_for : (Setup::Wizard -> Array(String))?
       # Returns true when the named provider has credentials configured and
       # needs no further setup. Used by /provider to decide whether to launch
       # the setup wizard for the selected provider.
@@ -324,9 +327,9 @@ module H2code
       property on_provider_change : (String -> Bool)?
       property on_model_change : (String -> Bool)?
       property on_fetch_models : (-> Array(String))?
-      # Fetch the model list for an arbitrary provider name — used by the
-      # setup wizard's Model step to call the real provider API.
-      property on_fetch_models_for : (String -> Array(String))?
+      # Fetch the model list for the provider being set up (with the
+      # wizard's collected credentials) — see the ivar comment above.
+      property on_fetch_models_for : (Setup::Wizard -> Array(String))?
       # Returns true when the named provider has credentials configured and
       # needs no further setup. Used by /provider to decide whether to launch
       # the setup wizard for the selected provider.

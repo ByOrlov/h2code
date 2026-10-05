@@ -95,8 +95,10 @@ module H2code
       end
 
       # Fetch the model list for the provider being configured and open the
-      # model selector. On error or empty list, reset the wizard back to the
-      # provider selection so the user can start over.
+      # model selector. On error or empty list, fall back to the Model step's
+      # text input (placeholder shows the default model) — never restart the
+      # wizard, which would wipe the collected key and trap the user in a
+      # select → key → fetch-fail loop.
       private def fetch_setup_models : Nil
         wizard = @wizard
         return unless wizard
@@ -113,10 +115,9 @@ module H2code
 
         spawn do
           begin
-            models = cb.call(name)
+            models = cb.call(wizard)
             if models.empty?
               emit_to_log(Message.new("system", H2code.t("ui.models_unavailable")))
-              restart_setup
             else
               @model_list.show(H2code.t("ui.select_model", name: name), models)
               default = wizard.model || wizard.current_choice.try(&.default_model) || models.first?
@@ -124,7 +125,6 @@ module H2code
             end
           rescue ex
             emit_to_log(Message.new("system", H2code.t("ui.models_unavailable")))
-            restart_setup
           ensure
             @status = "Setup: #{wizard.step.to_s.downcase}"
             @dirty = true
@@ -196,28 +196,6 @@ module H2code
           # advance_setup_step, which reopens the model selector.
           advance_setup_step
         end
-      end
-
-      # Reset the wizard to the provider-selection step. Used when fetching
-      # models fails so the user can pick a different provider.
-      private def restart_setup : Nil
-        wizard = @wizard
-        return unless wizard
-        @model_list.hide
-        @editor.clear
-        wizard.back if wizard.step.credentials?
-        wizard.back if wizard.step.endpoint?
-        wizard.back if wizard.step.model?
-        wizard.back if wizard.step.yolo?
-        wizard.api_key = ""
-        wizard.endpoint = nil
-        wizard.model = nil
-        wizard.provider_name = nil
-        wizard.yolo = false
-        wizard.step = Setup::Wizard::Step::Welcome
-        @status = "Setup: select provider"
-        open_setup_provider_selector
-        @dirty = true
       end
 
       private def finish_setup : Nil

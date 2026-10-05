@@ -1498,11 +1498,16 @@ module H2code
         config.provider_configured?(name)
       end
 
-      # Fetch the live model list for an arbitrary provider name. Used by the
+      # Fetch the live model list for the provider being set up. Used by the
       # setup wizard's Model step to show a real selector instead of a text
-      # input. Builds a throwaway provider so the running agent is untouched.
-      app.on_fetch_models_for = ->(name : String) : Array(String) do
-        provider = build_named_provider(name, config, oauth)
+      # input. Builds a throwaway provider from a scratch copy of the config
+      # with the wizard's collected key/endpoint applied — the real config is
+      # only written when the wizard completes, so building from it directly
+      # would always fail for a not-yet-configured provider.
+      app.on_fetch_models_for = ->(wizard : Setup::Wizard) : Array(String) do
+        scratch = config.dup
+        wizard.apply_to(scratch)
+        provider = build_named_provider(wizard.provider_name, scratch, oauth)
         provider.fetch_models
       end
 
