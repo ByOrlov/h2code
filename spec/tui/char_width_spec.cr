@@ -17,6 +17,39 @@ describe H2code::TUI::CharWidth do
       H2code::TUI::CharWidth.visible_width("ok \u274C").should eq(5) # 2 + 1 + 2
       H2code::TUI::CharWidth.visible_width("\u2705").should eq(2)    # ✅
       H2code::TUI::CharWidth.visible_width("\u26A1").should eq(2)    # ⚡ emoji-default
+      # U+23xx emoji-default glyphs (⏳ ⏰ ⌛ ⏩): without these in
+      # EMOJI_RANGES the width fell through to East Asian Width (1) while
+      # terminals render them 2 cells wide, shifting table rows (⏳ bug).
+      H2code::TUI::CharWidth.visible_width("\u23F3").should eq(2) # ⏳
+      H2code::TUI::CharWidth.visible_width("\u23F0").should eq(2) # ⏰
+      H2code::TUI::CharWidth.visible_width("\u231B").should eq(2) # ⌛
+      H2code::TUI::CharWidth.visible_width("\u23E9").should eq(2) # ⏩
+    end
+
+    describe "terminal-probed overrides" do
+      after_each do
+        H2code::TUI::CharWidth.clear_probed_widths
+      end
+
+      it "overrides the static table with measured widths" do
+        H2code::TUI::CharWidth.visible_width("\u26A0").should eq(1) # ⚠ table default
+        H2code::TUI::CharWidth.apply_probed_widths({0x26A0_u32 => 2})
+        H2code::TUI::CharWidth.visible_width("\u26A0").should eq(2)
+      end
+
+      it "keeps the override out of unprobed codepoints" do
+        H2code::TUI::CharWidth.apply_probed_widths({0x23F3_u32 => 2})
+        H2code::TUI::CharWidth.visible_width("\u2705").should eq(2) # ✅ table
+        H2code::TUI::CharWidth.visible_width("a").should eq(1)
+      end
+
+      it "probes the BMP emoji-presentation set plus anchors" do
+        candidates = H2code::TUI::CharWidth.probe_candidates
+        candidates.should contain(0x23F3_u32)  # ⏳
+        candidates.should contain(0x2705_u32)  # ✅
+        candidates.should contain(0x26A0_u32)  # ⚠ text-default anchor
+        candidates.should contain(0x1F504_u32) # 🔄 supplementary anchor
+      end
     end
 
     it "treats text-default emoji glyphs as width 1 without VS16" do

@@ -114,6 +114,14 @@ module H2code
         @events.shift?
       end
 
+      # Re-queue raw stdin bytes that were consumed outside the input
+      # loop (e.g. swallowed by the startup width probe). Prepended so
+      # they parse before anything read afterwards.
+      def inject(bytes : Array(UInt8)) : Nil
+        return if bytes.empty?
+        bytes.reverse_each { |b| @buffer.unshift(b) }
+      end
+
       # Discard any queued Enter events so a stray/doubled Enter byte (e.g.
       # \r\n, or a double keypress) that was batched with the key that opened
       # a modal dialog cannot immediately close it on the next read_key call.

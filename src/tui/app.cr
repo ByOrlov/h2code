@@ -485,10 +485,27 @@ module H2code
         @running = false
       end
 
+      # Ask the terminal itself how wide its emoji glyphs render before
+      # the first paint (DSR cursor-position probe, see
+      # `Terminal#probe_codepoint_widths`). A terminal that answers
+      # overrides the static Unicode width tables; one that stays silent
+      # keeps them. Keystrokes that arrive during the probe are
+      # re-injected into the input queue so nothing is lost.
+      private def probe_terminal_widths : Nil
+        widths, leftovers = @terminal.probe_codepoint_widths(CharWidth.probe_candidates)
+        CharWidth.apply_probed_widths(widths) if widths
+        @input.inject(leftovers)
+      rescue
+        # The probe is best-effort: never let it block or crash startup.
+      end
+
       def run(initial_prompt : String? = nil,
               &run_turn : String, Bool, Array(LLM::ContentPart)? -> Nil) : Nil
         @terminal.raw!
         @terminal.refresh_size
+        {% if flag?(:unix) %}
+          probe_terminal_widths
+        {% end %}
         @run_turn_cb = run_turn
 
         {% if flag?(:unix) %}

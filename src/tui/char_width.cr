@@ -46,6 +46,22 @@ module H2code
         @@width_cache.clear
       end
 
+      # Widths measured from the terminal itself at startup (see
+      # `Terminal#probe_codepoint_widths`): the real renderer's answer
+      # overrides the static Unicode tables for the probed codepoints.
+      @@probed_widths = {} of UInt32 => Int32
+
+      def self.apply_probed_widths(widths : Hash(UInt32, Int32)) : Nil
+        @@probed_widths = widths
+        # Cached strings were measured with the table defaults.
+        @@width_cache.clear
+      end
+
+      # Test-only: drop terminal-measured overrides.
+      def self.clear_probed_widths : Nil
+        @@probed_widths.clear
+      end
+
       def self.cache_bytes : Int64
         @@width_cache.keys.sum(&.profiled_bytes)
       end
@@ -84,6 +100,10 @@ module H2code
       # `grapheme_width`); otherwise it falls through to East Asian Width
       # (e.g. ⚠ U+26A0 renders as text by default → width 1).
       EMOJI_RANGES = {
+        {0x231A_u32, 0x231B_u32},   # ⌚ ⌛ (Miscellaneous Technical emoji)
+        {0x23E9_u32, 0x23EC_u32},   # ⏩..⏬
+        {0x23F0_u32, 0x23F0_u32},   # ⏰
+        {0x23F3_u32, 0x23F3_u32},   # ⏳
         {0x2600_u32, 0x26FF_u32},   # Miscellaneous Symbols (⚠ U+26A0 text-default, ⚡ U+26A1 emoji-default)
         {0x2700_u32, 0x27BF_u32},   # Dingbats (incl. ✅ U+2705, ❌ U+274C)
         {0x2B50_u32, 0x2B55_u32},   # Stars
@@ -563,6 +583,24 @@ module H2code
         in_range?(cp, EMOJI_PRESENTATION_RANGES)
       end
 
+      # Codepoints the startup probe measures against the real terminal
+      # (`Terminal#probe_codepoint_widths`): every BMP emoji-default
+      # presentation glyph — the set terminals actually disagree about —
+      # plus ⚠ (text-default) and 🔄 (supplementary) as anchors.
+      def self.probe_candidates : Array(UInt32)
+        cps = [] of UInt32
+        EMOJI_PRESENTATION_RANGES.each do |(lo, hi)|
+          cp = lo
+          while cp <= hi
+            cps << cp
+            cp += 1
+          end
+        end
+        cps << 0x26A0_u32  # ⚠ text-default anchor
+        cps << 0x1F504_u32 # 🔄 supplementary anchor
+        cps
+      end
+
       # Counterpart of `zeroWidthRegex.test`: a codepoint is zero-width when it
       # is a Mark (`\p{Mark}`, the complete set via `mark?`) OR belongs to the
       # non-Mark Default_Ignorable/Control/Format remainder. ZWJ (U+200D) is
@@ -602,6 +640,10 @@ module H2code
         return 3 if cp == 0x09 # \t
         return 0 if cp < 0x20 || cp == 0x7F
         return 0 if mark?(cp) || in_range?(cp, NON_MARK_ZERO_WIDTH_RANGES)
+        # Terminal-measured override wins over every static table below.
+        if w = @@probed_widths[cp]?
+          return w
+        end
         return 2 if regional_indicator?(cp)
         # Width 2 only when the codepoint defaults to emoji presentation. BMP
         # chars in emoji blocks that default to TEXT (e.g. ⚠ U+26A0) fall

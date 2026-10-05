@@ -184,6 +184,106 @@ module H2code
         @cols, @rows = size
       end
 
+      # How long to wait for DSR replies from a terminal that ignores
+      # the width probe before falling back to the static tables.
+      PROBE_TIMEOUT = 200.milliseconds
+
+      # Ask the terminal itself how wide glyphs render. For each
+      # candidate codepoint: carriage-return to column 1, print the
+      # glyph, then request the cursor position (DSR/CPR, `ESC[6n`).
+      # The reply `ESC[<row>;<col>R` reports where the cursor landed, so
+      # `col - 1` is the glyph's real advance width — ground truth that
+      # overrides the static Unicode tables when terminals disagree
+      # (e.g. ⏳ rendered 2 cells while the table says 1).
+      #
+      # All probes are sent as one batch, so this costs a single round
+      # trip (~a few ms on a live terminal). Runs once at startup,
+      # before the input loop and the first render; the glyphs flash on
+      # the current line for a moment and are erased afterwards. A
+      # terminal that never answers (pipe, PTY without emulation) keeps
+      # the static tables after PROBE_TIMEOUT.
+      #
+      # Returns the measured widths (nil when nothing was answered) and
+      # any non-reply bytes that arrived meanwhile (user keystrokes the
+      # caller should re-inject into the input queue).
+      def probe_codepoint_widths(candidates : Array(UInt32)) : {Hash(UInt32, Int32)?, Array(UInt8)}
+        {% if flag?(:unix) %}
+          return {nil, [] of UInt8} unless @raw && tty?
+
+          STDOUT.write(String.build do |io|
+            candidates.each { |cp| io << "\r" << cp.chr << "\e[6n" }
+          end)
+          STDOUT.flush
+
+          data = String::Builder.new
+          slice = Bytes.new(4096)
+          deadline = Time.monotonic + PROBE_TIMEOUT
+          loop do
+            n = LibC.read(STDIN.fd, slice.to_unsafe, slice.size)
+            data.write(slice[0, n]) if n > 0
+            cols, _ = Terminal.extract_dsr_replies(data.to_s)
+            break if cols.size >= candidates.size
+            break if Time.monotonic >= deadline
+            sleep 2.milliseconds
+          end
+
+          print "\r#{ANSI.clear_line}"
+          STDOUT.flush
+
+          cols, leftovers = Terminal.extract_dsr_replies(data.to_s)
+          widths = {} of UInt32 => Int32
+          cols.each_with_index do |col, idx|
+            cp = candidates[idx]?
+            next unless cp
+            w = col - 1
+            # A glyph is 1 or 2 cells; anything else is a garbled reply.
+            widths[cp] = w if w == 1 || w == 2
+          end
+          {widths.empty? ? nil : widths, leftovers}
+        {% else %}
+          # Windows console: no reliable DSR round trip — keep tables.
+          {nil, [] of UInt8}
+        {% end %}
+      end
+
+      # Split `data` into DSR cursor-position replies
+      # (`ESC [ <row> ; <col> R`) and the remaining bytes — user
+      # keystrokes that arrived during the probe. Returns the 1-based
+      # columns in reply order plus the leftovers in arrival order.
+      # Key encodings never end in `R` (kitty CSI-u ends in `u`, arrows
+      # in `A`..`H`/`~`), so replies cannot be spoofed by keystrokes.
+      def self.extract_dsr_replies(data : String) : {Array(Int32), Array(UInt8)}
+        cols = [] of Int32
+        leftovers = [] of UInt8
+        bytes = data.bytes
+        i = 0
+        n = bytes.size
+        while i < n
+          if bytes[i] == 0x1b_u8 && i + 1 < n && bytes[i + 1] == 0x5B_u8 # ESC [
+            j = i + 2
+            row_start = j
+            while j < n && bytes[j] >= 0x30_u8 && bytes[j] <= 0x39_u8
+              j += 1
+            end
+            if j > row_start && j < n && bytes[j] == 0x3B_u8 # ';'
+              j += 1
+              col_start = j
+              while j < n && bytes[j] >= 0x30_u8 && bytes[j] <= 0x39_u8
+                j += 1
+              end
+              if j > col_start && j < n && bytes[j] == 0x52_u8 # 'R'
+                cols << data.byte_slice(col_start, j - col_start).to_i
+                i = j + 1
+                next
+              end
+            end
+          end
+          leftovers << bytes[i]
+          i += 1
+        end
+        {cols, leftovers}
+      end
+
       def tty? : Bool
         {% if flag?(:unix) %}
           LibCExtra.isatty(STDIN.fd) == 1
