@@ -63,6 +63,29 @@ describe TgBot::Wizard do
     end
   end
 
+  it "styles output only when color is on" do
+    with_tmpdir do |dir|
+      answers = "111:abc\n2\n\n\n\n\n\n"
+      build = ->(color : Bool) do
+        output = IO::Memory.new
+        TgBot::Wizard.new(IO::Memory.new(answers), output,
+          ->(t : String) { "mybot" },
+          ->(t : String) { 42_i64 },
+          File.join(dir, "tg.json"), cwd: dir, color: color).run
+        output.to_s
+      end
+
+      plain = build.call(false)
+      plain.should_not contain("\e[")
+      plain.should contain("── 1/4 · token")
+      plain.should contain("h2code Telegram bot · setup")
+
+      styled = build.call(true)
+      styled.should contain("\e[")
+      styled.should contain("── 1/4 · token")
+    end
+  end
+
   it "aborts cleanly when the input closes" do
     with_tmpdir do |dir|
       wizard = TgBot::Wizard.new(IO::Memory.new(""), IO::Memory.new,
