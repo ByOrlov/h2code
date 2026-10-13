@@ -176,18 +176,36 @@ module H2code
           raise "extracted binary not found at #{new_bin}"
         end
 
+        # The Telegram daemon ships in the same archive. Update it only when
+        # the running install already has it — installing new binaries is the
+        # installer's job, not /upgrade's.
+        tg_name = {{ flag?(:win32) ? "h2code-tg-bot.exe" : "h2code-tg-bot" }}
+        new_tg = File.join(tmp_dir, tg_name)
+        cur_tg = File.join(File.dirname(cur), tg_name)
+        update_tg = File.exists?(new_tg) && File.exists?(cur_tg)
+
         {% if flag?(:win32) %}
           # Windows cannot overwrite a running .exe — move the old one aside.
           old = cur + ".old"
           File.delete(old) if File.exists?(old)
           File.rename(cur, old)
           move_across_fs(new_bin, cur)
+          if update_tg
+            old_tg = cur_tg + ".old"
+            File.delete(old_tg) if File.exists?(old_tg)
+            File.rename(cur_tg, old_tg)
+            move_across_fs(new_tg, cur_tg)
+          end
         {% else %}
           # Unix: rename over the running binary (inode stays valid for the
           # active process; new invocations pick up the new file). Renaming
           # is allowed; only opening the live binary for write is not.
           File.chmod(new_bin, 0o755)
           move_across_fs(new_bin, cur)
+          if update_tg
+            File.chmod(new_tg, 0o755)
+            move_across_fs(new_tg, cur_tg)
+          end
         {% end %}
       ensure
         FileUtils.rm_rf(tmp_dir)

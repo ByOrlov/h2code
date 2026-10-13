@@ -175,7 +175,8 @@ jobs:
         run: |
           set -euo pipefail
           archive() { # <target-name> <bin-dir>
-            (cd "$2" && tar -czf "../../h2code-$1.tar.gz" h2code *.dylib 2>/dev/null) || \
+            (cd "$2" && tar -czf "../../h2code-$1.tar.gz" h2code h2code-tg-bot *.dylib 2>/dev/null) || \
+              (cd "$2" && tar -czf "../../h2code-$1.tar.gz" h2code h2code-tg-bot) || \
               (cd "$2" && tar -czf "../../h2code-$1.tar.gz" h2code)
           }
           case "${{ matrix.target }}" in
@@ -189,7 +190,7 @@ jobs:
       - name: Archive (zip)
         if: matrix.archive == 'zip'
         shell: pwsh
-        run: Compress-Archive -Path build/bin/h2code.exe -DestinationPath "h2code-${{ matrix.target }}.zip"
+        run: Compress-Archive -Path build/bin/h2code.exe,build/bin/h2code-tg-bot.exe -DestinationPath "h2code-${{ matrix.target }}.zip"
 
       - name: Generate SHA256
         shell: bash

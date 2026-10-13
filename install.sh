@@ -181,6 +181,19 @@ mv -f "${SRC_BIN}" "${INSTALL_DIR}/${BIN_NAME}"
 chmod +x "${INSTALL_DIR}/${BIN_NAME}"
 info "Installed ${INSTALL_DIR}/${BIN_NAME}"
 
+# The Telegram daemon ships in the same release archive (or next to a local
+# build). Optional: older releases did not include it — same install dir, so
+# PATH below covers both binaries.
+TG_SRC="${TMP}/h2code-tg-bot"
+[ -n "$LOCAL_BIN" ] && TG_SRC="$(dirname "$LOCAL_BIN")/h2code-tg-bot"
+if [ -f "$TG_SRC" ]; then
+  mv -f "$TG_SRC" "${INSTALL_DIR}/h2code-tg-bot"
+  chmod +x "${INSTALL_DIR}/h2code-tg-bot"
+  info "Installed ${INSTALL_DIR}/h2code-tg-bot"
+else
+  info "h2code-tg-bot not found — skipping (older release?)"
+fi
+
 # Startup tips data (tips/*.json, read from disk next to config.json — see
 # src/tips/tips.cr). Only present when the release archive bundles them.
 if [ -d "${TMP}/tips" ]; then

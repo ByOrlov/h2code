@@ -115,3 +115,4 @@ export CC="$CC_WRAPPER"
 
 ./scripts/build_h2code.sh x86_64-apple-darwin build/bin-x86_64/h2code
 ./scripts/rebind_dylibs.sh build/bin-x86_64/h2code
+./scripts/rebind_dylibs.sh build/bin-x86_64/h2code-tg-bot

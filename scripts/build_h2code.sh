@@ -38,3 +38,11 @@ if [ -n "$TARGET" ]; then TARGET_ARGS="--target $TARGET"; fi
 # LINK_FLAGS is a deliberately unquoted flag list.
 # shellcheck disable=SC2086
 crystal build src/h2code.cr -o "$OUTPUT" --release --no-debug --warnings none $TARGET_ARGS --link-flags "$LINK_FLAGS"
+
+# The Telegram daemon ships beside h2code (same release archives, installers
+# and packages — install.sh / install.ps1 put both on PATH). Pure stdlib:
+# no miniaudio bridge, so no extra link flags. On Windows Crystal appends
+# .exe to -o itself, same as above.
+TG_OUTPUT="$(dirname "$OUTPUT")/h2code-tg-bot"
+# shellcheck disable=SC2086
+crystal build src/tg_bot/main.cr -o "$TG_OUTPUT" --release --no-debug --warnings none $TARGET_ARGS

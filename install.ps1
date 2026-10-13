@@ -224,6 +224,21 @@ try {
         }
         Write-Info "Installed $Dest"
 
+        # The Telegram daemon ships in the same release archive (or next to a
+        # local build). Optional: older releases did not include it -- same
+        # install dir, so the PATH step below covers both binaries.
+        $TgSrc = if ($LocalBinary) {
+            Join-Path (Split-Path $Src -Parent) 'h2code-tg-bot.exe'
+        } else {
+            Join-Path $Tmp.FullName 'h2code-tg-bot.exe'
+        }
+        if (Test-Path $TgSrc) {
+            Copy-Item -Path $TgSrc -Destination (Join-Path $InstallDir 'h2code-tg-bot.exe') -Force
+            Write-Info "Installed $InstallDir\h2code-tg-bot.exe"
+        } else {
+            Write-Info "h2code-tg-bot.exe not found -- skipping (older release?)"
+        }
+
         # Startup tips data (tips/*.json, read from disk — see src/tips/tips.cr).
         # Only present when the release archive bundles them. Placed next to the
         # binary, which is one of the runtime tips lookup paths.
