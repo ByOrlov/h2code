@@ -11,6 +11,8 @@ license: GPL-2.0-or-later
 targets:
   h2code:
     main: src/h2code.cr
+  h2code-tg-bot:
+    main: src/tg_bot/main.cr
 
 dependencies:
   goban:
