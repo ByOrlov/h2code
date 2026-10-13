@@ -66,6 +66,7 @@ require "./tools/plan_mode"
 require "./tools/goal"
 require "./tools/task"
 require "./remote/control_socket"
+require "./remote/resident"
 require "./remote/qr"
 require "./remote/sync"
 require "./tools/cron"
@@ -239,6 +240,7 @@ module H2code
       show_version = false
       continue_session = false
       hi_mode = false
+      resident_mode = false
 
       i = 0
       while i < argv.size
@@ -269,6 +271,8 @@ module H2code
           permission_mode = "auto"
         when "--hi"
           hi_mode = true
+        when "--resident"
+          resident_mode = true
         when "--ram"
           CLI.ram_tracer = RamTracer.new(enabled: true)
         when "-h", "--help"
@@ -572,7 +576,9 @@ module H2code
       agent_runner, swarm_runner = wire_subagent_runners(agent, task_service, system_prompt, work_dir, config)
 
       begin
-        if prompt
+        if resident_mode
+          run_resident(agent, system_prompt, store, config, permission, task_service, mcp_manager, provider, oauth, prompt)
+        elsif prompt
           run_headless(prompt, agent, system_prompt, store, config, task_service, mcp_manager)
         else
           run_interactive(agent, system_prompt, store, config, permission, oauth, home, work_dir, tui_prompt, agent_runner, swarm_runner, task_service, mcp_manager, plugin_manager)
@@ -846,6 +852,87 @@ module H2code
         exit(1)
       ensure
         mcp_manager.shutdown
+      end
+    end
+
+    # `h2code --resident` — a headless agent that stays alive and serves its
+    # control socket (protocol v2): prompts/answers/approvals from a client
+    # (the h2code-tg-bot daemon), turn/assistant/question frames pushed back.
+    # The process behind remote phone-only operation; see plans/telegram_bot.md.
+    private def self.run_resident(agent, system_prompt, store, config, permission,
+                                  task_service, mcp_manager, provider, oauth, initial_prompt)
+      session = Remote::ResidentSession.new(agent, store, system_prompt, provider.model_name)
+      session.wire
+
+      # Session-control ops for the Telegram surface (mirror of the TUI's
+      # on_fetch_models / on_model_change / mode commands; see input_controller).
+      session.mode_reporter = -> { permission.mode.to_s }
+      session.socket.on_models = -> { provider.fetch_models }
+      session.socket.on_model_change = ->(model : String) do
+        begin
+          case config.provider_name
+          when "moonshot"
+            config.model = model
+          when "zai"
+            config.zai_model = model
+          when "zai-coding-plan"
+            config.zai_coding_plan_model = model
+          when "ollama"
+            config.ollama_model = model
+          when "lmstudio"
+            config.lmstudio_model = model
+          when "strata"
+            config.strata_model = model
+          end
+          new_provider = build_named_provider(config.provider_name, config, oauth)
+          configure_provider(new_provider, config, store.meta_id?)
+          agent.swap_provider!(new_provider)
+          Tools::WebSearch.service = build_web_search_service(config, new_provider)
+          config.save
+          session.model_name = new_provider.model_name
+          true
+        rescue
+          false
+        end
+      end
+      session.socket.on_mode_get = -> { permission.mode.to_s }
+      session.socket.on_mode_set = ->(value : String) do
+        if {"auto", "manual", "yolo", "ask"}.includes?(value.downcase)
+          mode = Permission::Mode.parse(value)
+          permission.mode = mode
+          mode.to_s
+        end
+      end
+
+      # AskUserQuestion → control socket (mirror of the TUI dialog wiring and
+      # ACP's QuestionHandler); permission approvals ride the same channel.
+      H2code::Tools::AskUserQuestion.service = session.question_service
+      permission.approval_callback = ->(tool_name : String, args : String, danger : String?) do
+        session.approval_callback(tool_name, args, danger)
+      end
+
+      # Background-task completion notifications deliver as follow-up turns
+      # (same bridge the TUI attaches to this shared Bash instance).
+      if bash_tool = agent.tools.get(Tools::Names::BASH).as?(Tools::Bash)
+        bash_tool.delivery = ->(text : String) { session.deliver(text) }
+      end
+
+      {% if flag?(:unix) %}
+        Signal::INT.trap { session.request_exit }
+        Signal::TERM.trap { session.request_exit }
+      {% end %}
+
+      sid = store.read_state.try(&.id) || store.meta_id? || File.basename(store.session_dir)
+      STDERR.puts "[resident] session #{sid} listening on #{File.join(store.session_dir, "control.sock")}"
+
+      begin
+        session.run(initial_prompt)
+      ensure
+        task_service.stop_all_on_exit("process exited")
+        H2code::Tools::InteractiveShell.service.try(&.stop_all)
+        session.socket.close
+        mcp_manager.shutdown
+        STDERR.puts "[resident] session #{sid} exited"
       end
     end
 
