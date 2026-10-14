@@ -12,6 +12,7 @@ en:
     turn_complete: "Turn complete"
     cancelled: "Cancelled"
     network_failure: "Network failure"
+    forced_cancel: "Forced cancel after %{seconds}s: the turn did not respond to interruption (possible network stall). The interface was reset; the stalled request continues in the background."
     working: "Working"
     idle: "Idle"
     interrupted: "Interrupted by user"

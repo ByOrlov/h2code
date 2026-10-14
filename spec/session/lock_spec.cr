@@ -56,6 +56,29 @@ describe H2code::Session::Lock do
       FileUtils.rm_rf(home)
     end
   end
+
+  describe ".locked?" do
+    it "is true while the lock is held, false after release" do
+      home = lock_temp_home
+      begin
+        dir = File.join(home, ".h2code", "sessions", "locked")
+        Dir.mkdir_p(dir)
+        H2code::Session::Lock.locked?(dir).should be_false # no lock file yet
+        lock = H2code::Session::Lock.acquire!(dir)
+        H2code::Session::Lock.locked?(dir).should be_true
+        lock.release
+        H2code::Session::Lock.locked?(dir).should be_false
+      ensure
+        FileUtils.rm_rf(home)
+      end
+    end
+
+    it "is false for a missing directory" do
+      H2code::Session::Lock.locked?(
+        File.join(lock_temp_home, ".h2code", "sessions", "gone")
+      ).should be_false
+    end
+  end
 end
 
 describe "Session store locking" do

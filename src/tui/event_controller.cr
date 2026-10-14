@@ -289,6 +289,7 @@ module H2code
           # back to false — run_turn itself runs in a detached fiber and
           # cannot safely touch @agent_busy on completion.
           @agent_busy = false
+          @cancel_requested_at = nil
           @is_compacting = false
           @defer_user_messages = false
           stop_spinner

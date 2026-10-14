@@ -55,6 +55,7 @@ module H2code
         @turn_tool_count = 0
         @agent_busy = true
         @agent_status = AgentStatus::Busy
+        @cancel_requested_at = nil
         @status = "Thinking..."
         start_spinner
         invalidate_log_cache!

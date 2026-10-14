@@ -12,6 +12,7 @@ ja:
     turn_complete: "ターン完了"
     cancelled: "キャンセルされました"
     network_failure: "ネットワーク障害"
+    forced_cancel: "%{seconds}秒後に強制キャンセル: ターンが中断に応答しませんでした（ネットワーク切断の可能性）。インターフェースをリセットしました。止まったリクエストはバックグラウンドで継続しています。"
     working: "処理中"
     idle: "アイドル"
     interrupted: "ユーザーにより中断されました"

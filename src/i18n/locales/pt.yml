@@ -12,6 +12,7 @@ pt:
     turn_complete: "Turno concluído"
     cancelled: "Cancelado"
     network_failure: "Falha de rede"
+    forced_cancel: "Cancelamento forçado após %{seconds}s: o turno não respondeu à interrupção (possível queda de rede). A interface foi redefinida; a solicitação travada continua em segundo plano."
     working: "Trabalhando"
     idle: "Inativo"
     interrupted: "Interrompido pelo usuário"

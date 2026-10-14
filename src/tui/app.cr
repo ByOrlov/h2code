@@ -3,6 +3,14 @@ require "../worktree"
 module H2code
   module TUI
     class App
+      # Cancel watchdog: how long "Cancelling..." may persist after the user
+      # requested an interrupt before the TUI force-resets to idle (see
+      # `force_cancel!`). Generous compared to a healthy cancel (stream abort
+      # lands within ~100ms, tools get a 2s grace period), short compared to
+      # the 60s stream stall timeout so a dead-network hang doesn't lock the
+      # UI for a minute.
+      CANCEL_FORCE_TIMEOUT = 10.seconds
+
       include Zones
       include SetupController
       include CommandController
@@ -63,6 +71,12 @@ module H2code
       @max_context_tokens : Int32 = 262144
       @running : Bool = true
       @agent_busy : Bool = false
+      # Monotonic timestamp of the first cancel request (ESC / Ctrl+C /
+      # SIGINT) during the current turn. Drives the cancel watchdog in the
+      # main loop: a turn that ignores the abort (e.g. the network died
+      # mid-request and the provider read never returned) must not lock the
+      # UI in "Cancelling..." forever. Cleared on turn_end / start_turn.
+      @cancel_requested_at : Time::Span? = nil
       @is_compacting : Bool = false
       @defer_user_messages : Bool = false
       @compaction_msg : Message? = nil
@@ -485,6 +499,38 @@ module H2code
         @running = false
       end
 
+      # Shared ESC / Ctrl+C / SIGINT entry point: flip the status, record when
+      # the cancel was requested (for the watchdog in the main run loop) and
+      # notify the host. Repeated presses keep the FIRST timestamp so mashing
+      # the key cannot postpone the watchdog indefinitely.
+      private def request_cancel : Nil
+        @cancel_requested_at = Time.monotonic if @cancel_requested_at.nil?
+        @status = "Cancelling..."
+        @dirty = true
+        @on_cancel.try(&.call)
+      end
+
+      # Safety valve for a turn stuck in "Cancelling..." — typically a network
+      # drop where the provider's blocking read never returns and the abort
+      # flag is never observed. After CANCEL_FORCE_TIMEOUT the TUI gives up on
+      # the turn fiber: reset to idle via the same emergency cleanup a crashed
+      # turn fiber gets, and leave the orphaned fiber to finish on its own
+      # (its events after this point are ignored or idempotent).
+      private def force_cancel! : Nil
+        @cancel_requested_at = nil
+        emit_to_log(Message.new("error",
+          H2code.t("status.forced_cancel", seconds: CANCEL_FORCE_TIMEOUT.total_seconds.to_i)))
+        on_event(Loop::Event.turn_end(true))
+        @dirty = true
+      end
+
+      # Poll-side of the cancel watchdog, called from the main run loop.
+      private def check_cancel_watchdog!(now : Time::Span) : Nil
+        return unless @agent_busy
+        requested = @cancel_requested_at || return
+        force_cancel! if (now - requested) >= CANCEL_FORCE_TIMEOUT
+      end
+
       # Ask the terminal itself how wide its emoji glyphs render before
       # the first paint (DSR cursor-position probe, see
       # `Terminal#probe_codepoint_widths`). A terminal that answers
@@ -511,9 +557,7 @@ module H2code
         {% if flag?(:unix) %}
           Signal::INT.trap do
             if @agent_busy
-              @status = "Cancelling..."
-              @dirty = true
-              @on_cancel.try(&.call)
+              request_cancel
             else
               @running = false
               # Move cursor to end and print newline before restoring
@@ -571,6 +615,11 @@ module H2code
             refresh_bg_tasks!
             @last_bg_poll = now
           end
+
+          # Cancel watchdog: a turn that stays in "Cancelling..." longer than
+          # CANCEL_FORCE_TIMEOUT ignored the abort (dead-network hang) —
+          # force the UI back to idle instead of waiting forever.
+          check_cancel_watchdog!(now)
 
           if (@agent_busy || @swarm_active || @ci_active || @bg_tasks_active || voice_active?) && elapsed >= 80
             @spin_phase += 1

@@ -58,6 +58,30 @@ module H2code
       def initialize(@path : String, @file : File)
       end
 
+      # Whether *session_dir*'s exclusive lock is currently held by a live
+      # process (the session is open in some h2code instance). Probed with a
+      # non-blocking flock on a separate handle: when the attempt fails the
+      # kernel lock is taken. The probe lock is released immediately, so this
+      # never blocks and never disturbs the holder. Sessions without a lock
+      # file on disk are never locked. Read-only — this is how the session
+      # picker hides open sessions.
+      def self.locked?(session_dir : String) : Bool
+        path = File.join(session_dir, "lock")
+        return false unless File.exists?(path)
+        file = File.open(path, "r")
+        locked = begin
+          file.flock_exclusive(blocking: false)
+          file.flock_unlock
+          false
+        rescue IO::Error
+          true
+        end
+        file.close
+        locked
+      rescue File::Error
+        false
+      end
+
       # Release the lock and close the handle. Idempotent. The OS also
       # releases the lock on process exit, so an omitted release leaks
       # nothing past the owning process's lifetime.

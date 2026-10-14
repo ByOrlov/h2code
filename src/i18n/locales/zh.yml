@@ -12,6 +12,7 @@ zh:
     turn_complete: "轮次完成"
     cancelled: "已取消"
     network_failure: "网络故障"
+    forced_cancel: "在 %{seconds} 秒后强制取消：本轮未响应中断（可能是网络断开）。界面已重置；卡住的请求仍在后台继续。"
     working: "工作中"
     idle: "空闲"
     interrupted: "被用户中断"

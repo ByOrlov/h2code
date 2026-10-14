@@ -267,9 +267,7 @@ module H2code
         case key.key
         when .ctrl_c?
           if @agent_busy
-            @status = "Cancelling..."
-            @dirty = true
-            @on_cancel.try(&.call)
+            request_cancel
           else
             @exit_confirm = true
             @exit_key = "CTRL+C"
@@ -327,9 +325,7 @@ module H2code
           end
         when .escape?
           if @agent_busy
-            @status = "Cancelling..."
-            @dirty = true
-            @on_cancel.try(&.call)
+            request_cancel
           elsif !@editor.empty?
             @editor.clear
             update_command_hints
@@ -1268,6 +1264,10 @@ module H2code
         index = Session::Index.new(@home)
         ws_id = (!global && !@work_dir.empty?) ? Session::Index.workspace_id(@work_dir) : nil
         entries = index.list(ws_id, include_archived: include_archived)
+        # Hide open sessions — those whose exclusive lock is held by a live
+        # process (this one included). They can't be resumed anyway: opening
+        # them would raise SessionBusyError.
+        entries = entries.reject { |e| Session::Lock.locked?(e.path) }
         if entries.empty?
           emit_to_log(Message.new("system", H2code.t("ui.no_sessions")))
           return

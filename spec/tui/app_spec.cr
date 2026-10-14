@@ -52,6 +52,34 @@ class BusyApp < H2code::TUI::App
   end
 end
 
+# Spec-only wrapper exposing the private cancel-watchdog path so a stuck
+# "Cancelling..." (dead-network hang that ignores the abort flag) can be
+# exercised without a real turn/provider.
+class CancelWatchdogApp < H2code::TUI::App
+  def set_busy(flag : Bool) : Nil
+    @agent_busy = flag
+  end
+
+  def cancel_requested? : Bool
+    !@cancel_requested_at.nil?
+  end
+
+  def request_cancel_now : Nil
+    request_cancel
+  end
+
+  def watchdog : Nil
+    check_cancel_watchdog!(Time.monotonic)
+  end
+
+  # Simulate the cancel having been requested `seconds` ago.
+  def age_cancel(seconds : Number) : Nil
+    if t = @cancel_requested_at
+      @cancel_requested_at = t - seconds.seconds
+    end
+  end
+end
+
 describe H2code::TUI::App do
   it "routes parallel tool results to the correct messages" do
     app = H2code::TUI::App.new
@@ -184,6 +212,59 @@ describe H2code::TUI::App do
     log_stripped.join('\n').should contain("Todos (2/2)")
     log_stripped.join('\n').should contain("✓ Task A")
     active_stripped.join('\n').should_not contain("Todos (2/2)")
+  end
+
+  # Regression: a turn stuck in "Cancelling..." — e.g. the network dropped
+  # mid-request and the provider's blocking read never observed the abort
+  # flag — must not lock the UI forever. After CANCEL_FORCE_TIMEOUT the
+  # watchdog force-resets the busy state and surfaces why, the same way a
+  # crashed turn fiber does.
+  describe "cancel watchdog" do
+    it "forces the UI back to idle when Cancelling outlives the timeout" do
+      H2code::I18n.init("en")
+      app = CancelWatchdogApp.new
+      cancelled = false
+      app.on_cancel = -> { cancelled = true; nil }
+      app.set_busy(true)
+
+      app.request_cancel_now
+      cancelled.should be_true
+      app.cancel_requested?.should be_true
+
+      # Not yet past the timeout: nothing fires.
+      app.watchdog
+      app.agent_busy?.should be_true
+
+      # 11s later (timeout is 10s): the watchdog force-resets.
+      app.age_cancel(11)
+      app.watchdog
+
+      app.agent_busy?.should be_false
+      app.cancel_requested?.should be_false
+      errors = app.@messages.select { |m| m.role == "error" }
+      errors.size.should eq(1)
+      errors.first.content.should contain("Forced cancel")
+      H2code::I18n.activate("en")
+    end
+
+    it "does not fire when no cancel was requested" do
+      app = CancelWatchdogApp.new
+      app.set_busy(true)
+
+      app.watchdog
+      app.agent_busy?.should be_true
+    end
+
+    it "clears the request when the turn ends normally" do
+      app = CancelWatchdogApp.new
+      app.set_busy(true)
+      app.request_cancel_now
+      app.cancel_requested?.should be_true
+
+      app.on_event(H2code::Loop::Event.turn_end(false))
+      app.agent_busy?.should be_false
+      app.cancel_requested?.should be_false
+    end
   end
 
   it "on_event sets dirty after processing" do
