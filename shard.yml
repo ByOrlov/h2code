@@ -11,9 +11,13 @@ license: GPL-2.0-or-later
 targets:
   h2code:
     main: src/h2code.cr
+  hless:
+    main: bin/hless.cr
 
 dependencies:
   goban:
     github: soya-daizu/goban
   i18n:
     github: crystal-i18n/i18n
+  highlight_cr:
+    github: Orelsokolov/highlight.cr

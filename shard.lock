@@ -4,6 +4,10 @@ shards:
     git: https://github.com/soya-daizu/goban.git
     version: 1.8.0+git.commit.b076fb4e91969efd5ee0b2be2ee4cbd74c983548
 
+  highlight_cr:
+    git: https://github.com/orelsokolov/highlight.cr.git
+    version: 0.1.0+git.commit.4016f6af906238302ac6abb46b23e87e4287e144
+
   i18n:
     git: https://github.com/crystal-i18n/i18n.git
     version: 0.2.2
