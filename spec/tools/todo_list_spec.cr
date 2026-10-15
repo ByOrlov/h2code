@@ -85,6 +85,27 @@ describe H2code::Tools::TodoList do
     result.content.should contain("[pending]")
   end
 
+  it "coerces bare string items instead of raising" do
+    todo = H2code::Tools::TodoList.new
+    todo.execute(JSON.parse(%({"todos":[{"title":"keep","status":"done"}]})))
+    result = todo.execute(JSON.parse(%({"todos":["E2/E3/E4a-e","also a string"]})))
+    result.is_error?.should be_false
+    result.content.should contain("[pending] E2/E3/E4a-e")
+    result.content.should contain("[pending] also a string")
+    # A malformed item must not wipe the previous list state in the result.
+    todo.todos.size.should eq(2)
+  end
+
+  it "rejects a non-array `todos` without clearing the list" do
+    todo = H2code::Tools::TodoList.new
+    todo.execute(JSON.parse(%({"todos":[{"title":"keep","status":"done"}]})))
+    result = todo.execute(JSON.parse(%({"todos":"oops"})))
+    result.is_error?.should be_true
+    result.content.should contain("expected an array")
+    todo.todos.size.should eq(1)
+    todo.todos[0].title.should eq("keep")
+  end
+
   describe "persistence" do
     it "saves todos to <session_dir>/todo.json and reloads them" do
       Dir.tempdir.tap do |tmp|

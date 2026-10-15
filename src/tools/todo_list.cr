@@ -112,13 +112,19 @@ module H2code
           return ToolResult.success(format_todos)
         end
 
-        @todos.clear
-        todos_input.as_a.each do |item|
-          @todos << TodoItem.new(
-            title: item["title"]?.try(&.to_s) || "",
-            status: parse_status(item["status"]?.try(&.to_s) || "pending"),
-          )
+        # Build the replacement list first so a malformed item can't leave
+        # the list half-cleared; `JSON::Any#[]?` raises (not nil) when the
+        # element isn't an object, e.g. `todos: ["some string"]`.
+        items = todos_input.as_a?
+        return ToolResult.error("Invalid `todos`: expected an array of objects, got #{todos_input.raw.class}.") if items.nil?
+
+        new_todos = [] of TodoItem
+        items.each do |item|
+          parsed = parse_item(item)
+          new_todos << parsed unless parsed.nil?
         end
+        @todos.clear
+        new_todos.each { |t| @todos << t }
         persist
 
         if @todos.empty?
@@ -148,16 +154,29 @@ module H2code
         return if path.nil? || !File.exists?(path)
         parsed = JSON.parse(File.read(path))
         @todos.clear
-        parsed.as_a.each do |item|
-          @todos << TodoItem.new(
-            title: item["title"]?.try(&.to_s) || "",
-            status: parse_status(item["status"]?.try(&.to_s) || "pending"),
-          )
-        end
+        parsed.as_a?.try(&.each do |item|
+          parsed_item = parse_item(item)
+          @todos << parsed_item unless parsed_item.nil?
+        end)
       rescue JSON::ParseException
         @todos.clear
       rescue IO::Error
         # Unreadable file — keep the current (empty) list.
+      end
+
+      # Parse one element of the `todos` array. Accepts the documented
+      # `{title, status}` objects, plus bare strings (models occasionally send
+      # `todos: ["task"]`); other shapes are skipped instead of raising —
+      # `JSON::Any#[]?` throws when the element isn't a Hash.
+      private def parse_item(item : JSON::Any) : TodoItem?
+        if h = item.as_h?
+          TodoItem.new(
+            title: h["title"]?.try(&.to_s) || "",
+            status: parse_status(h["status"]?.try(&.to_s) || "pending"),
+          )
+        elsif s = item.as_s?
+          TodoItem.new(title: s, status: TodoStatus::Pending)
+        end
       end
 
       private def persist : Nil
