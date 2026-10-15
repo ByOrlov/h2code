@@ -224,6 +224,17 @@ try {
         }
         Write-Info "Installed $Dest"
 
+        # hless (the pager) ships in the same release archive; in local-binary
+        # mode it sits next to the passed h2code.exe (`rake install` builds both).
+        $HlessSrc = Join-Path $Tmp.FullName 'hless.exe'
+        if ($LocalBinary) {
+            $HlessSrc = Join-Path (Split-Path $Src -Parent) 'hless.exe'
+        }
+        if (Test-Path $HlessSrc) {
+            Copy-Item -Path $HlessSrc -Destination (Join-Path $InstallDir 'hless.exe') -Force
+            Write-Info "Installed hless.exe to $InstallDir"
+        }
+
         # Startup tips data (tips/*.json, read from disk — see src/tips/tips.cr).
         # Only present when the release archive bundles them. Placed next to the
         # binary, which is one of the runtime tips lookup paths.

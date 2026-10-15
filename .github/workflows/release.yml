@@ -168,6 +168,9 @@ jobs:
           BIN=build/bin/h2code
           [ -f build/bin/h2code.exe ] && BIN=build/bin/h2code.exe
           "$BIN" --version
+          HLESS=build/bin/hless
+          [ -f build/bin/hless.exe ] && HLESS=build/bin/hless.exe
+          "$HLESS" --version
 
       # ---- Archive + upload (from the crosspack artifacts.from dirs) ----
       - name: Archive (tar.gz)
@@ -175,8 +178,8 @@ jobs:
         run: |
           set -euo pipefail
           archive() { # <target-name> <bin-dir>
-            (cd "$2" && tar -czf "../../h2code-$1.tar.gz" h2code *.dylib 2>/dev/null) || \
-              (cd "$2" && tar -czf "../../h2code-$1.tar.gz" h2code)
+            (cd "$2" && tar -czf "../../h2code-$1.tar.gz" h2code hless *.dylib 2>/dev/null) || \
+              (cd "$2" && tar -czf "../../h2code-$1.tar.gz" h2code hless)
           }
           case "${{ matrix.target }}" in
             x86_64-linux|aarch64-linux) archive "${{ matrix.target }}" build/bin ;;
@@ -189,7 +192,7 @@ jobs:
       - name: Archive (zip)
         if: matrix.archive == 'zip'
         shell: pwsh
-        run: Compress-Archive -Path build/bin/h2code.exe -DestinationPath "h2code-${{ matrix.target }}.zip"
+        run: Compress-Archive -Path build/bin/h2code.exe,build/bin/hless.exe -DestinationPath "h2code-${{ matrix.target }}.zip"
 
       - name: Generate SHA256
         shell: bash

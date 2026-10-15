@@ -181,6 +181,18 @@ mv -f "${SRC_BIN}" "${INSTALL_DIR}/${BIN_NAME}"
 chmod +x "${INSTALL_DIR}/${BIN_NAME}"
 info "Installed ${INSTALL_DIR}/${BIN_NAME}"
 
+# hless (the pager) ships in the same release archive; in local-binary mode it
+# sits next to the passed h2code binary (`rake install` builds both).
+HLESS_SRC="${TMP}/hless"
+if [ -n "$LOCAL_BIN" ] && [ -f "$(dirname "${LOCAL_BIN}")/hless" ]; then
+  HLESS_SRC="$(dirname "${LOCAL_BIN}")/hless"
+fi
+if [ -f "$HLESS_SRC" ]; then
+  mv -f "${HLESS_SRC}" "${INSTALL_DIR}/hless"
+  chmod +x "${INSTALL_DIR}/hless"
+  info "Installed ${INSTALL_DIR}/hless"
+fi
+
 # Startup tips data (tips/*.json, read from disk next to config.json — see
 # src/tips/tips.cr). Only present when the release archive bundles them.
 if [ -d "${TMP}/tips" ]; then

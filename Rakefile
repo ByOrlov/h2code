@@ -135,17 +135,19 @@ end
 # Release builds for distribution flow through crosspack (crosspack.yml:
 # crosspack deps/build/pack <target>). This task only feeds local dev flows
 # (rake run:release, rake install) that want a release binary at ./h2code.
-desc "Build a release binary at ./h2code (distribution builds: crosspack build, see crosspack.yml)"
+# scripts/build_h2code.sh also compiles the hless pager alongside (./hless).
+desc "Build release binaries at ./h2code and ./hless (distribution builds: crosspack build, see crosspack.yml)"
 task :build_release do
   building "h2code (release)"
   sh "bash scripts/build_h2code.sh \"\" h2code"
 end
 
 # `rake install` — same flow as the installers (runtime deps, install dir, PATH),
-# but installs a binary built from this checkout instead of a release asset.
+# but installs binaries built from this checkout instead of a release asset.
 # The dependency/PATH logic lives in install.sh / install.ps1 (single source of
-# truth); the built binary is passed to them as a local binary.
-desc "Build (release) and install (~/.h2code/bin on Unix, %LOCALAPPDATA%\\h2code\\bin on Windows)"
+# truth); the built h2code binary is passed to them as a local binary, and the
+# installers pick up the sibling hless built by the same script.
+desc "Build (release) and install h2code + hless (~/.h2code/bin on Unix, %LOCALAPPDATA%\\h2code\\bin on Windows)"
 task :install do
   unless system("crystal", "--version", out: File::NULL, err: File::NULL)
     abort "Crystal not found. Install it first: https://crystal-lang.org/install/"
@@ -159,13 +161,20 @@ task :install do
 end
 
 namespace :build do
-  desc "Build every binary: h2code, ameba, lines_demo, mock_h2code, mockfast_h2code, mockshort_h2code"
-  task :all => [:h2code, :ameba, :lines_demo, :mock_h2code, :mockfast_h2code, :mockshort_h2code]
+  desc "Build every binary: h2code, hless, ameba, lines_demo, mock_h2code, mockfast_h2code, mockshort_h2code"
+  task :all => [:h2code, :hless, :ameba, :lines_demo, :mock_h2code, :mockfast_h2code, :mockshort_h2code]
 
   desc "Build the h2code binary (debug)"
   task :h2code do
     building "h2code"
     build_h2code
+  end
+
+  desc "Build the hless pager binary (debug)"
+  task :hless do
+    building "hless"
+    ENV["H2CODE_VERSION"] = h2code_build_version
+    sh "crystal build bin/hless.cr -o hless --warnings none --no-color"
   end
 
   desc "Build bin/ameba"
@@ -495,7 +504,7 @@ task :precommit => ["i18n:check", "tips:check"]
 
 desc "Remove build artifacts"
 task :clean do
-  rm_f(windows? ? Dir.glob("h2code.exe{,.old,.prev}") : "h2code")
+  rm_f(windows? ? Dir.glob("h2code.exe{,.old,.prev}") + %w[hless.exe] : %w[h2code hless])
   rm_f Dir.glob("#{MINIAUDIO_DIR}/miniaudio_bridge.{o,a,obj,lib}")
   rm_f File.join(MINIAUDIO_DIR, ".bridge_stamp")
   # crosspack trees: build/ (matrix artifacts.from) and builds/ + crosspacks/

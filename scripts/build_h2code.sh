@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
-# Release build of h2code — the entry point used by crosspack (the crosspack.yml
-# matrix steps) and by `rake build_release` / `rake install`.
+# Release build of h2code + hless — the entry point used by crosspack (the
+# crosspack.yml matrix steps) and by `rake build_release` / `rake install`.
 #
 #   ./scripts/build_h2code.sh [crystal-target-triplet] [output-path]
 #
 # Builds the miniaudio bridge (scripts/build_miniaudio.sh prints the link
 # flags) and compiles src/h2code.cr in release mode into build/bin/h2code by
 # default — the artifacts.from directory the crosspack build stage distributes
-# from. The version baked into the binary comes from CROSSBUILD_VERSION
-# (exported by crosspack), falling back to H2CODE_VERSION / the latest git
-# tag, matching src/version.cr. On Windows Crystal appends .exe to -o itself.
+# from. bin/hless.cr (the pager) is compiled alongside into the same
+# directory; it needs no bridge, so it is a plain release build. The version
+# baked into the binaries comes from CROSSBUILD_VERSION (exported by
+# crosspack), falling back to H2CODE_VERSION / the latest git tag, matching
+# src/version.cr. On Windows Crystal appends .exe to -o itself.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -38,3 +40,8 @@ if [ -n "$TARGET" ]; then TARGET_ARGS="--target $TARGET"; fi
 # LINK_FLAGS is a deliberately unquoted flag list.
 # shellcheck disable=SC2086
 crystal build src/h2code.cr -o "$OUTPUT" --release --no-debug --warnings none $TARGET_ARGS --link-flags "$LINK_FLAGS"
+
+# hless — same directory as the h2code output (Windows appends .exe itself).
+HLESS_OUTPUT="$(dirname "$OUTPUT")/hless"
+# shellcheck disable=SC2086
+crystal build bin/hless.cr -o "$HLESS_OUTPUT" --release --no-debug --warnings none $TARGET_ARGS
