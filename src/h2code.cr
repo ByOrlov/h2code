@@ -524,6 +524,7 @@ module H2code
       agent = Loop::Agent.new(provider, memory, tools, permission)
       agent.debug = config.debug?
       agent.max_retries = config.max_retries
+      agent.max_steps = config.max_steps
       # Persist the per-model text-only mark when the agent intercepts the
       # "content.type is invalid, allowed values: ['text']" 400.
       agent.on_text_only_detected = ->(model_name : String) { config.mark_text_only_model!(model_name) }
@@ -1638,6 +1639,9 @@ module H2code
         config.save
         nil
       end
+      # `/set agent.max_steps <n>` reaches the running agent immediately
+      # (config persistence is already handled by the /set command).
+      app.on_set_max_steps = ->(n : Int32) { agent.max_steps = n; nil }
 
       app.on_get_language = -> : String do
         config.language || H2code::I18n.resolve_locale

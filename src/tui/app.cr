@@ -366,6 +366,8 @@ module H2code
       # set via `/retry [<n>]`.
       property on_get_max_retries : (-> Int32)?
       property on_set_max_retries : (Int32 -> Nil)?
+      # Step cap per turn, changed live via `/set agent.max_steps <n>`.
+      property on_set_max_steps : (Int32 -> Nil)?
       # Plan-mode toggle: receives the next desired state, returns true if it
       # was applied (false → not wired up / not supported by this provider).
       property on_plan_mode : (Bool -> Bool)?

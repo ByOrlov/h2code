@@ -139,6 +139,8 @@ module H2code
       # remotes on that host are observed as GitLab CI. Config
       # `gitlab.endpoint`; the GITLAB_HOST env var overrides.
       property gitlab_endpoint : String = ""
+      # Hard cap on agent steps per turn. Default 150; set via
+      # `/set agent.max_steps` (live) or the `agent.max_steps` config key.
       property max_steps : Int32 = 150
       # Retries for transient provider failures (network drops, 429, 5xx)
       # before the turn fails. Set via `/retry <n>` or `/set agent.max_retries`.

@@ -114,6 +114,18 @@ describe "/set command" do
     end
   end
 
+  it "pushes agent.max_steps to the live agent callback" do
+    app = SetCommandApp.new
+    app.app_config = H2code::Config::Config.new
+    seen = [] of Int32
+    app.on_set_max_steps = ->(n : Int32) { seen << n; nil }
+
+    app.run_cmd_set("agent.max_steps 300")
+    app.@messages.last.role.should eq("system")
+    seen.should eq([300])
+    app.app_config.not_nil!.max_steps.should eq(300)
+  end
+
   it "applies tokens to the live CI service without a reload" do
     with_tmpdir do |dir|
       ENV["H2CODE_HOME"] = dir

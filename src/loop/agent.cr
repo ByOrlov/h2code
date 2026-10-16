@@ -24,7 +24,9 @@ module H2code
       property on_text_only_detected : Proc(String, Nil)? = nil
 
       @overflow_recovery : Context::Overflow::Recovery = Context::Overflow::Recovery.new
-      @max_steps : Int32 = 150
+      # Hard cap on steps per turn. Default 150; set from config
+      # (`agent.max_steps`) at startup and live via `/set agent.max_steps`.
+      property max_steps : Int32 = 150
       # Retries for transient provider failures (network drops, 429, 5xx)
       # before the turn fails. Default 3; changed at runtime via `/retry`.
       property max_retries : Int32 = 3

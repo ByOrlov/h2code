@@ -857,8 +857,12 @@ module H2code
       end
 
       # Settings whose live consumers update without a reload: the CI
-      # observer service reads the tokens / endpoint directly.
+      # observer service reads the tokens / endpoint directly; the agent
+      # step cap is pushed to the running agent.
       private def apply_live_setting(key : String, value : String) : Nil
+        case key
+        when "agent.max_steps" then @on_set_max_steps.try(&.call(value.to_i))
+        end
         if service = Tools::Ci.service.as?(Tools::Ci::LiveCiService)
           case key
           when "github.token"    then service.github_token = value
