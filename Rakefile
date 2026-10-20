@@ -229,6 +229,16 @@ task :spec do
   run_specs
 end
 
+# End-to-end setup-wizard smoke against a freshly built binary running in a
+# pseudo-terminal (see spec/integration/setup_wizard_pty_spec.cr). Opt-in:
+# the regular `rake spec` leaves these pending.
+desc "Build a debug binary and run the setup-wizard PTY smoke specs against it"
+task :spec_pty do
+  build_h2code("tmp/h2code_pty_spec")
+  ENV["H2CODE_TEST_BIN"] = File.expand_path("tmp/h2code_pty_spec", __dir__)
+  run_specs("spec/integration/setup_wizard_pty_spec.cr")
+end
+
 # ---------------------------------------------------------------------------
 # Coverage (kcov): Crystal has no built-in coverage, so kcov profiles a single
 # compiled spec binary. `crystal spec` cannot emit a standalone binary
@@ -501,6 +511,30 @@ task :tips_check => "tips:check"
 # Aggregated pre-commit validation: locale + tips data integrity.
 desc "Run pre-commit checks (i18n + tips integrity)"
 task :precommit => ["i18n:check", "tips:check"]
+
+# ---------------------------------------------------------------------------
+# Docker clean-room testing (Dockerfile.test): release-build h2code inside a
+# pristine Ubuntu image — never started there — so first-run bugs (the setup
+# wizard included) can be reproduced against a fresh environment with no host
+# ~/.h2code leaking in.
+# ---------------------------------------------------------------------------
+
+namespace :docker do
+  desc "Build the clean-room Ubuntu test image (Dockerfile.test)"
+  task :build do
+    unless system("docker", "--version", out: File::NULL, err: File::NULL)
+      abort "docker not found. Install it first: https://docs.docker.com/get-docker/"
+    end
+    building "clean-room test image"
+    sh "docker build -t h2code-test -f Dockerfile.test ."
+  end
+
+  desc "Build Dockerfile.test and drop into a clean interactive container (h2code is built, not run)"
+  task :test => "docker:build" do
+    puts "▶ Clean slate — run ./build/bin/h2code inside the container (fresh HOME → setup wizard)".colorize(:blue)
+    sh "docker run -it --rm h2code-test"
+  end
+end
 
 desc "Remove build artifacts"
 task :clean do

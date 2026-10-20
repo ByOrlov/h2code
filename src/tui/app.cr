@@ -452,8 +452,11 @@ module H2code
         @terminal : Terminal = Terminal.current,
         @theme : Theme = Theme.dark,
         dispatcher : Notify::Dispatcher? = nil,
+        input : Input = Input.new,
       )
-        @input = Input.new
+        # Injectable so full-path specs can drive the run loop's exact
+        # `read_key → handle_key` path with a `ScriptedInput`.
+        @input = input
         @editor = Editor.new("")
         @editor.fg_color = @theme.colors.text
         @editor.accent_color = @theme.colors.primary

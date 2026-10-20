@@ -5,6 +5,11 @@
 module H2code
   module TUI
     module SetupController
+      # When false (specs), `fetch_setup_models` runs its fetch inline instead
+      # of in a spawned fiber, so the model selector is open by the time the
+      # key event returns — full-path tests need no polling.
+      property? setup_fetch_async : Bool = true
+
       # Enter setup mode: show the wizard transcript and open the provider
       # selector. Called once at first-run before the normal TUI loop starts.
       def start_setup : Nil
@@ -21,10 +26,16 @@ module H2code
         @dirty = true
       end
 
-      private def open_setup_provider_selector : Nil
-        items = Setup::Wizard.choices.map(&.label)
+      # Open the wizard's provider selector. *preferred* names the provider
+      # the user was already configuring (Esc-back from the Credentials step):
+      # the cursor is positioned on it instead of the first entry, so a
+      # confirming Enter re-selects the same provider rather than silently
+      # switching to the alphabetically-first one (Cerebras).
+      private def open_setup_provider_selector(preferred : String? = nil) : Nil
+        choices = Setup::Wizard.choices
+        items = choices.map(&.label)
         @provider_list.show(H2code.t("ui.select_provider"), items)
-        @provider_list.selected = 0
+        @provider_list.selected = preferred ? (choices.index(&.name.== preferred) || 0) : 0
         @input.drain_pending_enters
         @dirty = true
       end
@@ -37,7 +48,10 @@ module H2code
         when .enter?
           idx = @provider_list.selected_original_index
           choices = Setup::Wizard.choices
-          choice = choices[idx]? || choices.first
+          # A filter that matches nothing (or a stale index) selects nothing —
+          # never silently fall back to the first provider in the registry.
+          choice = @provider_list.filtered_size > 0 ? choices[idx]? : nil
+          return unless choice
           @provider_list.hide
           @dirty = true
 
@@ -113,7 +127,7 @@ module H2code
         @editor.clear
         @dirty = true
 
-        spawn do
+        fetch = -> do
           begin
             models = cb.call(wizard)
             if models.empty?
@@ -129,6 +143,12 @@ module H2code
             @status = "Setup: #{wizard.step.to_s.downcase}"
             @dirty = true
           end
+        end
+
+        if setup_fetch_async?
+          spawn { fetch.call }
+        else
+          fetch.call
         end
       end
 
@@ -173,10 +193,14 @@ module H2code
           @running = false
           @dirty = true
         when .credentials?
+          # Remember the provider before wizard.back clears it, so the
+          # re-opened selector is positioned on it (see
+          # open_setup_provider_selector).
+          preferred = wizard.provider_name
           wizard.back
           @editor.clear
           @status = "Setup: #{wizard.step.to_s.downcase}"
-          open_setup_provider_selector
+          open_setup_provider_selector(preferred)
           @dirty = true
         when .endpoint?
           wizard.back

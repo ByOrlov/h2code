@@ -15,7 +15,10 @@ module H2code
       # window can stay small and results still land near-instantly.
       SESSION_SEARCH_DEBOUNCE_MS = 30
 
-      private def handle_key(key : KeyEvent) : Nil
+      # Central key dispatcher — one iteration of the main run loop
+      # (`key = @input.read_key; handle_key(key)`). Public so full-path
+      # specs drive the exact same entry point with scripted events.
+      def handle_key(key : KeyEvent) : Nil
         if @exit_confirm
           case key.key
           when .ctrl_c?

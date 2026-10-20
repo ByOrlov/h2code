@@ -1,0 +1,29 @@
+# Clean-room Ubuntu test image: builds h2code from this checkout (release,
+# same entry point as crosspack) but never runs it. For reproducing first-run
+# bugs — the setup wizard included — against a pristine environment: no host
+# ~/.h2code, no cached config, fresh HOME.
+#
+#   rake docker:test     # builds the image, then drops into an interactive shell
+#   ./build/bin/h2code   # inside the container — fresh HOME, wizard fires
+FROM ubuntu:24.04
+
+ARG DEBIAN_FRONTEND=noninteractive
+
+# Crystal via the official installer (same flow as crosspack.yml deps), pinned
+# to the shard.yml minor — the script installs the `crystal1.21` package from
+# the upstream OBS repo. cc/ar build the miniaudio bridge
+# (scripts/build_miniaudio.sh), git is both a build dep (shards) and the only
+# runtime dep (crosspack.yml deps). The crystal deb pulls in the runtime libs
+# the built binary links (libgc, libevent, libpcre2, libssl).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl git build-essential \
+    && curl -fsSL https://crystal-lang.org/install.sh | bash -s -- --version=1.21 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+COPY . .
+
+# Release build into build/bin (h2code + hless) — NOT started.
+RUN bash scripts/build_h2code.sh
+
+CMD ["bash", "-c", "echo 'h2code: ./build/bin/h2code   hless: ./build/bin/hless'; exec bash"]

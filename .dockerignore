@@ -1,0 +1,20 @@
+# Keeps the Dockerfile.test build context lean — everything here would
+# otherwise be sent to the Docker daemon by `docker build .`. The image only
+# runs scripts/build_h2code.sh, so heavy/irrelevant trees are excluded; the
+# Crystal deps (lib/) are re-fetched by `shards install` inside the image.
+.git
+.github
+.githooks
+.gitlab-ci.yml
+.gitignore
+.ameba.yml
+.rake_tasks~
+.vagrant
+builds/
+coverage/
+crosspacks/
+kimi-code/
+lib/
+tmp/
+h2code
+h2code-remote
