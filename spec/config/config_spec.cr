@@ -107,6 +107,61 @@ describe H2code::Config::Config do
     end
   end
 
+  describe "credential stripping" do
+    it "strips CRLF contamination from provider keys loaded from JSON" do
+      json = %({"provider":{"zai":{"api_key":"sk-zai\\r"},"deepseek":{"api_key":"\\nsk-ds "}},"gitlab":{"token":"glpat-x\\r\\n"}})
+      config = H2code::Config::Config.parse_json(json)
+      config.zai_api_key.should eq("sk-zai")
+      config.deepseek_api_key.should eq("sk-ds")
+      config.gitlab_token.should eq("glpat-x")
+    end
+
+    it "strips custom header values and the search api_key from JSON" do
+      json = %({"services":{"moonshot_search":{"api_key":"sk-ms\\r","custom_headers":{"X-Foo":"bar\\r","X-Bar":" baz "}}}})
+      config = H2code::Config::Config.parse_json(json)
+      ms = config.services.moonshot_search
+      ms.should_not be_nil
+      if ms
+        ms.api_key.should eq("sk-ms")
+        ms.custom_headers.should eq({"X-Foo" => "bar", "X-Bar" => "baz"})
+      end
+    end
+
+    it "strips keys supplied via ENV" do
+      prev = {"ZAI_API_KEY" => ENV["ZAI_API_KEY"]?, "GITHUB_TOKEN" => ENV["GITHUB_TOKEN"]?}
+      begin
+        ENV["ZAI_API_KEY"] = "sk-env\r"
+        ENV["GITHUB_TOKEN"] = "ghp-env\r\n"
+        config = H2code::Config::Config.load("/tmp/h2code-spec-nonexistent-#{Random::Secure.hex(4)}.json")
+        config.zai_api_key.should eq("sk-env")
+        config.github_token.should eq("ghp-env")
+      ensure
+        prev.each do |k, v|
+          if v.nil?
+            ENV.delete(k)
+          else
+            ENV[k] = v.as(String)
+          end
+        end
+      end
+    end
+
+    it "strips keys before writing them to disk" do
+      config = H2code::Config::Config.new
+      config.zai_api_key = "sk-dirty\r\n"
+
+      path = File.join(Dir.tempdir, "h2code-config-test-#{Random::Secure.hex(8)}.json")
+      begin
+        config.save(path)
+        content = File.read(path)
+        content.should_not contain("\\r")
+        config.zai_api_key.should eq("sk-dirty")
+      ensure
+        File.delete(path) rescue nil
+      end
+    end
+  end
+
   describe "#provider_configured?" do
     it "returns false when no provider is set" do
       config = H2code::Config::Config.new

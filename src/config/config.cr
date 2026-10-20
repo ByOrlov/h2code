@@ -485,6 +485,10 @@ module H2code
         config.git_terminal_prompt = ENV["GIT_TERMINAL_PROMPT"]?
         config.shell = ENV["SHELL"]?
 
+        # ENV-supplied keys may carry a trailing \r (exported from a CRLF
+        # file); JSON values were already stripped by parse_json.
+        config.strip_credentials!
+
         config
       end
 
@@ -677,6 +681,7 @@ module H2code
         home = HomePort.home
         config.mcp_servers = Mcp::ConfigLoader.load(home, cwd: Dir.current)
 
+        config.strip_credentials!
         config
       end
 
@@ -684,6 +689,8 @@ module H2code
         config_path = path || Config.default_config_path
         dir = File.dirname(config_path)
         Dir.mkdir_p(dir) unless Dir.exists?(dir)
+
+        strip_credentials!
 
         root = JSON.build(indent: 2) do |json|
           json.object do
@@ -943,6 +950,36 @@ module H2code
         end
 
         File.write(config_path, root + "\n")
+      end
+
+      # Strip stray surrounding whitespace (\r, \n, spaces) from every API
+      # key, token and header-bound secret. Values often come from
+      # config.json or ENV touched by CRLF editors; a trailing \r inside
+      # `Authorization: Bearer ...` makes HTTP::Headers raise "Header
+      # content contains invalid character '\r'", which the agent loop
+      # then misreports as a network failure after retries.
+      # Applied on load (parse_json / ENV overrides) and before save.
+      # protected (not private) so the class methods parse_json/load can
+      # call it on the config instance they build.
+      protected def strip_credentials! : Nil
+        @api_key = @api_key.try(&.strip)
+        @zai_api_key = @zai_api_key.strip
+        @strata_api_key = @strata_api_key.strip
+        @deepseek_api_key = @deepseek_api_key.strip
+        @groq_api_key = @groq_api_key.strip
+        @openrouter_api_key = @openrouter_api_key.strip
+        @xai_api_key = @xai_api_key.strip
+        @cerebras_api_key = @cerebras_api_key.strip
+        @fireworks_api_key = @fireworks_api_key.strip
+        @together_api_key = @together_api_key.strip
+        @github_token = @github_token.strip
+        @gitlab_token = @gitlab_token.strip
+        @notifications.webhook_secret = @notifications.webhook_secret.strip
+        if ms = @services.moonshot_search
+          ms.api_key = ms.api_key.try(&.strip)
+          ms.custom_headers.each_key { |k| ms.custom_headers[k] = ms.custom_headers[k].strip }
+          @services = ServicesConfig.new(moonshot_search: ms)
+        end
       end
 
       def ensure_h2code_home : Nil
