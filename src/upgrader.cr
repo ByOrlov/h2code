@@ -2,6 +2,8 @@ require "http/client"
 require "file_utils"
 require "json"
 
+require "./h2code_home"
+
 module H2code
   # Self-update: downloads the latest GitHub release asset that matches the
   # current binary's target and replaces the running executable in place.
@@ -59,9 +61,7 @@ module H2code
 
     # Path to the cache file storing the timestamp of the last check.
     private def self.cache_file_path : String
-      home = HomePort.home
-      h2code_home = ENV["H2CODE_HOME"]? || File.join(home, ".h2code")
-      File.join(h2code_home, "update_check.json")
+      File.join(H2codeHome.path, "update_check.json")
     end
 
     # Injectable so specs can point at a temp file.
@@ -189,8 +189,22 @@ module H2code
           File.chmod(new_bin, 0o755)
           move_across_fs(new_bin, cur)
         {% end %}
+
+        # macOS: the archive bundles the OpenSSL dylibs beside the binary
+        # (scripts/rebind_dylibs.sh points it at @rpath/@loader_path) —
+        # install them next to the target too, or dyld aborts at launch with
+        # "Library not loaded: @rpath/libssl.3.dylib".
+        install_bundled_dylibs(tmp_dir, File.dirname(cur))
       ensure
         FileUtils.rm_rf(tmp_dir)
+      end
+    end
+
+    # Copies the *.dylib files bundled in the extracted archive next to the
+    # installed binary. No-op on platforms whose archives bundle no dylibs.
+    private def self.install_bundled_dylibs(from_dir : String, dst_dir : String) : Nil
+      Dir.glob(File.join(from_dir, "*.dylib")).each do |dylib|
+        move_across_fs(dylib, File.join(dst_dir, File.basename(dylib)))
       end
     end
 
@@ -212,7 +226,19 @@ module H2code
       candidate
     end
 
+    # Injectable so specs can point at a sandbox executable — replace_binary
+    # otherwise overwrites the real running binary. nil = auto-detect.
+    @@exe_override : String? = nil
+
     def self.current_executable : String
+      @@exe_override || detect_current_executable
+    end
+
+    def self.current_executable=(path : String?) : String?
+      @@exe_override = path
+    end
+
+    private def self.detect_current_executable : String
       {% if flag?(:linux) %}
         File.readlink("/proc/self/exe")
       {% else %}

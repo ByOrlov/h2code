@@ -2,6 +2,7 @@ require "json"
 require "file"
 require "file_utils"
 
+require "../h2code_home"
 require "./types"
 require "./store"
 require "./source"
@@ -408,7 +409,7 @@ module H2code
       end
 
       private def h2code_home_path : String
-        ENV["H2CODE_HOME"]? || File.join(@kimi_home, ".h2code")
+        H2codeHome.path_for(@kimi_home)
       end
 
       private def tmpdir : String

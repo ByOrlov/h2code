@@ -1,5 +1,7 @@
 require "json"
 
+require "../h2code_home"
+
 module H2code
   module Mcp
     # One configured MCP server entry. Only the stdio transport is wired in
@@ -115,7 +117,7 @@ module H2code
       # project-local — mirroring JS `loadMcpServers`. Later files override
       # earlier ones with the same name.
       def self.load(home_dir : String, cwd : String = Dir.current) : Array(McpServerConfig)
-        h2code_home = ENV["H2CODE_HOME"]? || File.join(home_dir, ".h2code")
+        h2code_home = H2codeHome.path_for(home_dir)
 
         user_json = read_mcp_json_file(File.join(h2code_home, "mcp.json"))
         project_root_json = read_mcp_json_file(project_root_mcp_json(cwd))

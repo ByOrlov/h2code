@@ -193,6 +193,17 @@ if [ -f "$HLESS_SRC" ]; then
   info "Installed ${INSTALL_DIR}/hless"
 fi
 
+# macOS: the release archive bundles the OpenSSL dylibs beside the binaries
+# (scripts/rebind_dylibs.sh points them at @rpath/@loader_path). Install them
+# into the same dir as h2code, or dyld aborts at launch with
+# "Library not loaded: @rpath/libssl.3.dylib". No-op where no dylibs ship.
+SRC_DIR="$(dirname "$SRC_BIN")"
+for dylib in "$SRC_DIR"/*.dylib; do
+  [ -f "$dylib" ] || continue
+  mv -f "$dylib" "${INSTALL_DIR}/$(basename "$dylib")"
+  info "Installed ${INSTALL_DIR}/$(basename "$dylib")"
+done
+
 # Startup tips data (tips/*.json, read from disk next to config.json — see
 # src/tips/tips.cr). Only present when the release archive bundles them.
 if [ -d "${TMP}/tips" ]; then

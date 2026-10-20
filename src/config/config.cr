@@ -1,4 +1,5 @@
 require "json"
+require "../h2code_home"
 require "../mcp/config"
 
 module H2code
@@ -493,9 +494,10 @@ module H2code
       end
 
       # h2code's per-user home: config.json, ci.json, sessions live here.
-      # Overridable via H2CODE_HOME (tests, portable installs).
+      # Single resolution point — see H2codeHome (H2CODE_HOME, spec fallback,
+      # ~/.h2code).
       def self.h2code_home : String
-        ENV["H2CODE_HOME"]? || File.join(HomePort.home, ".h2code")
+        H2codeHome.path
       end
 
       def self.default_config_path : String
@@ -983,8 +985,7 @@ module H2code
       end
 
       def ensure_h2code_home : Nil
-        home = HomePort.home
-        h2code_home = ENV["H2CODE_HOME"]? || File.join(home, ".h2code")
+        h2code_home = H2codeHome.path
         Dir.mkdir_p(h2code_home) unless Dir.exists?(h2code_home)
         sessions_dir = File.join(h2code_home, "sessions")
         Dir.mkdir_p(sessions_dir) unless Dir.exists?(sessions_dir)

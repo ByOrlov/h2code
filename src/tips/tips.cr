@@ -1,5 +1,7 @@
 require "json"
 
+require "../h2code_home"
+
 # Startup tips ("советы") — short one-liners shown under the welcome box at
 # startup, rendered in the active-zone green with a `│` bar (no indent).
 #
@@ -30,8 +32,7 @@ module H2code
     # Candidate tips directories, most specific first.
     def self.search_dirs : Array(String)
       dirs = [] of String
-      home = ENV["H2CODE_HOME"]? || File.join(HomePort.home, ".h2code")
-      dirs << File.join(home, "tips")
+      dirs << File.join(H2codeHome.path, "tips")
       if exe = Process.executable_path
         dirs << File.join(File.dirname(exe), "tips")
       end

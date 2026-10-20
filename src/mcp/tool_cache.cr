@@ -1,4 +1,6 @@
 require "json"
+
+require "../h2code_home"
 require "./types"
 
 module H2code
@@ -86,9 +88,7 @@ module H2code
       # ------------------------------------------------------------------
 
       private def self.cache_path : String
-        home = HomePort.home
-        h2code_home = ENV["H2CODE_HOME"]? || File.join(home, ".h2code")
-        File.join(h2code_home, "mcp_cache.json")
+        File.join(H2codeHome.path, "mcp_cache.json")
       end
 
       private def self.read_cache : JSON::Any?

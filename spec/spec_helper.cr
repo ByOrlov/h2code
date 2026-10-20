@@ -1,8 +1,10 @@
 require "spec"
 require "json"
 require "http/client"
+require "file_utils"
 
 require "../src/version"
+require "../src/h2code_home"
 require "../src/duration_format"
 require "../src/process_port"
 require "../src/home_port"
@@ -159,6 +161,21 @@ require "../src/remote/sync"
 # Initialize i18n so specs that exercise translated strings resolve keys
 # instead of getting the raw key back.
 H2code::I18n.init("en")
+
+# Isolate the whole spec run from the developer's real ~/.h2code: any code
+# path that resolves the default h2code home (config.json writes, exception
+# reports, caches) lands in a per-run temp dir instead. A spec that saved a
+# default Config used to wipe the real config.json this way, making the next
+# h2code start demand provider setup again. Per-spec `ENV["H2CODE_HOME"]`
+# still wins — see H2codeHome.path resolution order.
+spec_h2code_home = File.join(Dir.tempdir, "h2code-spec-home-#{Random::Secure.hex(6)}")
+Dir.mkdir_p(spec_h2code_home)
+H2code::H2codeHome.fallback = spec_h2code_home
+at_exit do
+  FileUtils.rm_r(spec_h2code_home) if Dir.exists?(spec_h2code_home)
+rescue
+  # Best-effort cleanup.
+end
 
 # Create a temp directory and yield it, cleaning up after the block. Used by
 # plugin and other specs that need an isolated filesystem.

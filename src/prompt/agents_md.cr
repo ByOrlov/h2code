@@ -1,9 +1,11 @@
+require "../h2code_home"
+
 module H2code
   module Prompt
     class AgentsMd
       def self.discover(cwd : String) : String
         home = HomePort.home
-        h2code_home = ENV["H2CODE_HOME"]? || File.join(home, ".h2code")
+        h2code_home = H2codeHome.path
 
         paths = [] of String
 

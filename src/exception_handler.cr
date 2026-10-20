@@ -3,6 +3,7 @@ require "file_utils"
 require "time"
 require "random/secure"
 
+require "./h2code_home"
 require "./version"
 
 module H2code
@@ -11,17 +12,8 @@ module H2code
   # after the fact. Every method is best-effort — the handler must never
   # raise itself and crash the process it was supposed to report on.
   module ExceptionHandler
-    @@home : String?
-
-    # Override the home base (mainly for tests). When unset the handler
-    # resolves `H2CODE_HOME` → `~/.h2code`, matching Config.
-    def self.home=(path : String?) : Nil
-      @@home = path
-    end
-
     def self.exceptions_dir : String
-      base = @@home || ENV["H2CODE_HOME"]? || File.join(HomePort.home, ".h2code")
-      File.join(base, "exceptions")
+      File.join(H2codeHome.path, "exceptions")
     end
 
     def self.ensure_dir : Nil

@@ -4,6 +4,8 @@ require "json"
 require "uri"
 require "base64"
 require "random/secure"
+
+require "../h2code_home"
 require "digest/sha256"
 require "file_utils"
 
@@ -115,8 +117,7 @@ module H2code
       end
 
       private def self.credentials_dir(home_dir : String) : String
-        h2code_home = ENV["H2CODE_HOME"]? || File.join(home_dir, ".h2code")
-        File.join(h2code_home, "credentials", "mcp")
+        File.join(H2codeHome.path_for(home_dir), "credentials", "mcp")
       end
 
       private def self.ensure_credentials_dir(dir : String) : Nil

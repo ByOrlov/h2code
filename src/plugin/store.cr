@@ -1,6 +1,8 @@
 require "json"
 require "file"
 require "file_utils"
+
+require "../h2code_home"
 require "./types"
 
 module H2code
@@ -34,8 +36,7 @@ module H2code
       end
 
       def self.installed_path(home : String) : String
-        h2code_home = ENV["H2CODE_HOME"]? || File.join(home, ".h2code")
-        File.join(h2code_home, "plugins", "installed.json")
+        File.join(H2codeHome.path_for(home), "plugins", "installed.json")
       end
 
       def self.read(home : String) : Array(InstalledRecord)
