@@ -6,6 +6,7 @@ require "./callbacks"
 require "./bot"
 require "./wizard"
 require "./service_port"
+require "./single_instance"
 require "./cli"
 
 # h2code-tg-bot — Telegram front-end and session supervisor.
@@ -36,6 +37,8 @@ module TgBot
       if start
         config = Config.load
         config.validate!
+        guard = SingleInstancePort.default
+        guard.acquire(config.token)
         Bot.new(config).run
       end
       return
@@ -49,9 +52,19 @@ module TgBot
     pair = argv.includes?("--pair")
     config = Config.load
     config.validate!(pair_mode: pair)
+    # Single-instance guard (also for --pair: pairing polls getUpdates too,
+    # and Telegram serves only one poller per token). `guard` must stay
+    # reachable for the process lifetime — it owns the lock file handle.
+    guard = SingleInstancePort.default
+    guard.acquire(config.token)
     Bot.new(config, pair_mode: pair).run
   rescue ex : ApiError
     STDERR.puts "error: #{ex.message}"
+    exit 1
+  rescue ex : SingleInstancePort::AlreadyRunning
+    STDERR.puts "error: #{ex.message}"
+    STDERR.puts "  Telegram serves only one getUpdates poller per bot token;"
+    STDERR.puts "  stop the other instance (pgrep -af h2code-tg-bot) first."
     exit 1
   rescue ex : ServicePort::Error
     STDERR.puts "error: #{ex.message}"
