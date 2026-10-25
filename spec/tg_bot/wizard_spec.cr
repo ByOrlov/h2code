@@ -119,8 +119,17 @@ describe TgBot::Wizard do
     end
 
     it "resolves the binary from PATH" do
+      # Host-independent: /bin is a symlink to /usr/bin on merged-usr
+      # Linuxes, so resolving "ls" depends on PATH order there.
       wizard.resolve_bin("/bin/ls").should eq("/bin/ls")
-      wizard.resolve_bin("ls").should eq("/bin/ls")
+      with_tmpdir do |dir|
+        bin = File.join(dir, "fake-h2code")
+        File.write(bin, "#!/bin/sh\n")
+        File.chmod(bin, 0o755)
+        with_path_entry(dir) do
+          wizard.resolve_bin("fake-h2code").should eq(bin)
+        end
+      end
       wizard.resolve_bin("definitely-not-a-real-binary-xyz").should be_nil
     end
 
