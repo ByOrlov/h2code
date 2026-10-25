@@ -72,6 +72,17 @@ module TgBot
       name
     end
 
+    # What identifies a list row at a glance: the name the user set, else
+    # the first message of the session (flattened — a button is one line),
+    # else the automatic hash name.
+    def self.row_label(name : String, custom : Bool, first_prompt : String,
+                       folder : String = "") : String
+      return named(name, custom) if custom
+      fp = first_prompt.strip.split.join(" ")
+      return fp unless fp.empty?
+      folder.empty? ? name : distinct_name(name, folder)
+    end
+
     # A row's name, marked when it is the one the user gave it themselves.
     def self.named(name : String, saved : Bool) : String
       saved ? "✏️ #{name}" : name
@@ -89,7 +100,7 @@ module TgBot
         icon = STATUS_ICON[v.status]? || "•"
         mark = v.sid == active ? ACTIVE_ICON : icon
         hint = v.status == "waiting" ? "waiting" : ""
-        rows << btn(fit("#{mark} #{v.dir_name} · #{distinct_name(v.name, v.dir_name)}", hint),
+        rows << btn(fit("#{mark} #{v.dir_name} · #{row_label(v.name, v.saved_name?, v.first_prompt, v.dir_name)}", hint),
           Callback.build(Callback::Kind::Card, v.sid, ""))
       end
       rows << row(
@@ -303,8 +314,7 @@ module TgBot
                         pages : Int32 = 1) : Array(Array({String, String}))
       rows = [] of Array({String, String})
       entries.each do |e|
-        name = named(e.name, e.custom?)
-        rows << btn(fit("#{e.when_short} · #{name}"),
+        rows << btn(fit("#{e.when_short} · #{row_label(e.name, e.custom?, e.first_prompt)}"),
           Callback.build(Callback::Kind::ClosedCard, e.sid, ""))
       end
       if pages > 1
@@ -368,9 +378,11 @@ module TgBot
       getter dir_name : String
       getter name : String
       getter status : String
+      getter first_prompt : String
       getter? saved_name : Bool
 
-      def initialize(@sid, @dir_name, @name, @status, @saved_name = false)
+      def initialize(@sid, @dir_name, @name, @status, @saved_name = false,
+                     @first_prompt = "")
       end
     end
 

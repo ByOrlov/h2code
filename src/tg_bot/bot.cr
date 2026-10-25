@@ -176,13 +176,24 @@ module TgBot
       end
       offset = first_unseen_offset
       STDERR.puts "[tg-bot] resuming from update #{offset}"
+      # Each retry is a fresh connection (Api#call opens a new HTTP::Client),
+      # so recovery needs no restart — it lands within one retry of the route
+      # coming back. Timestamps make that visible when the network flaps.
+      failures = 0
       loop do
         updates = begin
           @api.get_updates(offset)
         rescue ex
-          STDERR.puts "[tg-bot] getUpdates failed: #{ex.message}, retrying"
+          failures += 1
+          STDERR.puts "[tg-bot] #{Time.local.to_s("%F %T")} getUpdates failed" \
+                       " (attempt #{failures}): #{ex.message}, retrying"
           sleep 3.seconds
           [] of JSON::Any
+        end
+        if failures > 0
+          STDERR.puts "[tg-bot] #{Time.local.to_s("%F %T")} connection restored" \
+                       " after #{failures} failed poll(s)"
+          failures = 0
         end
         updates.each do |u|
           uid = u["update_id"]?.to_s.to_i64?
@@ -806,9 +817,10 @@ module TgBot
       active = @lock.synchronize { @active[chat_id]? }
       views = links.map do |link|
         sid = link.sid
-        dir = @session_dir[sid]? || @state.entry(sid).try(&.dir) || ""
+        e = @state.entry(sid)
+        dir = @session_dir[sid]? || e.try(&.dir) || ""
         Keyboards::SessionView.new(sid, File.basename(dir), session_name(sid),
-          status_word(sid), @state.entry(sid).try(&.custom?) || false)
+          status_word(sid), e.try(&.custom?) || false, e.try(&.first_prompt) || "")
       end
       closed_count = @state.closed(links.map(&.sid).to_set).size
       show(chat_id, message_id,
