@@ -262,11 +262,15 @@ module H2code
           path = File.join(dir, entry)
           indent = "  " * level
 
-          if Dir.exists?(path) && !File.symlink?(path)
-            lines << "#{indent}#{entry}/"
-            collect_listing(path, level + 1, max_levels, lines) if level < max_levels - 1
-          elsif File.file?(path)
-            lines << "#{indent}#{entry}"
+          begin
+            if Dir.exists?(path) && !File.symlink?(path)
+              lines << "#{indent}#{entry}/"
+              collect_listing(path, level + 1, max_levels, lines) if level < max_levels - 1
+            elsif File.file?(path)
+              lines << "#{indent}#{entry}"
+            end
+          rescue File::Error
+            # Unreadable entry (e.g. symlink loop) — skip it
           end
         end
       end
