@@ -65,7 +65,9 @@ describe TgBot::Wizard do
 
   it "styles output only when color is on" do
     with_tmpdir do |dir|
-      answers = "111:abc\n2\n\n\n\n\n\n"
+      # The bin step gets an explicit absolute path: its default ("h2code")
+      # must resolve on PATH, which is not guaranteed on a spec host.
+      answers = "111:abc\n2\n\n\n/bin/ls\n\n\n"
       build = ->(color : Bool) do
         output = IO::Memory.new
         TgBot::Wizard.new(IO::Memory.new(answers), output,
