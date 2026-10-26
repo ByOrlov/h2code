@@ -70,16 +70,41 @@ module H2code
       def max_context_tokens=(tokens : Int32?) : Nil
       end
 
-      # Updated by the agent before each step so the provider can clamp the
-      # completion budget against the remaining context window.
-      def used_context_tokens=(tokens : Int32) : Nil
-      end
-
       # The context window this provider clamps the completion budget
       # against, when known. The base returns nil (unknown); OpenAIChatProvider
       # exposes its configured (and possibly dynamically clamped) value.
       def max_context_tokens : Int32?
         nil
+      end
+
+      # Provider/model-specific default context window, in tokens. Used by
+      # `configure_provider` instead of the global `max_context_tokens`
+      # default when the user has not configured the window explicitly —
+      # backends whose models ship larger windows than the global default
+      # (e.g. GLM-5.2's 1M context) then get their real size. Base returns
+      # nil (no provider default — use the configured window).
+      def default_context_tokens : Int32?
+        nil
+      end
+
+      # Resolve the effective context window for a provider: an explicitly
+      # configured window wins; otherwise a provider/model-specific default
+      # (see #default_context_tokens) replaces the global default.
+      # `configure_provider` applies this, then clamps to any
+      # backend-reported limit (fetch_context_limit).
+      def self.resolve_context_window(provider : Provider, configured : Int32,
+                                      configured_explicit : Bool) : Int32
+        if !configured_explicit
+          if (default = provider.default_context_tokens) && default > 0
+            return default
+          end
+        end
+        configured
+      end
+
+      # Updated by the agent before each step so the provider can clamp the
+      # completion budget against the remaining context window.
+      def used_context_tokens=(tokens : Int32) : Nil
       end
 
       # Dynamically discover the backend's real context-window limit, in

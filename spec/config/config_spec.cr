@@ -570,6 +570,26 @@ describe H2code::Config::Config do
       end
     end
   end
+  describe "agent.max_context_tokens explicitness" do
+    it "marks the window explicit only when the config file sets it" do
+      with_tmpdir do |dir|
+        path = File.join(dir, "config.json")
+
+        File.write(path, %({"agent": {"max_context_tokens": 400000}}))
+        explicit = H2code::Config::Config.load(path)
+        explicit.max_context_tokens.should eq(400_000)
+        explicit.max_context_tokens_explicit?.should be_true
+
+        File.write(path, %({"agent": {"max_steps": 10}}))
+        implicit = H2code::Config::Config.load(path)
+        implicit.max_context_tokens.should eq(262_144)
+        implicit.max_context_tokens_explicit?.should be_false
+
+        implicit.apply_setting("agent.max_context_tokens", "150000")
+        implicit.max_context_tokens_explicit?.should be_true
+      end
+    end
+  end
 end
 
 describe "H2code.build_named_provider with nil" do

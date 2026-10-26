@@ -621,13 +621,20 @@ module H2code
     # uniformly on any backend.
     def self.configure_provider(provider, config, cache_key : String?) : Nil
       provider.thinking_effort = config.thinking_effort
-      provider.max_context_tokens = config.max_context_tokens
+      # Effective context window: the user-configured one wins, but when it
+      # was left at the global default, a provider/model-specific default
+      # (e.g. GLM-5.2's 1M window) replaces it — the global 256k default
+      # would otherwise trigger compaction far below the backend's real
+      # capacity.
+      window = LLM::Provider.resolve_context_window(
+        provider, config.max_context_tokens, config.max_context_tokens_explicit?)
+      provider.max_context_tokens = window
       # Dynamic context limit: backends with a server-reported fixed window
       # (local engines like Strata) know their real size — clamp the
-      # configured window to it so the completion budget never exceeds the
+      # effective window to it so the completion budget never exceeds the
       # actual context. Memoized in the provider; a discovery failure
       # degrades to the configured window.
-      if (limit = provider.fetch_context_limit) && limit > 0 && limit < config.max_context_tokens
+      if (limit = provider.fetch_context_limit) && limit > 0 && limit < window
         provider.max_context_tokens = limit
       end
       provider.prompt_cache_key = cache_key
@@ -637,10 +644,10 @@ module H2code
       provider.text_only = config.text_only_model?(provider.model_name)
     end
 
-    # Reflect the provider's effective context window (the configured one,
-    # possibly clamped to a backend-reported limit in configure_provider) in
-    # the agent's context memory — it drives the footer usage gauge and the
-    # compaction threshold.
+    # Reflect the provider's effective context window (the configured or
+    # provider-default one, possibly clamped to a backend-reported limit in
+    # configure_provider) in the agent's context memory — it drives the
+    # footer usage gauge and the compaction threshold.
     def self.sync_context_memory(provider, memory) : Nil
       if (limit = provider.max_context_tokens) && limit > 0
         memory.max_context_tokens = limit

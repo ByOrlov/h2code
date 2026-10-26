@@ -147,6 +147,11 @@ module H2code
       # before the turn fails. Set via `/retry <n>` or `/set agent.max_retries`.
       property max_retries : Int32 = 3
       property max_context_tokens : Int32 = 262144
+      # Whether `max_context_tokens` was explicitly set by the user (config
+      # file or `/set`) rather than left at the global default. When it was
+      # not, provider-specific defaults (e.g. GLM-5.2's 1M window) may
+      # replace the global default — see Provider#default_context_tokens.
+      property? max_context_tokens_explicit : Bool = false
       property temperature : Float64? = nil
       property proxy : String? = nil
       property language : String? = nil
@@ -305,18 +310,20 @@ module H2code
       # the live config. Follow up with `save` to persist.
       def apply_setting(key : String, value : String) : Nil
         case key
-        when "model.default"            then @model = value.empty? ? nil : value
-        when "model.thinking_effort"    then @thinking_effort = value
-        when "permission.mode"          then @permission_mode = value
-        when "permission.sudo_mode"     then @sudo_mode = value
-        when "agent.max_steps"          then @max_steps = value.to_i
-        when "agent.max_retries"        then @max_retries = value.to_i
-        when "agent.max_context_tokens" then @max_context_tokens = value.to_i
-        when "github.token"             then @github_token = value
-        when "gitlab.token"             then @gitlab_token = value
-        when "gitlab.endpoint"          then @gitlab_endpoint = value
-        when "ui.language"              then @language = value.empty? ? nil : value
-        when "ui.show_tips"             then @show_tips = value == "true"
+        when "model.default"         then @model = value.empty? ? nil : value
+        when "model.thinking_effort" then @thinking_effort = value
+        when "permission.mode"       then @permission_mode = value
+        when "permission.sudo_mode"  then @sudo_mode = value
+        when "agent.max_steps"       then @max_steps = value.to_i
+        when "agent.max_retries"     then @max_retries = value.to_i
+        when "agent.max_context_tokens"
+          @max_context_tokens = value.to_i
+          @max_context_tokens_explicit = true
+        when "github.token"    then @github_token = value
+        when "gitlab.token"    then @gitlab_token = value
+        when "gitlab.endpoint" then @gitlab_endpoint = value
+        when "ui.language"     then @language = value.empty? ? nil : value
+        when "ui.show_tips"    then @show_tips = value == "true"
         end
       end
 
@@ -619,6 +626,7 @@ module H2code
           config.max_steps = agent["max_steps"]?.try(&.as_i?) || 150
           config.max_retries = agent["max_retries"]?.try(&.as_i?) || 3
           config.max_context_tokens = agent["max_context_tokens"]?.try(&.as_i?) || 262144
+          config.max_context_tokens_explicit = !agent["max_context_tokens"]?.nil?
           config.temperature = agent["temperature"]?.try(&.as_f?)
         end
 

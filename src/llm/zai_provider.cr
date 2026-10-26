@@ -7,6 +7,13 @@ module H2code
       DEFAULT_MODEL    = "glm-4.6"
       DEFAULT_ENDPOINT = "https://api.z.ai/api/paas/v4"
 
+      # Server-side context windows per model family (docs.z.ai): GLM-5.2
+      # and newer ship a 1M-token context; the 4.x generation is 200K.
+      # Model names carrying the "1m" marker (ZCode's `[1m]` suffix, e.g.
+      # a pinned "glm-4.6-1m") are fixed at 1M regardless of generation.
+      CONTEXT_TOKENS_1M   = 1_048_576
+      CONTEXT_TOKENS_200K =   204_800
+
       property provider_label : String
       # When true, injects Z.AI's built-in `web_search` tool into every chat
       # completions request so the model can search the web transparently.
@@ -34,6 +41,21 @@ module H2code
 
       def token : String
         @api_key
+      end
+
+      # Per-model default context window — see Provider#default_context_tokens.
+      # Unknown/unparseable model names return nil (fall back to the
+      # configured window) rather than guessing.
+      def default_context_tokens : Int32?
+        model = @model.downcase
+        return CONTEXT_TOKENS_1M if model.includes?("1m")
+        if match = model.match(/^glm-(\d+)(?:\.(\d+))?/)
+          major = match[1].to_i
+          minor = match[2]?.try(&.to_i) || 0
+          return CONTEXT_TOKENS_1M if major > 5 || (major == 5 && minor >= 2)
+          return CONTEXT_TOKENS_200K if major >= 4
+        end
+        nil
       end
 
       def build_request(messages : Array(Message), tools : Array(ToolDefinition)?) : ChatRequest
