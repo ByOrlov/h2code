@@ -265,6 +265,82 @@ describe H2code::Context::Compaction do
     result.tokens_after.should be <= result.tokens_before
   end
 
+  describe ".compact_simple" do
+    it "keeps only user inputs and assistant answers, dropping thinking, tool calls and results" do
+      memory = H2code::Context::Memory.new
+      memory.add_user("please run the tool")
+      memory.add_assistant_parts([
+        H2code::LLM::ThinkContent.new("long reasoning about the tool call"),
+        H2code::LLM::TextContent.new("running it now"),
+      ] of H2code::LLM::ContentPart, [H2code::LLM::ToolCall.new("c1", H2code::LLM::ToolCallFunction.new("bash", "{}"))])
+      memory.add_tool_result("c1", "tool output")
+      memory.add_assistant_parts([H2code::LLM::ThinkContent.new("only thinking, no answer")] of H2code::LLM::ContentPart)
+      memory.add_injection("[step reminder]")
+      memory.add_assistant("final answer")
+
+      result = H2code::Context::Compaction.compact_simple(memory)
+
+      result.completed?.should be_true
+      result.messages_before.should eq(6)
+      result.messages_after.should eq(3)
+      memory.history.map(&.message.role).should eq(["user", "assistant", "assistant"])
+      memory.history.map(&.message.text).should eq(["please run the tool", "running it now", "final answer"])
+      # Thinking and tool activity are gone entirely.
+      memory.history.each do |cm|
+        cm.message.content.none?(H2code::LLM::ThinkContent).should be_true
+        cm.message.tool_calls.should be_nil
+        cm.message.tool_call_id.should be_nil
+      end
+      result.tokens_after.should be < result.tokens_before
+    end
+
+    it "clamps to the most recent messages when the stripped dialogue still fills the window" do
+      memory = H2code::Context::Memory.new
+      20.times do |i|
+        memory.add_user("question number #{i} with plenty of padding text so it costs many tokens")
+        memory.add_assistant("answer number #{i} with plenty of padding text so it costs many tokens")
+      end
+      # Small window: the stripped dialogue (~200 messages-worth of tokens)
+      # still crosses the clamp trigger.
+      memory.max_context_tokens = 400
+
+      result = H2code::Context::Compaction.compact_simple(memory)
+
+      result.completed?.should be_true
+      result.dropped_count.should be > 0
+      result.messages_after.should be < result.messages_before
+      estimate = H2code::LLM::TokenCounter.estimate(memory.messages)
+      estimate.should be <= (400 * 0.5)
+      # The clamp keeps the tail: the newest exchange survives.
+      memory.history.last.message.text.should contain("answer number 19")
+    end
+
+    it "always keeps at least the latest message" do
+      memory = H2code::Context::Memory.new
+      memory.add_user("#{"x" * 4000}")
+      memory.add_user("tiny follow-up")
+      memory.max_context_tokens = 10
+
+      H2code::Context::Compaction.compact_simple(memory)
+
+      memory.history.size.should eq(1)
+      memory.history.last.message.text.should eq("tiny follow-up")
+    end
+  end
+
+  describe ".strip_to_dialogue" do
+    it "preserves user content parts verbatim" do
+      parts = [H2code::LLM::TextContent.new("look at this")] of H2code::LLM::ContentPart
+      parts << H2code::LLM::TextContent.new("[inline image]")
+      cm = H2code::Context::ContextMessage.new(H2code::LLM::Message.user(parts))
+
+      stripped = H2code::Context::Compaction.strip_to_dialogue([cm])
+
+      stripped.size.should eq(1)
+      stripped.first.message.content.size.should eq(2)
+    end
+  end
+
   describe ".take_recent_within_token_budget" do
     it "keeps the most recent messages that fit and never returns a tool-first slice" do
       cms = [

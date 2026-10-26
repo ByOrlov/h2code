@@ -1,6 +1,8 @@
 module H2code
   module Context
     # Context summarization when the conversation nears the context window.
+    # Used as-is only by the original Kimi/Moonshot backend; every other
+    # provider compacts locally via `.compact_simple` (see there).
     #
     # Ported from the TS `packages/agent-core/src/agent/compaction/full.ts`:
     #
@@ -51,6 +53,13 @@ module H2code
       OVERFLOW_RECOVERY_RATIO = 0.5
       # Backoff cap for transient-error retries, in seconds.
       MAX_RETRY_DELAY = 8
+
+      # Local (summarizer-less) compaction thresholds: when the stripped
+      # dialogue alone still fills at least this fraction of the context
+      # window, clamp to the most recent messages within
+      # `SIMPLE_CLAMP_BUDGET_RATIO` of the window.
+      SIMPLE_CLAMP_TRIGGER_RATIO = 0.7
+      SIMPLE_CLAMP_BUDGET_RATIO  = 0.5
 
       # The summarizer instruction, adapted from the TS
       # `compaction-instruction.md`: a first-person handoff note, because the
@@ -166,6 +175,74 @@ module H2code
           messages_after: kept.size,
           dropped_count: dropped_count,
         )
+      end
+
+      # Local compaction for providers whose endpoint cannot serve the
+      # summarizer request (everything except the original Kimi/Moonshot
+      # backend — e.g. GLM rejects the extra compaction chat as an
+      # unsupported feature). No provider round-trip, no summarization: the
+      # history is rebuilt keeping only user inputs and the assistant's
+      # direct answers — thinking blocks, tool calls and tool results are
+      # dropped. When the stripped dialogue alone still fills too much of
+      # the window, the most recent messages within a token budget are kept
+      # (clamping). The regular system prompt keeps being sent unchanged,
+      # so the conversation continues over the stripped dialogue exactly as
+      # before.
+      def self.compact_simple(context : Context::Memory) : CompactionResult
+        old_messages = context.history
+        # Snapshot before rewriting: `history` returns the live array, which
+        # apply_simple_compaction clears in place.
+        old_count = old_messages.size
+        tokens_before = context.token_count
+
+        stripped = strip_to_dialogue(old_messages)
+        dropped = old_count - stripped.size
+
+        max_ctx = context.max_context_tokens
+        if max_ctx > 0
+          estimate = LLM::TokenCounter.estimate(stripped.map(&.message))
+          if estimate >= (max_ctx * SIMPLE_CLAMP_TRIGGER_RATIO).to_i
+            budget = (max_ctx * SIMPLE_CLAMP_BUDGET_RATIO).to_i
+            clamped = take_recent_within_token_budget(stripped, budget)
+            # Never end up empty: at minimum the latest user input must
+            # survive so the running turn still has its request.
+            clamped = stripped.last(1) if clamped.empty? && !stripped.empty?
+            dropped += stripped.size - clamped.size
+            stripped = clamped
+          end
+        end
+
+        context.apply_simple_compaction(stripped)
+
+        CompactionResult.new(
+          status: CompactionStatus::Completed,
+          summary: "Kept only user requests and assistant answers; removed thinking blocks, tool calls and tool results.",
+          tokens_before: tokens_before,
+          tokens_after: context.token_count,
+          messages_before: old_count,
+          messages_after: stripped.size,
+          dropped_count: dropped,
+        )
+      end
+
+      # Keep only the dialogue skeleton of a message list: user messages
+      # and the text of assistant answers. Thinking blocks, tool calls,
+      # tool results, injection/system messages and assistant turns that
+      # produced nothing but thinking or tool calls are dropped.
+      def self.strip_to_dialogue(messages : Array(ContextMessage)) : Array(ContextMessage)
+        out = [] of ContextMessage
+        messages.each do |cm|
+          msg = cm.message
+          case msg.role
+          when "user"
+            out << ContextMessage.new(LLM::Message.user(msg.content), cm.origin)
+          when "assistant"
+            text = msg.text
+            next if text.strip.empty?
+            out << ContextMessage.new(LLM::Message.assistant(text), cm.origin)
+          end
+        end
+        out
       end
 
       # Run the summarizer request loop: build the request from the current

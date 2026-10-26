@@ -92,6 +92,16 @@ module H2code
         update_token_count
       end
 
+      # Local (summarizer-less) compaction: replace the history with the
+      # already-stripped dialogue. No summary message is inserted — the
+      # regular system prompt keeps being sent unchanged and the model
+      # continues over the stripped conversation.
+      def apply_simple_compaction(kept_messages : Array(ContextMessage)) : Nil
+        @history.clear
+        @history.concat(kept_messages)
+        update_token_count
+      end
+
       def undo(count : Int32 = 1) : Nil
         Undo.undo!(self, count)
       end

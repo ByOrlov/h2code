@@ -91,6 +91,48 @@ describe H2code::Loop::Agent do
     memory.messages.last.text.should eq("all done here")
   end
 
+  it "compacts locally without a summarizer chat on non-Moonshot providers" do
+    provider = ChatCountingProvider.new(H2code::LLM::MockProvider.new([
+      H2code::LLM::MockStep.new(
+        parts: [H2code::LLM::TextPart.new("resumed after compaction")] of H2code::LLM::MessagePart,
+        stop_reason: "end_turn",
+        text: "resumed after compaction",
+      ),
+    ]))
+
+    memory = H2code::Context::Memory.new
+    memory.max_context_tokens = 150
+    memory.add_user("question " + "with plenty of padding " * 30)
+    memory.add_assistant_parts(
+      [H2code::LLM::ThinkContent.new("deep reasoning " * 40)] of H2code::LLM::ContentPart,
+      [H2code::LLM::ToolCall.new("c1", H2code::LLM::ToolCallFunction.new("bash", "{}"))]
+    )
+    memory.add_tool_result("c1", "output " + "with plenty of padding " * 30)
+
+    tools = H2code::Tools::Registry.new
+    permission = H2code::Permission::Manager.new(H2code::Permission::Mode::Yolo)
+    agent = H2code::Loop::Agent.new(provider, memory, tools, permission)
+
+    events = [] of H2code::Loop::Event
+    result = agent.run_turn("wrap up", "system prompt") { |e| events << e }
+
+    result.stop_reason.should eq("end_turn")
+    # Exactly one provider chat: the resumed step. No summarizer request —
+    # non-Kimi providers compact locally.
+    provider.chat_count.should eq(1)
+    events.any?(&.type.compaction_completed?).should be_true
+    # The compacted history holds only user inputs and assistant answers.
+    memory.history.map(&.message.role).should_not contain("tool")
+    memory.history.each do |cm|
+      cm.message.content.none?(H2code::LLM::ThinkContent).should be_true
+      (cm.message.tool_calls || [] of H2code::LLM::ToolCall).empty?.should be_true
+    end
+    # The regular system prompt keeps being sent (identity block appended).
+    provider.captured_system_prompts.size.should eq(1)
+    provider.captured_system_prompts.first.should_not be_nil
+    provider.captured_system_prompts.first.not_nil!.should start_with("system prompt")
+  end
+
   it "hot-swaps the provider at runtime via swap_provider!" do
     first = H2code::LLM::MockProvider.new([
       H2code::LLM::MockStep.new(
@@ -551,6 +593,36 @@ private class PromptCaptureProvider < H2code::LLM::Provider
   def chat(messages : Array(H2code::LLM::Message), tools : Array(H2code::LLM::ToolDefinition)?,
            system_prompt : String? = nil, aborted? : -> Bool = -> { false },
            &block : H2code::LLM::MessagePart ->) : H2code::LLM::StepResult
+    @captured_system_prompts << system_prompt
+    @inner.chat(messages, tools, system_prompt, aborted?) { |p| block.call(p) }
+  end
+end
+
+# Wraps a MockProvider and counts every chat call — proves whether the
+# agent issued a summarizer request during compaction.
+private class ChatCountingProvider < H2code::LLM::Provider
+  getter chat_count : Int32 = 0
+  getter captured_system_prompts = [] of String?
+
+  def initialize(@inner : H2code::LLM::MockProvider)
+  end
+
+  def name : String
+    "chat-counting"
+  end
+
+  def model_name : String
+    "test-model"
+  end
+
+  def fetch_models : Array(String)
+    [] of String
+  end
+
+  def chat(messages : Array(H2code::LLM::Message), tools : Array(H2code::LLM::ToolDefinition)?,
+           system_prompt : String? = nil, aborted? : -> Bool = -> { false },
+           &block : H2code::LLM::MessagePart ->) : H2code::LLM::StepResult
+    @chat_count += 1
     @captured_system_prompts << system_prompt
     @inner.chat(messages, tools, system_prompt, aborted?) { |p| block.call(p) }
   end

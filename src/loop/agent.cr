@@ -667,11 +667,21 @@ module H2code
       private def trigger_compaction(system_prompt : String, on_event : Event ->) : String
         on_event.call(Event.compaction_started)
 
-        compactor = Context::Compaction.new(@provider, @context)
-        result = compactor.compact do |_|
-          # Streaming parts of the summary are not surfaced to the TUI; only
-          # the final result events carry the outcome.
-        end
+        # Summarizer compaction is reserved for the original Kimi/Moonshot
+        # backend: other providers (e.g. GLM) reject the extra compaction
+        # chat request as an unsupported feature. Everywhere else compact
+        # locally — strip to user inputs + direct answers, clamp if needed,
+        # no provider round-trip. The regular system prompt keeps being
+        # sent unchanged.
+        result = if @provider.is_a?(LLM::MoonshotProvider)
+                   compactor = Context::Compaction.new(@provider, @context)
+                   compactor.compact do |_|
+                     # Streaming parts of the summary are not surfaced to the TUI; only
+                     # the final result events carry the outcome.
+                   end
+                 else
+                   Context::Compaction.compact_simple(@context)
+                 end
 
         case result.status
         in Context::CompactionStatus::Cancelled
