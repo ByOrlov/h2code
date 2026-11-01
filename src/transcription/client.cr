@@ -109,6 +109,27 @@ module H2code
         end
       end
 
+      # POST /v1/transcribe/file (protocol 0.2.0): transcribe an already-saved
+      # local media file through the same STT pipeline the record path uses
+      # (ffmpeg decode, then Whisper/GigaAM). Synchronous — the call blocks
+      # until the server answers (bounded by its 10-minute pipeline timeout);
+      # IO waits yield to the scheduler, so other fibers keep running.
+      # Returns the transcribed text. Raises Error on a non-200 response,
+      # IO::Error when the socket is unreachable.
+      def transcribe_file(path : String, mime : String = "",
+                          language : String? = nil,
+                          stt_engine : String = "auto") : String
+        payload = {"path" => path, "engine" => stt_engine, "language" => language} of String => String?
+        payload["mime"] = mime unless mime.empty?
+        with_client do |client|
+          resp = client.post("/v1/transcribe/file", body: payload.to_json)
+          unless resp.status.success?
+            raise Error.new(request_error(resp))
+          end
+          JSON.parse(resp.body)["text"]?.try(&.to_s).to_s
+        end
+      end
+
       # POST /v1/record/stop. Returns true when the server accepted the stop
       # (the final events still arrive on the start stream). False when no
       # session was active (409) or the server is unreachable.
@@ -156,6 +177,15 @@ module H2code
         rescue IO::EOFError
           break
         end
+      end
+
+      # Human-readable reason for a failed non-SSE request: the JSON
+      # `error` field when present, otherwise the bare HTTP status.
+      private def request_error(resp : HTTP::Client::Response) : String
+        parsed = JSON.parse(resp.body)
+        parsed["error"]?.try(&.to_s) || "#{resp.status.code} #{resp.status_message}"
+      rescue JSON::ParseException
+        "#{resp.status.code} #{resp.status_message}"
       end
 
       private def error_from_body(resp : HTTP::Client::Response) : RecordEvent

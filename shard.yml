@@ -13,6 +13,8 @@ targets:
     main: src/h2code.cr
   hless:
     main: bin/hless.cr
+  h2code-tg-bot:
+    main: src/tg_bot/main.cr
 
 dependencies:
   goban:

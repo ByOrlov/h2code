@@ -100,6 +100,7 @@ build:
       artifacts:
         from: build/bin
         include: [h2code, hless]
+        include: [h2code, h2code-tg-bot]
         to: [debian-12, ubuntu-24.04, ubuntu-25.10, ubuntu-26.04, fedora-41, arch]
         mode: copy
 
@@ -111,12 +112,14 @@ build:
         # archives and the cask are self-contained.
         - bash scripts/rebind_dylibs.sh build/bin/h2code
         - bash scripts/rebind_dylibs.sh build/bin/hless
+        - bash scripts/rebind_dylibs.sh build/bin/h2code-tg-bot
         # CI-only x86_64-darwin cross-build (skips unless H2CODE_BUILD_INTEL=1)
         # into build/bin-x86_64; release.yml archives it from there.
         - bash scripts/build_h2code_intel.sh
       artifacts:
         from: build/bin
         include: [h2code, hless, "*.dylib"]
+        include: [h2code, h2code-tg-bot, "*.dylib"]
         to: [macos]
         mode: copy
 
@@ -130,6 +133,7 @@ build:
       artifacts:
         from: build/bin
         include: [h2code.exe, hless.exe]
+        include: [h2code.exe, h2code-tg-bot.exe]
         to: [windows-11.0]
         mode: copy
 
@@ -158,6 +162,9 @@ package:
     hless:
       "*": hless
       windows-11.0: hless.exe
+    h2code-tg-bot:
+      "*": h2code-tg-bot
+      windows-11.0: h2code-tg-bot.exe
     # The rebind step points the binary at @rpath — the cask must ship the
     # bundled dylibs alongside it.
     libssl.3.dylib:
@@ -169,6 +176,11 @@ package:
   links:
     bin/h2code: ../lib/h2code/h2code
     bin/hless: ../lib/h2code/hless
+  executables: [h2code, h2code-tg-bot]
+
+  links:
+    bin/h2code: ../lib/h2code/h2code
+    bin/h2code-tg-bot: ../lib/h2code/h2code-tg-bot
 
 # Runtime dependencies of the package, per distro family (the Depends: line
 # of the deb / Requires: of the rpm). The macos/windows verdicts are

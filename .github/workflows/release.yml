@@ -178,8 +178,10 @@ jobs:
         run: |
           set -euo pipefail
           archive() { # <target-name> <bin-dir>
-            (cd "$2" && tar -czf "../../h2code-$1.tar.gz" h2code hless *.dylib 2>/dev/null) || \
-              (cd "$2" && tar -czf "../../h2code-$1.tar.gz" h2code hless)
+            (cd "$2" && tar -czf "../../h2code-$1.tar.gz" h2code hless h2code-tg-bot *.dylib 2>/dev/null) || \
+              (cd "$2" && tar -czf "../../h2code-$1.tar.gz" h2code hless h2code-tg-bot) || \
+              (cd "$2" && tar -czf "../../h2code-$1.tar.gz" h2code hless) || \
+              (cd "$2" && tar -czf "../../h2code-$1.tar.gz" h2code)
           }
           case "${{ matrix.target }}" in
             x86_64-linux|aarch64-linux) archive "${{ matrix.target }}" build/bin ;;
@@ -192,7 +194,7 @@ jobs:
       - name: Archive (zip)
         if: matrix.archive == 'zip'
         shell: pwsh
-        run: Compress-Archive -Path build/bin/h2code.exe,build/bin/hless.exe -DestinationPath "h2code-${{ matrix.target }}.zip"
+        run: Compress-Archive -Path build/bin/h2code.exe,build/bin/hless.exe,build/bin/h2code-tg-bot.exe -DestinationPath "h2code-${{ matrix.target }}.zip"
 
       - name: Generate SHA256
         shell: bash

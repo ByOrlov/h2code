@@ -184,6 +184,27 @@ describe H2code::Transcription::Client do
     end
   end
 
+  it "transcribes a local file via /v1/transcribe/file" do
+    VoiceMockServer.start do |mock|
+      mock.route("/v1/transcribe/file", 200, ["Content-Type: application/json"],
+        %({"text":"привет мир","duration_sec":2.1,"engine":"gigaam","language":"ru"}))
+      client = H2code::Transcription::Client.new(mock.socket_path)
+      client.transcribe_file("/tmp/clip.ogg", mime: "audio/ogg",
+        language: "ru", stt_engine: "auto").should eq("привет мир")
+    end
+  end
+
+  it "raises with the server's error reason for a failed transcription" do
+    VoiceMockServer.start do |mock|
+      mock.route("/v1/transcribe/file", 422, ["Content-Type: application/json"],
+        %({"error":"no_stt_engine_available"}))
+      client = H2code::Transcription::Client.new(mock.socket_path)
+      expect_raises(H2code::Transcription::Client::Error, "no_stt_engine_available") do
+        client.transcribe_file("/tmp/clip.ogg")
+      end
+    end
+  end
+
   it "expands ~ and honours env overrides in from_config" do
     home = ENV["HOME"]? || "/tmp"
     cfg = H2code::Config::TranscriptionConfig.new(enabled: true, socket: "~/../h2voice/voice.sock")

@@ -27,6 +27,8 @@ Windows
 irm https://raw.githubusercontent.com/ByOrlov/H2Code/master/install.ps1 | iex 
 ```
 
+Both installers put two binaries on your `PATH`: `h2code` itself and the `h2code-tg-bot` Telegram daemon (see `plans/telegram_bot.md`).
+
 **Crystal 1.14 · GPL-2.0-or-later · Native Binary · No Runtime**
 
 ---
