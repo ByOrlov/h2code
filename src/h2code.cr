@@ -1359,6 +1359,14 @@ module H2code
         app.add_message("system", H2code.t("ui.wire_recovered"))
         nil
       }
+      # Disk-write trouble (e.g. ENOSPC on the session wire) is buffered
+      # and retried in the background by the session write queue; route
+      # its warnings into the log zone so a full disk is visible, not
+      # silent data loss.
+      store.write_queue.on_warning = ->(message : String) do
+        app.add_message("error", message)
+        nil
+      end
 
       app.on_new_session = -> {
         agent.context.clear

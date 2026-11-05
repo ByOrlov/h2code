@@ -511,6 +511,10 @@ module H2code
         bundle_dir = File.join(tmp_dir, "h2code-debug-#{Random::Secure.hex(4)}")
         Dir.mkdir_p(bundle_dir)
 
+        # Drain any writes still buffered after disk trouble so the bundle
+        # reflects the latest wire/state instead of a stale snapshot.
+        H2code::Session::WriteQueue.default.flush(2.seconds)
+
         # Manifest with version / provider / model / timestamps.
         manifest_path = File.join(bundle_dir, "manifest.txt")
         manifest = String.build do |s|

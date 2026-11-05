@@ -401,6 +401,9 @@ zh:
     resume_not_wired: "会话恢复功能未接入。"
     queue_cleared_interrupt: "[中断时已清空队列]"
     wire_recovered: "会话文件被外部删除；已从内存日志恢复完整历史。"
+    wire_write_failed: "磁盘写入失败：%{reason}。正在缓冲事件（待写入 %{count} 条）并重试。"
+    wire_write_flushed: "磁盘写入已恢复；已刷写 %{count} 条缓冲事件。"
+    wire_queue_dropped: "写入缓冲区已满——已丢弃最早的 %{count} 条缓冲事件。"
     sandbox_gone: "本会话的沙箱（%{folder}）已不存在；继续在 %{dir} 中工作。"
     # Undo
     undo_one: "已撤销上一个回合。"

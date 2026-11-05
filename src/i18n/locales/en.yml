@@ -401,6 +401,9 @@ en:
     resume_not_wired: "Session resume is not wired up."
     queue_cleared_interrupt: "[Queue cleared on interrupt]"
     wire_recovered: "Session file was deleted externally; restored the full history from the in-memory journal."
+    wire_write_failed: "Disk write failed: %{reason}. Buffering events (%{count} pending) and retrying."
+    wire_write_flushed: "Disk writes recovered; flushed %{count} buffered events."
+    wire_queue_dropped: "Write buffer full — dropped %{count} oldest buffered events."
     sandbox_gone: "This session's sandbox (%{folder}) no longer exists; continuing in %{dir}."
     # Undo
     undo_one: "Undid last turn."

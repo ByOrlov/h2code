@@ -401,6 +401,9 @@ pt:
     resume_not_wired: "A retomada de sessões não está conectada."
     queue_cleared_interrupt: "[Fila limpa na interrupção]"
     wire_recovered: "O arquivo da sessão foi excluído externamente; o histórico completo foi restaurado do diário em memória."
+    wire_write_failed: "Falha ao gravar no disco: %{reason}. Eventos sendo bufferizados (%{count} pendentes), tentando novamente."
+    wire_write_flushed: "Gravação em disco recuperada; %{count} eventos bufferizados foram gravados."
+    wire_queue_dropped: "Buffer de gravação cheio — %{count} eventos bufferizados mais antigos foram descartados."
     sandbox_gone: "O sandbox desta sessão (%{folder}) não existe mais; continuando em %{dir}."
     # Undo
     undo_one: "Último turno desfeito."

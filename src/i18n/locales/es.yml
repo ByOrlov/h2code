@@ -401,6 +401,9 @@ es:
     resume_not_wired: "La reanudación de sesiones no está conectada."
     queue_cleared_interrupt: "[Cola borrada al interrumpir]"
     wire_recovered: "El archivo de sesión fue eliminado externamente; se restauró el historial completo desde el diario en memoria."
+    wire_write_failed: "Fallo al escribir en disco: %{reason}. Se bufferizan eventos (%{count} pendientes) y se reintenta."
+    wire_write_flushed: "Escritura en disco recuperada; se volcaron %{count} eventos en búfer."
+    wire_queue_dropped: "Búfer de escritura lleno: se descartaron los %{count} eventos en búfer más antiguos."
     sandbox_gone: "El sandbox de esta sesión (%{folder}) ya no existe; continuando en %{dir}."
     # Undo
     undo_one: "Último turno deshecho."

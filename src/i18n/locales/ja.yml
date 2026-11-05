@@ -401,6 +401,9 @@ ja:
     resume_not_wired: "セッションの再開機能は接続されていません。"
     queue_cleared_interrupt: "[中断時にキューをクリアしました]"
     wire_recovered: "セッションファイルが外部から削除されました。メモリ内のジャーナルから全履歴を復元しました。"
+    wire_write_failed: "ディスク書き込みに失敗しました: %{reason}。イベントをバッファリングし（%{count} 件保留中）再試行しています。"
+    wire_write_flushed: "ディスク書き込みが復旧しました。バッファリングされた %{count} 件のイベントを書き込みました。"
+    wire_queue_dropped: "書き込みバッファが一杯です。最も古い %{count} 件のバッファイベントを破棄しました。"
     sandbox_gone: "このセッションのサンドボックス（%{folder}）はもう存在しません。%{dir} で続行します。"
     # Undo
     undo_one: "直前のターンを元に戻しました。"

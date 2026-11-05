@@ -1,5 +1,6 @@
 require "./index"
 require "./lock"
+require "./write_queue"
 
 module H2code
   module Session
@@ -25,6 +26,11 @@ module H2code
       # Notified whenever wire.jsonl disappeared mid-session and was
       # rebuilt from the in-memory journal, so the UI can surface it.
       property on_wire_recovered : (-> Nil)?
+
+      # Disk-write queue shared by every store (see `WriteQueue`). All
+      # wire appends and metadata replacements go through it; a failing
+      # disk (ENOSPC, …) buffers and retries instead of raising here.
+      getter write_queue : WriteQueue = WriteQueue.default
 
       # Raw wire lines seen by this process: everything replayed at open
       # plus every line appended since. Backs the automatic rebuild when
@@ -98,37 +104,31 @@ module H2code
           "timestamp" => JSON::Any.new(Time.utc.to_rfc3339),
           "data"      => JSON::Any.new(data),
         }.to_json
-        begin
-          write_wire_line(line)
-        rescue File::NotFoundError
-          # The session directory can vanish between the mkdir_p check and
-          # the open (session GC, tmp cleaners). Retry once: the second pass
-          # recreates the directory and, when the wire file was already
-          # seen, rebuilds it from the in-memory journal.
-          write_wire_line(line)
-        end
         journal << line
-        @wire_seen = true
-      end
-
-      # Self-heal after a mid-session deletion (tmp cleaners, manual
-      # `rm -rf`): without recovery every following append would land in a
-      # fresh empty file and the whole session would be lost on the next
-      # start — rebuild the wire from the journal first.
-      private def write_wire_line(line : String) : Nil
-        recover_wire if @wire_seen && !File.exists?(@wire_path)
-        Dir.mkdir_p(@session_dir) unless Dir.exists?(@session_dir)
-        File.open(@wire_path, "a") do |f|
-          f.puts(line)
-          f.fsync
+        if @wire_seen && !File.exists?(@wire_path)
+          # Mid-session deletion (tmp cleaners, manual `rm -rf`): rebuild
+          # the wire from the journal. One queued replacement holding the
+          # full journal (which already includes this line) supersedes any
+          # appends still buffered from a failure episode, so history and
+          # ordering are preserved without duplicating lines.
+          content = journal.empty? ? "" : journal.join('\n') + '\n'
+          first_rebuild = @write_queue.pending_replace(@wire_path).nil?
+          @write_queue.enqueue_replace(@wire_path, @session_dir, content)
+          @on_wire_recovered.try(&.call) if first_rebuild
+        else
+          @write_queue.enqueue_append(@wire_path, @session_dir, line)
         end
+        @wire_seen = true
       end
 
       # Create an empty wire.jsonl if it does not exist yet, so the Index
       # can discover a freshly-created session before the first event.
+      # Skipped when writes for the wire are already buffered — an empty
+      # replacement would wipe them.
       def ensure_wire : Nil
         return if File.exists?(@wire_path)
-        File.write(@wire_path, "")
+        return if @write_queue.pending_for?(@wire_path)
+        @write_queue.enqueue_replace(@wire_path, @session_dir, "")
       end
 
       def append_simple(event_type : String, key : String, value : String) : Nil
@@ -190,31 +190,30 @@ module H2code
         @journal ||= [] of String
       end
 
-      # (Re)load the raw non-empty wire lines from disk into the journal.
+      # (Re)load the raw non-empty wire lines from disk into the journal,
+      # merging any lines still buffered in the write queue after a disk
+      # failure so replay never misses the tail of the session.
       private def reload_journal : Nil
         raw = [] of String
-        if File.exists?(@wire_path)
+        if content = @write_queue.pending_replace(@wire_path)
+          # A queued rebuild supersedes whatever is (or isn't) on disk.
+          content.each_line do |line|
+            raw << line unless line.strip.empty?
+          end
+        elsif File.exists?(@wire_path)
           File.each_line(@wire_path) do |line|
             raw << line unless line.strip.empty?
           end
         end
+        @write_queue.pending_appends(@wire_path).each do |line|
+          raw << line unless line.strip.empty?
+        end
         @journal = raw
-        @wire_seen = File.exists?(@wire_path)
-      end
-
-      # Rebuild wire.jsonl from the in-memory journal (everything replayed
-      # at open plus every line appended since) after the file vanished
-      # mid-session, so the append that detected the deletion keeps the
-      # full history instead of starting a fresh empty log.
-      private def recover_wire : Nil
-        content = journal.empty? ? "" : journal.join('\n') + '\n'
-        atomic_write(@wire_path, content)
-        @on_wire_recovered.try(&.call)
+        @wire_seen = File.exists?(@wire_path) || @write_queue.pending_for?(@wire_path)
       end
 
       def write_meta(meta : Hash(String, String)) : Nil
-        meta_path = File.join(@session_dir, "meta.json")
-        File.write(meta_path, meta.to_json)
+        atomic_write(meta_path, meta.to_json)
       end
 
       # Write the v2 state.json metadata document. Atomic and self-healing:
@@ -225,10 +224,15 @@ module H2code
         atomic_write(@state_path, meta.to_json)
       end
 
+      # Path of the legacy flat-layout meta.json.
+      private def meta_path : String
+        File.join(@session_dir, "meta.json")
+      end
+
       def read_meta : JSON::Any?
-        meta_path = File.join(@session_dir, "meta.json")
-        return nil unless File.exists?(meta_path)
-        JSON.parse(File.read(meta_path))
+        path = meta_path
+        return nil unless (content = @write_queue.pending_replace(path)) || File.exists?(path)
+        JSON.parse(content || File.read(path))
       rescue
         nil
       end
@@ -236,6 +240,9 @@ module H2code
       # Read the v2 state.json, falling back to a StateMeta synthesised
       # from the legacy meta.json when only the flat layout exists.
       def read_state : StateMeta?
+        if content = @write_queue.pending_replace(@state_path)
+          return StateMeta.from_json(content)
+        end
         if File.exists?(@state_path)
           return StateMeta.from_json(File.read(@state_path))
         end
@@ -303,10 +310,13 @@ module H2code
       end
 
       # Load persisted cron tasks (array of JSON objects). Returns an empty
-      # array when the file does not exist or is unreadable.
+      # array when the file does not exist or is unreadable. A replacement
+      # still buffered in the write queue takes precedence over the file.
       def read_cron_tasks : Array(JSON::Any)
-        return [] of JSON::Any unless File.exists?(cron_path)
-        JSON.parse(File.read(cron_path)).as_a
+        if (json = @write_queue.pending_replace(cron_path)) || File.exists?(cron_path)
+          return JSON.parse(json || File.read(cron_path)).as_a
+        end
+        [] of JSON::Any
       rescue JSON::ParseException
         [] of JSON::Any
       end
@@ -358,11 +368,12 @@ module H2code
       end
 
       # Read a single task's metadata document. Returns nil when the file
-      # does not exist or is unreadable.
+      # does not exist or is unreadable. A replacement still buffered in
+      # the write queue takes precedence over the file.
       def read_task_meta(task_id : String) : JSON::Any?
         path = task_meta_path(task_id)
-        return nil unless File.exists?(path)
-        JSON.parse(File.read(path))
+        return nil unless (content = @write_queue.pending_replace(path)) || File.exists?(path)
+        JSON.parse(content || File.read(path))
       rescue JSON::ParseException
         nil
       end
@@ -382,25 +393,13 @@ module H2code
         # Best-effort.
       end
 
-      # Atomic write: temp file in the same directory, fsync, rename.
-      # Same-directory rename is atomic on POSIX; keeping the temp file
-      # adjacent ensures the rename does not cross a filesystem boundary.
+      # Queue a whole-file replacement: temp file in the same directory,
+      # fsync, rename. Same-directory rename is atomic on POSIX; keeping
+      # the temp file adjacent ensures the rename does not cross a
+      # filesystem boundary. Execution is immediate on the happy path and
+      # buffered/retried by the write queue when the disk errors.
       private def atomic_write(path : String, content : String) : Nil
-        dir = File.dirname(path)
-        Dir.mkdir_p(dir) unless Dir.exists?(dir)
-        tmp = File.join(dir, ".#{File.basename(path)}.tmp.#{Random::Secure.hex(4)}")
-        File.open(tmp, "w") do |f|
-          f.print(content)
-          f.fsync
-        end
-        File.rename(tmp, path)
-      rescue ex
-        # Best-effort cleanup of the temp file if rename failed.
-        begin
-          File.delete(tmp) if tmp && File.exists?(tmp)
-        rescue
-        end
-        raise ex
+        @write_queue.enqueue_replace(path, File.dirname(path), content)
       end
 
       def self.list_sessions(home : String) : Array(SessionInfo)
