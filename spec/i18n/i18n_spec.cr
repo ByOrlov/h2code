@@ -125,6 +125,30 @@ describe H2code::I18n do
       H2code.t("errors.generic", message: "boom").should eq("Error: boom")
     end
 
+    it "interpolates a count named arg as a plain param, not pluralization" do
+      # Regression: a `count:` named arg used to select crystal-i18n's
+      # pluralization lookup (`key.one`/`key.other`), which no flat
+      # translation satisfies — the raw key leaked into the UI.
+      H2code::I18n.init("en")
+      H2code.t("ui.undo_count", count: 3).should eq("Undid 3 turn(s).")
+      H2code.t("ui.undo_last_count", count: 2).should contain("2")
+      H2code.t("ui.cleanup_skipped", count: 7).should contain("7")
+    end
+
+    it "interpolates count alongside other named args" do
+      H2code::I18n.init("en")
+      rendered = H2code.t("ui.queue_listing", count: 4, preview: "p", hint: "h")
+      rendered.should contain("4")
+      rendered.should contain("p")
+      rendered.should_not eq("ui.queue_listing")
+    end
+
+    it "stringifies positional NamedTuple / Symbol-keyed params" do
+      H2code::I18n.init("en")
+      H2code.t("ui.undo_count", {count: 5}).should eq("Undid 5 turn(s).")
+      H2code.t("ui.undo_count", {"count" => 6}).should eq("Undid 6 turn(s).")
+    end
+
     it "resolves the /cleanup picker keys instead of returning them raw" do
       H2code::I18n.init("en")
       H2code.t("ui.select_cleanup").should_not eq("ui.select_cleanup")

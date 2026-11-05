@@ -203,7 +203,7 @@ module H2code
         now = Time.monotonic
         return if (last = @last_drop_warn_at) && (now - last) < WARN_INTERVAL
         @last_drop_warn_at = now
-        notify_warning(H2code.t("ui.wire_queue_dropped", {"count" => @dropped_unwarned}))
+        notify_warning(H2code.t("ui.wire_queue_dropped", count: @dropped_unwarned))
         @dropped_unwarned = 0
       end
 
@@ -251,11 +251,8 @@ module H2code
         now = Time.monotonic
         return if (last = @last_warn_at) && (now - last) < WARN_INTERVAL
         @last_warn_at = now
-        # Params go in as a positional hash: a `count:` named argument
-        # would trigger crystal-i18n's pluralization lookup
-        # (`key.other`) and fall back to the raw key.
         notify_warning(H2code.t("ui.wire_write_failed",
-          {"reason" => ex.message.to_s, "count" => @pending.size}))
+          reason: ex.message.to_s, count: @pending.size))
       end
 
       private def notify_recovered : Nil
@@ -264,7 +261,7 @@ module H2code
         @attempt = 0
         count = @flushed_during_episode
         @flushed_during_episode = 0
-        notify_warning(H2code.t("ui.wire_write_flushed", {"count" => count}))
+        notify_warning(H2code.t("ui.wire_write_flushed", count: count))
       end
 
       private def notify_warning(message : String) : Nil

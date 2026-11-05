@@ -112,13 +112,28 @@ module H2code
     # Translates a key with optional interpolation params. Returns the key
     # itself (rather than raising) when the translation is missing, so a bad
     # key never crashes the UI.
+    #
+    # All named args are converted to plain interpolation params: passing
+    # them straight to crystal-i18n would make a `count:` argument select
+    # pluralization forms (`key.one` / `key.other`), which no flat
+    # translation satisfies — the lookup then fails and the raw key leaks
+    # into the UI (`t("ui.undo_count", count: 3)` → "ui.undo_count").
     def self.t(key : String, **kwargs) : String
-      ::I18n.t!(key, **kwargs)
+      params = Hash(String, String).new
+      kwargs.each { |name, value| params[name.to_s] = value.to_s }
+      ::I18n.t!(key, params)
     rescue ::I18n::Errors::MissingTranslation
       key
     end
 
     def self.t(key : String, params : Hash | NamedTuple | Nil = nil) : String
+      # Same guard for the positional overload: NamedTuple / Symbol-keyed
+      # params would never match "%{name}" placeholders on interpolation.
+      if params.is_a?(NamedTuple) || (params.is_a?(Hash) && !params.empty? && params.keys.first.is_a?(Symbol))
+        stringified = Hash(String, String).new
+        params.each { |name, value| stringified[name.to_s] = value.to_s }
+        return ::I18n.t!(key, stringified)
+      end
       ::I18n.t!(key, params)
     rescue ::I18n::Errors::MissingTranslation
       key
