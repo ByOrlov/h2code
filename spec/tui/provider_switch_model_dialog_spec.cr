@@ -106,9 +106,7 @@ describe H2code::TUI::App do
     # Keyed providers always walk the setup wizard; a stored key turns the
     # first step into keep-or-reconfigure (empty Enter = skip).
     app.setup_mode?.should be_true
-    wizard = app.wizard
-    wizard.should_not be_nil
-    wizard.not_nil!.step.should eq(H2code::Setup::Wizard::Step::ExistingKey)
+    app.wizard.should be_a(H2code::Setup::Wiz::ExistingKey)
     app.provider_name.should eq("zai")
     app.model_list.visible?.should be_false
   end

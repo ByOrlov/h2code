@@ -28,6 +28,7 @@ class PtySession
 
   def initialize(command : String, args : Array(String) = [] of String,
                  env : Hash(String, String)? = nil,
+                 clear_env : Bool = false,
                  rows : Int32 = 30, cols : Int32 = 100)
     master_fd = uninitialized Int32
     slave_fd = uninitialized Int32
@@ -47,7 +48,8 @@ class PtySession
 
     slave = IO::FileDescriptor.new(slave_fd)
     begin
-      @process = Process.new(command, args, env: env, input: slave, output: slave, error: slave)
+      @process = Process.new(command, args, env: env, clear_env: clear_env,
+                             input: slave, output: slave, error: slave)
     ensure
       slave.close
     end

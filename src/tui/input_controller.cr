@@ -55,18 +55,12 @@ module H2code
           end
           case key.key
           when .enter?
-            wizard = @wizard
-            step = wizard.try(&.step)
-            # On endpoint/model an empty Enter keeps the default. Credentials
-            # requires a non-empty key, so the submit gate stays there. Yolo
-            # counts an empty Enter as "yes" (trust by default). ExistingKey
-            # counts it as "keep the stored key" (skip reconfiguration).
-            if step == Setup::Wizard::Step::Endpoint || step == Setup::Wizard::Step::Model ||
-               step == Setup::Wizard::Step::Yolo || step == Setup::Wizard::Step::ExistingKey
+            # Each state knows whether an empty Enter is a meaningful submit
+            # (endpoint/model keep the default, yolo counts it as "yes",
+            # existing-key counts it as "keep"); credentials requires text.
+            accepts_empty = (w = @wizard) ? w.accepts_empty_submit? : false
+            if accepts_empty || !@editor.empty?
               text = @editor.empty? ? "" : @editor.submit!
-              submit_setup_text(text)
-            elsif !@editor.empty?
-              text = @editor.submit!
               submit_setup_text(text)
             end
           when .escape?, .ctrl_d?
@@ -1064,7 +1058,7 @@ module H2code
       # wizard on selection — the keep-or-reconfigure step makes it a one-Enter
       # skip when a key is already stored.
       private def keyed_provider?(name : String) : Bool
-        choice = Setup::Wizard.choices.find { |c| c.name == name }
+        choice = Setup.choices.find { |c| c.name == name }
         !!choice.try(&.needs_key?)
       end
 
@@ -1073,17 +1067,16 @@ module H2code
       # provider, so the wizard drops straight into the ExistingKey step (key
       # already stored → keep or reconfigure) or the Credentials step.
       private def start_setup_for_provider(name : String) : Nil
-        wizard = Setup::Wizard.new
-        wizard.existing_api_key = @app_config.try(&.api_key_for(name)) || ""
-        wizard.select_provider(name)
-        @wizard = wizard
+        existing = @app_config.try(&.api_key_for(name)) || ""
+        state = Setup::Wiz::Welcome.new.select_provider(name, existing)
+        @wizard = state
         @setup_mode = true
         @setup_first_run = false
         @provider_name = name
-        @status = "Setup: #{wizard.step.to_s.downcase}"
+        @status = "Setup: #{state.status}"
         @editor.clear
         emit_to_log(Message.new("user", provider_label(name)))
-        if wizard.step == Setup::Wizard::Step::Endpoint
+        if state.is_a?(Setup::Wiz::Endpoint)
           # Keyless provider: jump straight to endpoint, but still show a
           # transcript entry so the user knows why no key was asked.
           emit_to_log(Message.new("system", H2code.t("ui.provider_no_key", name: name)))
@@ -1092,7 +1085,7 @@ module H2code
       end
 
       private def provider_label(name : String) : String
-        if choice = Setup::Wizard.choices.find { |c| c.name == name }
+        if choice = Setup.choices.find { |c| c.name == name }
           choice.label
         else
           name

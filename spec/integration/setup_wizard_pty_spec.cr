@@ -10,14 +10,25 @@ require "../support/pty_session"
 # Opt-in: set H2CODE_TEST_BIN to a built binary (rake spec:pty builds one
 # and runs this spec), otherwise the examples are pending.
 {% if flag?(:unix) %}
+  # Provider key/endpoint/model variables exported in the developer shell
+  # would otherwise leak into the child (Process env merges on top of the
+  # parent environment by default) and defeat the fresh-H2CODE_HOME
+  # isolation: an ambient ZAI_API_KEY makes the wizard skip the credentials
+  # step entirely, for example. Scrub them, and pass the result wholesale
+  # (clear_env) so only what we list here reaches the child.
+  PROVIDER_ENV_PREFIXES = %w[MOONSHOT ZAI ZHIPU OLLAMA LMSTUDIO STRATA
+    DEEPSEEK GROQ OPENROUTER XAI CEREBRAS
+    FIREWORKS TOGETHER]
+
   # Fresh isolated environment for one first-run wizard session.
   def pty_env(home : String) : Hash(String, String)
-    {
-      "HOME"        => home,
-      "H2CODE_HOME" => File.join(home, ".h2code"),
-      "TERM"        => "xterm-256color",
-      "H2CODE_LANG" => "en", # deterministic prompts regardless of host LANG
-    }
+    env = ENV.to_h
+    env.reject! { |k, _| PROVIDER_ENV_PREFIXES.any? { |p| k.starts_with?("#{p}_") } }
+    env["HOME"] = home
+    env["H2CODE_HOME"] = File.join(home, ".h2code")
+    env["TERM"] = "xterm-256color"
+    env["H2CODE_LANG"] = "en" # deterministic prompts regardless of host LANG
+    env
   end
 
   describe "setup wizard PTY smoke" do
@@ -30,7 +41,7 @@ require "../support/pty_session"
           Dir.mkdir_p(home)
           config_path = File.join(home, ".h2code", "config.json")
 
-          session = PtySession.new(bin, env: pty_env(home))
+          session = PtySession.new(bin, env: pty_env(home), clear_env: true)
           begin
             session.read_until("Select provider", 20.seconds).should_not be_nil
 
@@ -69,12 +80,12 @@ require "../support/pty_session"
           Dir.mkdir_p(home)
           config_path = File.join(home, ".h2code", "config.json")
 
-          session = PtySession.new(bin, env: pty_env(home))
+          session = PtySession.new(bin, env: pty_env(home), clear_env: true)
           begin
             session.read_until("Select provider", 20.seconds).should_not be_nil
 
             # Arrow down to zai's slot in the registry order, then Enter.
-            idx = H2code::Setup::Wizard.choices.index!(&.name.==("zai"))
+            idx = H2code::Setup.choices.index!(&.name.==("zai"))
             session.send("\e[B" * idx)
             session.send("\r")
             session.read_until("API key", 10.seconds).should_not be_nil

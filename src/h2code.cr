@@ -1195,11 +1195,11 @@ module H2code
       # The wizard reads stored keys from the config (keep-or-reconfigure).
       app.app_config = config
       app.start_setup
-      app.on_setup_complete = ->(wizard : Setup::Wizard) do
-        wizard.apply_to(config)
+      app.on_setup_complete = ->(result : Setup::Result) do
+        result.apply_to(config)
         config.save
-        app.provider_name = wizard.provider_name.to_s
-        app.model = wizard.model.to_s
+        app.provider_name = result.provider_name
+        app.model = result.model
         nil
       end
 
@@ -1734,31 +1734,31 @@ module H2code
       # with the wizard's collected key/endpoint applied — the real config is
       # only written when the wizard completes, so building from it directly
       # would always fail for a not-yet-configured provider.
-      app.on_fetch_models_for = ->(wizard : Setup::Wizard) : Array(String) do
-        scratch = config.dup
-        wizard.apply_to(scratch)
-        provider = build_named_provider(wizard.provider_name, scratch, oauth)
+      app.on_fetch_models_for = ->(scratch : Setup::Scratch) : Array(String) do
+        scratch_config = config.dup
+        scratch.apply_to(scratch_config)
+        provider = build_named_provider(scratch.provider_name, scratch_config, oauth)
         provider.fetch_models
       end
 
       # Runtime setup-wizard completion (vs the first-run path wired in
       # `run_setup_wizard`). Applies the collected values, rebuilds the agent's
       # provider, and persists the config.
-      app.on_setup_complete = ->(wizard : Setup::Wizard) do
-        wizard.apply_to(config)
+      app.on_setup_complete = ->(result : Setup::Result) do
+        result.apply_to(config)
         config.save
         # A yolo answer in the wizard also flips the live manager + TUI state
         # so the running session picks it up without a restart.
-        if wizard.yolo?
+        if result.yolo?
           permission.mode = Permission::Mode::Yolo
           H2code::Tools::PlanMode.permission_mode.try(&.auto = false)
           app.permission_mode = "yolo"
         end
         begin
-          provider = build_named_provider(wizard.provider_name, config, oauth)
+          provider = build_named_provider(result.provider_name, config, oauth)
           configure_provider(provider, config, store.meta_id?)
           agent.swap_provider!(provider)
-          mcp_manager.reconcile(wizard.provider_name.to_s)
+          mcp_manager.reconcile(result.provider_name)
           app.model = provider.model_name
         rescue ex : ProviderConfigError
           app.add_message("error", H2code.t("errors.provider_switch_failed", message: ex.message.to_s))

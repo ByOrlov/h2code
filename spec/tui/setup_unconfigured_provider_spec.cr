@@ -51,8 +51,8 @@ describe H2code::TUI::App do
     app = SetupWizardApp.new
     seen_key = ""
     app.on_provider_configured = ->(_name : String) : Bool { false }
-    app.on_fetch_models_for = ->(wizard : H2code::Setup::Wizard) : Array(String) do
-      seen_key = wizard.api_key
+    app.on_fetch_models_for = ->(scratch : H2code::Setup::Scratch) : Array(String) do
+      seen_key = scratch.api_key || ""
       ["glm-4.6"]
     end
 
@@ -60,10 +60,10 @@ describe H2code::TUI::App do
     app.select_provider("zai")
     app.provider_enter
 
-    app.wizard.not_nil!.step.should eq(H2code::Setup::Wizard::Step::Credentials)
+    app.wizard.not_nil!.should be_a(H2code::Setup::Wiz::Credentials)
     app.setup_text("sk-just-entered")
     app.setup_text("") # endpoint default
-    app.wizard.not_nil!.step.should eq(H2code::Setup::Wizard::Step::Model)
+    app.wizard.not_nil!.should be_a(H2code::Setup::Wiz::Model)
 
     setup_wait_until { app.model_list.visible? }.should be_true
     seen_key.should eq("sk-just-entered")
@@ -72,7 +72,7 @@ describe H2code::TUI::App do
   it "falls back to the model text input when the fetch raises, instead of restarting the wizard" do
     app = SetupWizardApp.new
     app.on_provider_configured = ->(_name : String) : Bool { false }
-    app.on_fetch_models_for = ->(_wizard : H2code::Setup::Wizard) : Array(String) do
+    app.on_fetch_models_for = ->(_scratch : H2code::Setup::Scratch) : Array(String) do
       raise H2code::LLM::ProviderConfigError.new("no credentials in config")
     end
 
@@ -84,25 +84,24 @@ describe H2code::TUI::App do
 
     setup_wait_until { app.status != "Loading models..." }.should be_true
 
-    wizard = app.wizard.not_nil!
     # The wizard stays on the Model step with everything collected intact —
     # no restart back to provider selection (the old infinite-loop path).
-    wizard.step.should eq(H2code::Setup::Wizard::Step::Model)
-    wizard.api_key.should eq("sk-just-entered")
-    wizard.provider_name.should eq("zai")
+    model = app.wizard.not_nil!.as(H2code::Setup::Wiz::Model)
+    model.api_key.should eq("sk-just-entered")
+    model.provider_name.should eq("zai")
     app.provider_list.visible?.should be_false
     app.model_list.visible?.should be_false
     app.setup_mode?.should be_true
 
     # The user can still finish setup by typing a model name.
     app.setup_text("glm-4.6")
-    app.wizard.not_nil!.step.should eq(H2code::Setup::Wizard::Step::Yolo)
+    app.wizard.not_nil!.should be_a(H2code::Setup::Wiz::Yolo)
   end
 
   it "falls back to the model text input when the fetch returns an empty list" do
     app = SetupWizardApp.new
     app.on_provider_configured = ->(_name : String) : Bool { false }
-    app.on_fetch_models_for = ->(_wizard : H2code::Setup::Wizard) : Array(String) { [] of String }
+    app.on_fetch_models_for = ->(_scratch : H2code::Setup::Scratch) : Array(String) { [] of String }
 
     app.open_provider
     app.select_provider("zai")
@@ -113,8 +112,8 @@ describe H2code::TUI::App do
     setup_wait_until { app.status != "Loading models..." }.should be_true
 
     wizard = app.wizard.not_nil!
-    wizard.step.should eq(H2code::Setup::Wizard::Step::Model)
-    wizard.api_key.should eq("sk-just-entered")
+    wizard.should be_a(H2code::Setup::Wiz::Model)
+    wizard.as(H2code::Setup::Wiz::Model).api_key.should eq("sk-just-entered")
     app.provider_list.visible?.should be_false
   end
 end

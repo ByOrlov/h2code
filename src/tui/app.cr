@@ -205,10 +205,10 @@ module H2code
       @on_fetch_models : (-> Array(String))?
       # Fetch the model list for the provider being set up — used by the
       # setup wizard's Model step to call the real provider API. Receives the
-      # wizard itself (not just the name) so the host can build a throwaway
-      # provider from the wizard's collected key: the real config is only
-      # written when the wizard completes.
-      @on_fetch_models_for : (Setup::Wizard -> Array(String))?
+      # wizard's collected values as a Scratch so the host can build a
+      # throwaway provider from them: the real config is only written when
+      # the wizard completes.
+      @on_fetch_models_for : (Setup::Scratch -> Array(String))?
       # Returns true when the named provider has credentials configured and
       # needs no further setup. Used by /provider to decide whether to launch
       # the setup wizard for the selected provider.
@@ -234,12 +234,12 @@ module H2code
       # Setup wizard state (first-run provider configuration). When
       # `@setup_mode` is true the editor input is intercepted: the provider
       # selector drives the first step, subsequent submits feed the wizard,
-      # and completion invokes `on_setup_complete`.
+      # and completion invokes `on_setup_complete` with the Result.
       @setup_mode : Bool = false
-      @wizard : Setup::Wizard? = nil
+      @wizard : Setup::Wiz? = nil
       property? setup_mode : Bool = false
-      property wizard : Setup::Wizard? = nil
-      property on_setup_complete : (Setup::Wizard -> Nil)? = nil
+      property wizard : Setup::Wiz? = nil
+      property on_setup_complete : (Setup::Result -> Nil)? = nil
 
       # GitHub token wizard (`/github token`). While true the editor input
       # is intercepted: the user types/pastes the token, Enter saves it to
@@ -348,7 +348,7 @@ module H2code
       property on_fetch_models : (-> Array(String))?
       # Fetch the model list for the provider being set up (with the
       # wizard's collected credentials) — see the ivar comment above.
-      property on_fetch_models_for : (Setup::Wizard -> Array(String))?
+      property on_fetch_models_for : (Setup::Scratch -> Array(String))?
       # Returns true when the named provider has credentials configured and
       # needs no further setup. Used by /provider to decide whether to launch
       # the setup wizard for the selected provider.

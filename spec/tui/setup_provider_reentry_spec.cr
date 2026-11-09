@@ -14,7 +14,7 @@ class RuntimeProviderApp < H2code::TUI::App
   end
 end
 
-def new_runtime_setup_app(&on_fetch : H2code::Setup::Wizard -> Array(String))
+def new_runtime_setup_app(&on_fetch : H2code::Setup::Scratch -> Array(String))
   input = H2code::TUI::ScriptedInput.new
   app = RuntimeProviderApp.new(input: input)
   app.setup_fetch_async = false
@@ -26,33 +26,35 @@ end
 
 describe "setup wizard /provider re-entry" do
   it "Esc back re-opens the selector on the provider being configured, not on the first entry" do
-    app, d = new_runtime_setup_app { |_w| ["glm-4.6"] }
+    app, d = new_runtime_setup_app { |_scratch| ["glm-4.6"] }
 
     app.open_provider
     d.type("zai")
     d.hit_enter # → start_setup_for_provider("zai"), Credentials step
     wizard = app.wizard.not_nil!
-    wizard.provider_name.should eq("zai")
+    wizard.should be_a(H2code::Setup::Wiz::Credentials)
+    wizard.as(H2code::Setup::Wiz::Credentials).provider_name.should eq("zai")
 
     d.paste("sk-test")
     d.hit_enter # → Endpoint
-    wizard.step.should eq(H2code::Setup::Wizard::Step::Endpoint)
+    app.wizard.not_nil!.should be_a(H2code::Setup::Wiz::Endpoint)
 
     d.hit_escape # Endpoint → Credentials
     d.hit_escape # Credentials → provider selector
-    wizard.step.should eq(H2code::Setup::Wizard::Step::Welcome)
+    app.wizard.not_nil!.should be_a(H2code::Setup::Wiz::Welcome)
     app.@provider_list.visible?.should be_true
 
     # The cursor must sit on the provider the user was configuring…
     app.@provider_list.current.to_s.should contain("Z.AI")
     # …so a confirming Enter re-selects it (this used to be Cerebras).
     d.hit_enter
-    wizard.provider_name.should eq("zai")
-    wizard.step.should eq(H2code::Setup::Wizard::Step::Credentials)
+    wizard = app.wizard.not_nil!
+    wizard.should be_a(H2code::Setup::Wiz::Credentials)
+    wizard.as(H2code::Setup::Wiz::Credentials).provider_name.should eq("zai")
   end
 
   it "Enter on a filter that matches nothing selects no provider" do
-    app, d = new_runtime_setup_app { |_w| [] of String }
+    app, d = new_runtime_setup_app { |_scratch| [] of String }
     app.start_setup
 
     d.type("zzzz") # fuzzy query that matches nothing
@@ -61,8 +63,6 @@ describe "setup wizard /provider re-entry" do
     # The selector stays open and nothing is selected — previously this
     # silently fell back to choices.first (Cerebras) and started its setup.
     app.@provider_list.visible?.should be_true
-    wizard = app.wizard.not_nil!
-    wizard.provider_name.should be_nil
-    wizard.step.should eq(H2code::Setup::Wizard::Step::Welcome)
+    app.wizard.not_nil!.should be_a(H2code::Setup::Wiz::Welcome)
   end
 end

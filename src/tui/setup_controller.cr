@@ -1,7 +1,8 @@
 # Setup-wizard controller, mixed into `TUI::App`. Owns the first-run provider
-# configuration flow: a small finite-state machine driven by `Setup::Wizard`
-# that steps through provider → credentials → endpoint → model, renders its
-# state into the transcript, and invokes `on_setup_complete` when done.
+# configuration flow, driven by the compile-time state machine in
+# `Setup::Wiz`: the controller cases over the current state type, submits
+# input through the state's own transition methods, and invokes
+# `on_setup_complete` with the `Setup::Result` when the flow reaches Done.
 module H2code
   module TUI
     module SetupController
@@ -20,7 +21,7 @@ module H2code
       def start_setup : Nil
         @setup_mode = true
         @setup_first_run = true
-        @wizard = Setup::Wizard.new
+        @wizard = Setup::Wiz::Welcome.new
         # Keep the welcome banner visible so the first-run flow opens with the
         # same branded box as a normal launch, instead of a bare transcript.
         @show_welcome = true
@@ -38,7 +39,7 @@ module H2code
       # confirming Enter re-selects the same provider rather than silently
       # switching to the alphabetically-first one (Cerebras).
       private def open_setup_provider_selector(preferred : String? = nil) : Nil
-        choices = Setup::Wizard.choices
+        choices = Setup.choices
         items = choices.map(&.label)
         @provider_list.show(H2code.t("ui.select_provider"), items)
         @provider_list.selected = preferred ? (choices.index(&.name.== preferred) || 0) : 0
@@ -53,7 +54,7 @@ module H2code
           @dirty = true
         when .enter?
           idx = @provider_list.selected_original_index
-          choices = Setup::Wizard.choices
+          choices = Setup.choices
           # A filter that matches nothing (or a stale index) selects nothing —
           # never silently fall back to the first provider in the registry.
           choice = @provider_list.filtered_size > 0 ? choices[idx]? : nil
@@ -61,17 +62,19 @@ module H2code
           @provider_list.hide
           @dirty = true
 
-          wizard = @wizard
-          return unless wizard
+          w = @wizard
+          unless w.is_a?(Setup::Wiz::Welcome)
+            raise "BUG: provider selector open in state #{w.class}"
+          end
 
           # A key already stored for this provider turns the credentials step
           # into keep-or-reconfigure (empty Enter keeps the stored key).
-          wizard.existing_api_key = @app_config.try(&.api_key_for(choice.name)) || ""
-          wizard.select_provider(choice.name)
+          existing = @app_config.try(&.api_key_for(choice.name)) || ""
+          @wizard = w.select_provider(choice.name, existing)
           @provider_name = choice.name
           emit_to_log(Message.new("user", choice.label))
 
-          if wizard.step == Setup::Wizard::Step::Endpoint
+          if @wizard.is_a?(Setup::Wiz::Endpoint)
             # Keyless provider: jump straight to endpoint, but still show a
             # transcript entry so the user knows why no key was asked.
             emit_to_log(Message.new("system",
@@ -92,34 +95,35 @@ module H2code
       end
 
       private def advance_setup_step : Nil
-        wizard = @wizard
-        return unless wizard
-
-        if wizard.done?
-          finish_setup
+        w = @wizard
+        case w
+        when Setup::Wiz::Done
+          finish_setup(w)
+          return
+        when Nil
           return
         end
 
-        @status = "Setup: #{wizard.step.to_s.downcase}"
+        @status = "Setup: #{w.status}"
         @editor.clear
         @dirty = true
 
         # On the Model step, replace the text input with a live model selector
         # driven by a real provider API call. Falls back to text input if the
         # callback is not wired up or the fetch fails.
-        if wizard.step == Setup::Wizard::Step::Model
-          fetch_setup_models
+        if (w = @wizard).is_a?(Setup::Wiz::Model)
+          fetch_setup_models(w)
         end
 
         # On the Yolo step, explain what is being asked before the y/N input.
-        if wizard.step == Setup::Wizard::Step::Yolo
+        if (w = @wizard).is_a?(Setup::Wiz::Yolo)
           emit_to_log(Message.new("system", H2code.t("setup.yolo_note")))
         end
 
         # On the keep-or-reconfigure step, explain the choice before input.
-        if wizard.step == Setup::Wizard::Step::ExistingKey
+        if (w = @wizard).is_a?(Setup::Wiz::ExistingKey)
           emit_to_log(Message.new("system",
-            H2code.t("setup.existing_key_note", k: wizard.existing_key_mask)))
+            H2code.t("setup.existing_key_note", k: w.existing_key_mask)))
         end
       end
 
@@ -128,16 +132,14 @@ module H2code
       # text input (placeholder shows the default model) — never restart the
       # wizard, which would wipe the collected key and trap the user in a
       # select → key → fetch-fail loop.
-      private def fetch_setup_models : Nil
-        wizard = @wizard
-        return unless wizard
+      private def fetch_setup_models(w : Setup::Wiz::Model) : Nil
         cb = @on_fetch_models_for
         unless cb
           # No way to list models — stay on the text input with the default.
           return
         end
 
-        name = wizard.provider_name.to_s
+        name = w.provider_name
         @status = "Loading models for #{name}..."
         @model_fetch_active = true
         @editor.clear
@@ -145,19 +147,21 @@ module H2code
 
         fetch = -> do
           begin
-            models = cb.call(wizard)
+            models = cb.call(w.scratch)
             if models.empty?
               emit_to_log(Message.new("system", H2code.t("ui.models_unavailable")))
             else
               @model_list.show(H2code.t("ui.select_model", name: name), models)
-              default = wizard.model || wizard.current_choice.try(&.default_model) || models.first?
+              default = w.default_model || models.first?
               @model_list.selected = models.index(default) || 0
             end
           rescue ex
             emit_to_log(Message.new("system", H2code.t("ui.models_unavailable")))
           ensure
             @model_fetch_active = false
-            @status = "Setup: #{wizard.step.to_s.downcase}"
+            # The fetch captured the Model state it was started for; report
+            # that step rather than whatever state is current when it lands.
+            @status = "Setup: #{w.status}"
             @dirty = true
           end
         end
@@ -174,14 +178,15 @@ module H2code
       private def handle_setup_model_key(key : KeyEvent) : Nil
         case key.key
         when .enter?
-          wizard = @wizard
-          return unless wizard
-          model = @model_list.current || wizard.current_choice.try(&.default_model) || ""
+          w = @wizard
+          unless w.is_a?(Setup::Wiz::Model)
+            raise "BUG: model selector open in state #{w.class}"
+          end
+          model = @model_list.current || w.default_model || ""
           @model_list.hide
           @dirty = true
           emit_to_log(Message.new("user", model))
-          wizard.model = model
-          wizard.step = Setup::Wizard::Step::Yolo
+          @wizard = w.select_model(model)
           advance_setup_step
         when .escape?, .ctrl_d?
           # Clear the search query first; only step back once it is empty.
@@ -197,15 +202,14 @@ module H2code
         end
       end
 
-      # Step the wizard backward, mirroring `Setup::Wizard#back`. On the
-      # Credentials step we drop back to the provider selector; on later
-      # steps we just clear the value and re-render.
+      # Step the wizard backward via the state's `prev` chain. Landing back on
+      # Welcome reopens the provider selector (positioned on the provider the
+      # user came from); landing on Model re-runs the model fetch. Backward
+      # navigation is correct by construction — the chain was built by the
+      # forward walk, so no transition table to maintain.
       private def back_setup_step : Nil
-        wizard = @wizard
-        return unless wizard
-
-        case wizard.step
-        when .welcome?
+        case w = @wizard
+        when Setup::Wiz::Welcome
           if setup_first_run?
             # Already at the top: exit the app (abort first-run setup).
             @running = false
@@ -216,52 +220,36 @@ module H2code
             @status = ""
           end
           @dirty = true
-        when .existing_key?
-          # Remember the provider before wizard.back clears it, so the
-          # re-opened selector is positioned on it.
-          preferred = wizard.provider_name
-          wizard.back
+        when Setup::Wiz::Credentials, Setup::Wiz::ExistingKey,
+             Setup::Wiz::Endpoint, Setup::Wiz::Model, Setup::Wiz::Yolo
+          preferred = w.provider_name
+          prev = w.back
+          @wizard = prev
           @editor.clear
-          @status = "Setup: #{wizard.step.to_s.downcase}"
-          open_setup_provider_selector(preferred)
-          @dirty = true
-        when .credentials?
-          # Remember the provider before wizard.back clears it, so the
-          # re-opened selector is positioned on it (see
-          # open_setup_provider_selector).
-          preferred = wizard.provider_name
-          wizard.back
-          @editor.clear
-          @status = "Setup: #{wizard.step.to_s.downcase}"
-          open_setup_provider_selector(preferred)
-          @dirty = true
-        when .endpoint?
-          wizard.back
-          @editor.clear
-          @status = "Setup: #{wizard.step.to_s.downcase}"
-          @dirty = true
-        when .model?
-          wizard.back
           @model_list.hide
-          @editor.clear
-          @status = "Setup: #{wizard.step.to_s.downcase}"
+          case prev
+          when Setup::Wiz::Welcome
+            @status = "Setup: welcome"
+            open_setup_provider_selector(preferred)
+          when Setup::Wiz::Model
+            # Re-entering the Model step re-fetches the model list and
+            # reopens the selector via advance_setup_step.
+            advance_setup_step
+          else
+            @status = "Setup: #{prev.status}"
+          end
           @dirty = true
-        when .yolo?
-          wizard.back
-          @editor.clear
-          # Re-entering the Model step re-runs fetch_setup_models via
-          # advance_setup_step, which reopens the model selector.
-          advance_setup_step
+        when Setup::Wiz::Done
+          raise "BUG: back on Done — the flow should have finished"
         end
       end
 
-      private def finish_setup : Nil
-        wizard = @wizard
-        return unless wizard
+      private def finish_setup(done : Setup::Wiz::Done) : Nil
+        result = done.result
 
-        config_msg = "Provider: #{wizard.provider_name}"
-        config_msg += " | Model: #{wizard.model}" if wizard.model
-        config_msg += " | YOLO: on" if wizard.yolo?
+        config_msg = "Provider: #{result.provider_name}"
+        config_msg += " | Model: #{result.model}" unless result.model.empty?
+        config_msg += " | YOLO: on" if result.yolo?
         emit_to_log(Message.new("system", H2code.t("ui.config_saved", msg: config_msg)))
         emit_to_log(Message.new("system", H2code.t("ui.starting")))
         @status = ""
@@ -269,31 +257,30 @@ module H2code
         @dirty = true
 
         if cb = @on_setup_complete
-          cb.call(wizard)
+          cb.call(result)
         end
       end
 
       private def submit_setup_text(text : String) : Nil
-        wizard = @wizard
-        return unless wizard
-
-        # Echo what the user entered (mask API keys).
-        if wizard.step == Setup::Wizard::Step::Credentials ||
-           wizard.step == Setup::Wizard::Step::ExistingKey
-          if wizard.step == Setup::Wizard::Step::ExistingKey && text.strip.empty?
-            masked = "(keep existing key)"
-          else
-            masked = text.empty? ? "(skipped)" : "#{"•" * {text.size, 8}.min}"
-          end
+        case w = @wizard
+        when Setup::Wiz::Credentials
+          masked = text.empty? ? "(skipped)" : "#{"•" * {text.size, 8}.min}"
           emit_to_log(Message.new("user", masked))
-        elsif wizard.step == Setup::Wizard::Step::Yolo
+          @wizard = w.submit_text(text)
+        when Setup::Wiz::ExistingKey
+          masked = text.strip.empty? ? "(keep existing key)" : "#{"•" * {text.size, 8}.min}"
+          emit_to_log(Message.new("user", masked))
+          @wizard = w.submit_text(text)
+        when Setup::Wiz::Yolo
           emit_to_log(Message.new("user", text.empty? ? "(yes)" : text.strip))
-        else
+          @wizard = w.submit_text(text)
+        when Setup::Wiz::Endpoint, Setup::Wiz::Model
           display = text.empty? ? "(default)" : text
           emit_to_log(Message.new("user", display))
+          @wizard = w.submit_text(text)
+        else
+          raise "BUG: text submit in state #{w.class}"
         end
-
-        wizard.submit_text(text)
         advance_setup_step
       end
     end
