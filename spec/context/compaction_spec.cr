@@ -133,6 +133,30 @@ describe H2code::Context::Compaction do
     projected.none?(&.text.includes?("stray")).should be_true
   end
 
+  it "never leaves the kept tail starting with orphan tool results" do
+    memory = H2code::Context::Memory.new
+    memory.add_user("run the tool")
+    memory.add_assistant("", tool_calls: [
+      H2code::LLM::ToolCall.new("call_1", H2code::LLM::ToolCallFunction.new("bash", "{}")),
+    ])
+    memory.add_tool_result("call_1", "tool output")
+    memory.add_user("what did it say?")
+    memory.add_assistant("it said hi")
+
+    provider = ScriptedProvider.new(["Summary."])
+    # The 3-message cut lands inside the tool exchange: the assistant call
+    # owning call_1 stays outside the kept window.
+    compactor = H2code::Context::Compaction.new(provider, memory, kept_count: 3)
+
+    compactor.compact { }
+
+    roles = memory.history.map(&.message.role)
+    roles.should eq(["system", "user", "assistant"])
+    # The stored history is directly wire-valid: no orphan tool results for
+    # the send path (which does not project) to trip over.
+    H2code::Context::Compaction.project(memory.messages).map(&.role).should eq(roles)
+  end
+
   it "shrinks the history and retries when the summarizer request overflows" do
     memory = H2code::Context::Memory.new
     20.times do |i|

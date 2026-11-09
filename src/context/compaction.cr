@@ -120,7 +120,14 @@ module H2code
         tokens_before = @context.token_count
 
         kept_n = Math.min(@kept_count, old_messages.size)
-        kept = kept_n > 0 ? old_messages[-kept_n..] : [] of ContextMessage
+        # The cut can land inside a tool exchange, leaving the tail starting
+        # with tool results whose assistant call is now folded into the
+        # summary — orphan results a strict provider rejects ("tool_call_id
+        # is not found") on every subsequent request, since the loop sends
+        # the stored history verbatim. Drop them (their content is covered
+        # by the summary), mirroring the TS kept-tail note in
+        # agent-core/src/agent/context/index.ts.
+        kept = kept_n > 0 ? Compaction.drop_leading_tool_results(old_messages[-kept_n..]) : [] of ContextMessage
 
         # Compaction summarises a near-full context, so the live window is
         # almost exhausted. Reset the budget clamp so the summary request is
