@@ -129,6 +129,7 @@ en:
     ci: "Manually watch CI for a commit"
     ci_type: "Show or set the CI provider type"
     set: "Show or set a config value"
+    unlim: "Set agent max steps to 9999"
     bash: "Show shell and bash status"
   help:
     title: "help"
@@ -338,6 +339,7 @@ en:
     set_unknown_key: "Unknown setting '%{key}'. Valid keys: %{keys}"
     set_bad_value: "Invalid value '%{value}' for %{key} — expected %{expected}"
     set_saved: "Saved %{key}. Token and GitLab endpoint changes apply immediately; the rest take effect after /reload or a restart."
+    unlim_set: "Max steps set to %{value}"
     # /github — GitHub token wizard (config github.token for CI observation)
     usage_github: "Usage: /github [status|token [clear]]"
     github_token_set: "GitHub token: set (%{masked})"

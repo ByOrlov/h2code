@@ -129,6 +129,7 @@ pt:
     ci: "Observar manualmente o CI de um commit"
     ci_type: "Mostrar ou definir o tipo de provedor de CI"
     set: "Mostrar ou definir um valor de configuração"
+    unlim: "Remove o limite de passos do agente (9999)"
     bash: "Mostrar status do shell e do bash"
   help:
     title: "ajuda"
@@ -338,6 +339,7 @@ pt:
     set_unknown_key: "Configuração desconhecida '%{key}'. Chaves válidas: %{keys}"
     set_bad_value: "Valor inválido '%{value}' para %{key} — esperado %{expected}"
     set_saved: "%{key} salvo. Tokens e o endpoint do GitLab aplicam-se imediatamente; o resto após /reload ou reinício."
+    unlim_set: "Limite de passos definido para %{value}"
     # /github — assistente do token do GitHub (config github.token para observar o CI)
     usage_github: "Uso: /github [status|token [clear]]"
     github_token_set: "Token do GitHub: definido (%{masked})"

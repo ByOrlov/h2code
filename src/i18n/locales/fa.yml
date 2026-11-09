@@ -129,6 +129,7 @@ fa:
     ci: "مشاهده دستی CI برای یک کامیت"
     ci_type: "نوع ارائه‌دهنده CI را نشان یا تنظیم کنید"
     set: "نمایش یا تنظیم مقدار پیکربندی"
+    unlim: "برداشتن محدودیت گام‌های عامل (9999)"
     bash: "نمایش وضعیت پوسته و bash"
   help:
     title: "راهنما"
@@ -338,6 +339,7 @@ fa:
     set_unknown_key: "تنظیم ناشناخته '%{key}'. کلیدهای مجاز: %{keys}"
     set_bad_value: "مقدار '%{value}' برای %{key} نامعتبر است — مورد انتظار: %{expected}"
     set_saved: "%{key} ذخیره شد. توکن‌ها و endpoint گیت‌لب فوراً اعمال می‌شوند؛ بقیه پس از /reload یا راه‌اندازی مجدد."
+    unlim_set: "محدودیت گام‌ها روی %{value} تنظیم شد"
     # /github — راه‌اندازی توکن گیت‌هاب (config github.token برای مشاهده CI)
     usage_github: "روش استفاده: /github [status|token [clear]]"
     github_token_set: "توکن گیت‌هاب: تنظیم شده (%{masked})"

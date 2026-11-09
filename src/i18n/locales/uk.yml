@@ -129,6 +129,7 @@ uk:
     ci: "Вручну спостерігати CI для коміту"
     ci_type: "Показати або задати тип CI-провайдера"
     set: "Показати або задати значення конфігурації"
+    unlim: "Зняти ліміт кроків агента (9999)"
     bash: "Статус оболонки та bash"
   help:
     title: "довідка"
@@ -338,6 +339,7 @@ uk:
     set_unknown_key: "Невідоме налаштування «%{key}». Допустимі ключі: %{keys}"
     set_bad_value: "Недопустиме значення «%{value}» для %{key} — очікується %{expected}"
     set_saved: "%{key} збережено. Токени та endpoint GitLab застосовуються одразу; решта — після /reload або перезапуску."
+    unlim_set: "Ліміт кроків встановлено: %{value}"
     # /github — майстер налаштування GitHub-токена (config github.token для спостереження за CI)
     usage_github: "Використання: /github [status|token [clear]]"
     github_token_set: "GitHub-токен: заданий (%{masked})"

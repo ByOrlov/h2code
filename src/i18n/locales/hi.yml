@@ -129,6 +129,7 @@ hi:
     ci: "किसी कमिट के CI को मैन्युअली देखें"
     ci_type: "CI प्रोवाइडर प्रकार दिखाएँ या सेट करें"
     set: "कॉन्फ़िगरेशन मान दिखाएँ या सेट करें"
+    unlim: "एजेंट स्टेप सीमा हटाएँ (9999)"
     bash: "शेल और bash की स्थिति दिखाएँ"
   help:
     title: "सहायता"
@@ -338,6 +339,7 @@ hi:
     set_unknown_key: "अज्ञात सेटिंग '%{key}'। मान्य की: %{keys}"
     set_bad_value: "%{key} के लिए मान '%{value}' अमान्य है — अपेक्षित: %{expected}"
     set_saved: "%{key} सहेजा गया। टोकन और GitLab एंडपॉइंट तुरंत लागू होते हैं; बाकी /reload या रीस्टार्ट के बाद।"
+    unlim_set: "अधिकतम चरण %{value} पर सेट किए गए"
     # /github — GitHub टोकन सेटअप विज़ार्ड (CI निगरानी के लिए config github.token)
     usage_github: "उपयोग: /github [status|token [clear]]"
     github_token_set: "GitHub टोकन: सेट है (%{masked})"

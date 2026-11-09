@@ -697,6 +697,8 @@ module H2code
           cmd_settings
         when "/set"
           cmd_set(args)
+        when "/unlim"
+          cmd_unlim
         when "/init"
           cmd_init
         when "/export-debug-zip"

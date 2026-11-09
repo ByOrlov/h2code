@@ -129,6 +129,7 @@ zh:
     ci: "手动观察某个提交的 CI"
     ci_type: "显示或设置 CI 提供商类型"
     set: "显示或设置配置项的值"
+    unlim: "解除代理步数限制（9999）"
     bash: "显示 shell 与 bash 状态"
   help:
     title: "帮助"
@@ -338,6 +339,7 @@ zh:
     set_unknown_key: "未知配置项 '%{key}'。有效的键：%{keys}"
     set_bad_value: "%{key} 的值 '%{value}' 无效 — 应为 %{expected}"
     set_saved: "%{key} 已保存。令牌和 GitLab 端点立即生效；其余在 /reload 或重启后生效。"
+    unlim_set: "最大步数已设置为 %{value}"
     # /github — GitHub 令牌设置向导（用于 CI 观察的 config github.token）
     usage_github: "用法: /github [status|token [clear]]"
     github_token_set: "GitHub 令牌: 已设置（%{masked}）"

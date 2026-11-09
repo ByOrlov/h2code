@@ -129,6 +129,7 @@ be:
     ci: "Уручную назіраць CI для каміта"
     ci_type: "Паказаць або задаць тып CI-правайдара"
     set: "Паказаць або задаць значэнне канфігурацыі"
+    unlim: "Зняць ліміт крокаў агента (9999)"
     bash: "Статус абалонкі і bash"
   help:
     title: "даведка"
@@ -338,6 +339,7 @@ be:
     set_unknown_key: "Невядомая налада «%{key}». Дапушчальныя ключы: %{keys}"
     set_bad_value: "Недапушчальнае значэнне «%{value}» для %{key} — чакаецца %{expected}"
     set_saved: "%{key} захаваны. Токены і endpoint GitLab прымяняюцца адразу; астатняе — пасля /reload або перазапуску."
+    unlim_set: "Ліміт крокаў устаноўлены: %{value}"
     # /github — майстар налады GitHub-токена (config github.token для назірання за CI)
     usage_github: "Выкарыстанне: /github [status|token [clear]]"
     github_token_set: "GitHub-токен: зададзены (%{masked})"

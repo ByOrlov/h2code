@@ -129,6 +129,7 @@ ja:
     ci: "コミットのCIを手動で監視"
     ci_type: "CIプロバイダーのタイプを表示・設定"
     set: "設定値を表示・変更"
+    unlim: "エージェントのステップ上限を9999に設定"
     bash: "シェルとbashの状態を表示"
   help:
     title: "ヘルプ"
@@ -338,6 +339,7 @@ ja:
     set_unknown_key: "不明な設定 '%{key}'。有効なキー: %{keys}"
     set_bad_value: "%{key} の値 '%{value}' は無効です — 期待値: %{expected}"
     set_saved: "%{key} を保存しました。トークンと GitLab エンドポイントは即時反映、それ以外は /reload または再起動後に適用されます。"
+    unlim_set: "最大ステップ数を %{value} に設定しました"
     # /github — GitHubトークン セットアップウィザード (CI監視用の config github.token)
     usage_github: "使い方: /github [status|token [clear]]"
     github_token_set: "GitHubトークン: 設定済み (%{masked})"

@@ -872,6 +872,22 @@ module H2code
         end
       end
 
+      # `/unlim` — shorthand for `/set agent.max_steps 9999`: lift the
+      # agent step cap for long autonomous runs. Goes through the same
+      # path as /set — persisted to config.json and pushed to the live
+      # agent without a reload.
+      private def cmd_unlim : Nil
+        cfg = @app_config
+        if cfg.nil?
+          emit_to_log(Message.new("error", H2code.t("ui.github_token_no_config")))
+          return
+        end
+        cfg.apply_setting("agent.max_steps", "9999")
+        cfg.save
+        apply_live_setting("agent.max_steps", "9999")
+        emit_to_log(Message.new("system", H2code.t("ui.unlim_set", value: 9999)))
+      end
+
       # Mirrors TS `handleInitCommand` → `session.init()`: defer any user
       # messages typed during the run, then send the AGENTS.md generation
       # prompt as a regular turn. The agent walks the repo (Bash, Read, Glob)
