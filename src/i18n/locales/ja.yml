@@ -54,6 +54,8 @@ ja:
     enter_endpoint: "Endpoint [%{value}] — Enter でデフォルトを使用"
     enter_model: "モデル [%{value}] — Enter でデフォルトを使用"
     enable_yolo: "デフォルトで信頼を有効にし、エージェントの操作を毎回確認せずに作業を速めますか？ [Y/n]"
+    existing_key: "プロバイダーはすでにキーを持っています（%{k}）。Enter で保持、または再設定するには新しいキーを入力。"
+    existing_key_note: "このプロバイダーはすでに設定済みです。Enter で保存済みキー（%{k}）を保持して完了、または再設定するには新しいキーを入力してください。"
     yolo_note: "信頼モードは確認なしでエージェントのすべての操作を自動承認し、作業が速くなります。拒否ルールは引き続き有効です。後で /yolo on|off で切り替えられます。"
   providers:
     moonshot: "Moonshot (Kimi)"

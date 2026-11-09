@@ -62,7 +62,7 @@ def provider_switch_wait_until(timeout_ms = 1000, &)
 end
 
 describe H2code::TUI::App do
-  it "opens the model selector after switching provider, positioned on the saved model" do
+  it "opens the model selector after switching to a keyless provider, positioned on the saved model" do
     app = ProviderSwitchApp.new
     switched_to = nil
     app.on_provider_configured = ->(_name : String) : Bool { true }
@@ -70,24 +70,47 @@ describe H2code::TUI::App do
       switched_to = name
       # Mirrors the real callback in h2code.cr: after the swap the app model
       # becomes the provider's saved/default model.
-      app.model = "glm-4.6"
+      app.model = "qwen2.5"
       true
     end
-    app.on_fetch_models = -> : Array(String) { ["glm-4.5", "glm-4.6", "glm-5.2"] }
+    app.on_fetch_models = -> : Array(String) { ["qwen2", "qwen2.5", "qwen3"] }
 
     app.provider_name.should eq("moonshot")
     app.open_provider
-    app.select_provider("zai")
+    app.select_provider("ollama")
     app.provider_enter
 
-    switched_to.should eq("zai")
-    app.provider_name.should eq("zai")
+    switched_to.should eq("ollama")
+    app.provider_name.should eq("ollama")
 
     # The fetch runs in a spawned fiber; wait for the selector to appear.
     provider_switch_wait_until { app.model_list.visible? }.should be_true
     app.model_list.visible?.should be_true
     # Positioned on the provider's saved model, not on the first entry.
-    app.model_list.current.should eq("glm-4.6")
+    app.model_list.current.should eq("qwen2.5")
+  end
+
+  it "routes a keyed provider with a stored key through the keep-or-reconfigure step" do
+    app = ProviderSwitchApp.new
+    app.on_provider_configured = ->(_name : String) : Bool { true }
+    app.on_provider_change = ->(_name : String) : Bool { true }
+    app.on_fetch_models = -> : Array(String) { ["glm-4.5"] }
+    config = H2code::Config::Config.new
+    config.zai_api_key = "sk-zai-stored"
+    app.app_config = config
+
+    app.open_provider
+    app.select_provider("zai")
+    app.provider_enter
+
+    # Keyed providers always walk the setup wizard; a stored key turns the
+    # first step into keep-or-reconfigure (empty Enter = skip).
+    app.setup_mode?.should be_true
+    wizard = app.wizard
+    wizard.should_not be_nil
+    wizard.not_nil!.step.should eq(H2code::Setup::Wizard::Step::ExistingKey)
+    app.provider_name.should eq("zai")
+    app.model_list.visible?.should be_false
   end
 
   it "shows an animated loading-models line while the fetch is in flight" do
@@ -127,7 +150,7 @@ describe H2code::TUI::App do
     app.on_fetch_models = -> : Array(String) { ["glm-4.5"] }
 
     app.open_provider
-    app.select_provider("zai")
+    app.select_provider("ollama")
     app.provider_enter
 
     app.provider_name.should eq("moonshot")
@@ -158,7 +181,7 @@ describe H2code::TUI::App do
   it "commits the filtered selection on Enter" do
     app = ProviderSwitchApp.new
     app.on_provider_configured = ->(_name : String) : Bool { true }
-    app.on_provider_change = ->(name : String) : Bool do
+    app.on_provider_change = ->(_name : String) : Bool do
       app.model = "kimi-k2"
       true
     end

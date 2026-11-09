@@ -32,6 +32,15 @@ module H2code
         Time.unix(@expires_at) - Time.utc < 60.seconds
       end
 
+      # A credentials file can exist but be useless — e.g. a half-written
+      # login leaves both tokens empty. Treat that as "no credentials" so
+      # provider construction fails with the login instructions instead of
+      # sending a refresh request with an empty refresh_token (OAuth answers
+      # 400 "missing a required parameter").
+      def usable? : Bool
+        !@access_token.empty? || !@refresh_token.empty?
+      end
+
       def refresh!(oauth_host : String, client_id : String,
                    transport : HttpTransport? = nil) : Nil
         form = "grant_type=refresh_token&refresh_token=#{URI.encode_path(@refresh_token)}&client_id=#{client_id}"
@@ -75,10 +84,14 @@ module H2code
 
       def initialize(model : String,
                      endpoint : String = DEFAULT_ENDPOINT,
-                     @oauth : OAuthCredentials? = nil,
+                     oauth : OAuthCredentials? = nil,
                      api_key : String = "",
                      temperature : Float64? = nil,
                      max_tokens : Int32? = nil)
+        # An unusable OAuth file (both tokens empty — leftover of an aborted
+        # login) must NOT shadow a working api_key from the config: keep it
+        # only when it can actually authenticate or refresh.
+        @oauth = oauth.try(&.usable?) ? oauth : nil
         super(model, endpoint, api_key, temperature, max_tokens)
         # Moonshot speaks the top-level `thinking:{type,effort?}` object
         # for reasoning control, so this backend resolves effort through the
@@ -114,11 +127,12 @@ module H2code
       default_endpoint: "https://api.kimi.com/coding/v1",
       default_model: "kimi-for-coding",
       key_hint: "Get a key at https://www.kimi.com/code/console") do |config, oauth|
-      if oauth.nil? && config.api_key.to_s.empty?
+      if (oauth.nil? || !oauth.usable?) && config.api_key.to_s.empty?
         raise ProviderConfigError.new(
           "No Moonshot credentials found. Either:\n" \
-          "  1. Login with Moonshot's kimi-code CLI (creates ~/.kimi-code/credentials/kimi-code.json)\n" \
-          "  2. Set MOONSHOT_API_KEY environment variable")
+          "  1. Run `h2code token <TOKEN>` to store the token in h2code's config\n" \
+          "  2. Set MOONSHOT_API_KEY environment variable\n" \
+          "  3. Login with Moonshot's kimi-code CLI (creates ~/.kimi-code/credentials/kimi-code.json)")
       end
       MoonshotProvider.new(
         model: config.model || "kimi-for-coding",

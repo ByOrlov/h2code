@@ -10,10 +10,16 @@ module H2code
       # key event returns — full-path tests need no polling.
       property? setup_fetch_async : Bool = true
 
+      # First-run setup (true) aborts the whole app when the user escapes the
+      # provider selector; runtime reconfiguration (false, started via
+      # /provider → start_setup_for_provider) only exits setup mode.
+      property? setup_first_run : Bool = true
+
       # Enter setup mode: show the wizard transcript and open the provider
       # selector. Called once at first-run before the normal TUI loop starts.
       def start_setup : Nil
         @setup_mode = true
+        @setup_first_run = true
         @wizard = Setup::Wizard.new
         # Keep the welcome banner visible so the first-run flow opens with the
         # same branded box as a normal launch, instead of a bare transcript.
@@ -58,6 +64,9 @@ module H2code
           wizard = @wizard
           return unless wizard
 
+          # A key already stored for this provider turns the credentials step
+          # into keep-or-reconfigure (empty Enter keeps the stored key).
+          wizard.existing_api_key = @app_config.try(&.api_key_for(choice.name)) || ""
           wizard.select_provider(choice.name)
           @provider_name = choice.name
           emit_to_log(Message.new("user", choice.label))
@@ -105,6 +114,12 @@ module H2code
         # On the Yolo step, explain what is being asked before the y/N input.
         if wizard.step == Setup::Wizard::Step::Yolo
           emit_to_log(Message.new("system", H2code.t("setup.yolo_note")))
+        end
+
+        # On the keep-or-reconfigure step, explain the choice before input.
+        if wizard.step == Setup::Wizard::Step::ExistingKey
+          emit_to_log(Message.new("system",
+            H2code.t("setup.existing_key_note", k: wizard.existing_key_mask)))
         end
       end
 
@@ -191,8 +206,24 @@ module H2code
 
         case wizard.step
         when .welcome?
-          # Already at the top: exit the app (abort setup).
-          @running = false
+          if setup_first_run?
+            # Already at the top: exit the app (abort first-run setup).
+            @running = false
+          else
+            # Runtime reconfiguration: Esc just leaves setup mode — the
+            # running session and its provider stay untouched.
+            @setup_mode = false
+            @status = ""
+          end
+          @dirty = true
+        when .existing_key?
+          # Remember the provider before wizard.back clears it, so the
+          # re-opened selector is positioned on it.
+          preferred = wizard.provider_name
+          wizard.back
+          @editor.clear
+          @status = "Setup: #{wizard.step.to_s.downcase}"
+          open_setup_provider_selector(preferred)
           @dirty = true
         when .credentials?
           # Remember the provider before wizard.back clears it, so the
@@ -247,8 +278,13 @@ module H2code
         return unless wizard
 
         # Echo what the user entered (mask API keys).
-        if wizard.step == Setup::Wizard::Step::Credentials
-          masked = text.empty? ? "(skipped)" : "#{"•" * {text.size, 8}.min}"
+        if wizard.step == Setup::Wizard::Step::Credentials ||
+           wizard.step == Setup::Wizard::Step::ExistingKey
+          if wizard.step == Setup::Wizard::Step::ExistingKey && text.strip.empty?
+            masked = "(keep existing key)"
+          else
+            masked = text.empty? ? "(skipped)" : "#{"•" * {text.size, 8}.min}"
+          end
           emit_to_log(Message.new("user", masked))
         elsif wizard.step == Setup::Wizard::Step::Yolo
           emit_to_log(Message.new("user", text.empty? ? "(yes)" : text.strip))

@@ -984,11 +984,13 @@ module H2code
           body = String.build do |s|
             s << "Interactive login is not available in this build.\n\n"
             s << "Manual authentication options:\n"
-            s << "  1. API key in config.json:\n"
+            s << "  1. Plain token setup (no OAuth device flow):\n"
+            s << "       h2code token <TOKEN>\n"
+            s << "     (stores provider.moonshot.api_key in #{cfg_path})\n"
+            s << "  2. API key in config.json:\n"
             s << "       [provider.moonshot]\n"
             s << "       api_key = \"sk-...\"\n"
-            s << "     Path: #{cfg_path}\n"
-            s << "  2. OAuth credentials (JSON from kimi-code TS login):\n"
+            s << "  3. OAuth credentials (JSON from kimi-code TS login):\n"
             s << "       #{cred_path}\n"
           end
           emit_to_log(Message.new("system", body.strip))

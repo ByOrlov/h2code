@@ -59,9 +59,10 @@ module H2code
             step = wizard.try(&.step)
             # On endpoint/model an empty Enter keeps the default. Credentials
             # requires a non-empty key, so the submit gate stays there. Yolo
-            # counts an empty Enter as "yes" (trust by default).
+            # counts an empty Enter as "yes" (trust by default). ExistingKey
+            # counts it as "keep the stored key" (skip reconfiguration).
             if step == Setup::Wizard::Step::Endpoint || step == Setup::Wizard::Step::Model ||
-               step == Setup::Wizard::Step::Yolo
+               step == Setup::Wizard::Step::Yolo || step == Setup::Wizard::Step::ExistingKey
               text = @editor.empty? ? "" : @editor.submit!
               submit_setup_text(text)
             elsif !@editor.empty?
@@ -1018,9 +1019,12 @@ module H2code
           @dirty = true
           if name == @provider_name
             emit_to_log(Message.new("system", H2code.t("ui.provider_already", name: name)))
-          elsif needs_setup?(name)
-            # Credentials missing for the selected provider: launch the setup
-            # wizard for it instead of failing the switch.
+          elsif needs_setup?(name) || keyed_provider?(name)
+            # No stored key yet → the wizard forces key entry (reconfiguration).
+            # A keyed provider with a stored key → the wizard opens on the
+            # keep-or-reconfigure step, so switching can be skipped through
+            # with one Enter. Keyless configured providers (ollama/lmstudio)
+            # switch directly below.
             start_setup_for_provider(name)
           elsif cb = @on_provider_change
             if cb.call(name)
@@ -1055,14 +1059,26 @@ module H2code
         end
       end
 
+      # Does the named provider authenticate with an API/OAuth key (as opposed
+      # to keyless local backends)? Keyed providers always walk the setup
+      # wizard on selection — the keep-or-reconfigure step makes it a one-Enter
+      # skip when a key is already stored.
+      private def keyed_provider?(name : String) : Bool
+        choice = Setup::Wizard.choices.find { |c| c.name == name }
+        !!choice.try(&.needs_key?)
+      end
+
       # Launch the setup wizard at runtime for an already-chosen provider. The
       # welcome message and provider selector are skipped: we already know the
-      # provider, so the wizard drops straight into the Credentials step.
+      # provider, so the wizard drops straight into the ExistingKey step (key
+      # already stored → keep or reconfigure) or the Credentials step.
       private def start_setup_for_provider(name : String) : Nil
         wizard = Setup::Wizard.new
+        wizard.existing_api_key = @app_config.try(&.api_key_for(name)) || ""
         wizard.select_provider(name)
         @wizard = wizard
         @setup_mode = true
+        @setup_first_run = false
         @provider_name = name
         @status = "Setup: #{wizard.step.to_s.downcase}"
         @editor.clear

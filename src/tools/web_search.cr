@@ -61,7 +61,8 @@ module H2code
         service = @@service
         provider = service.try(&.get_web_search_provider)
         if provider.nil?
-          return ToolResult.error("WebSearch is not available: no search provider is configured.")
+          reason = service.try(&.last_error)
+          return ToolResult.error(reason ? "WebSearch is not available: #{reason}." : "WebSearch is not available: no search provider is configured.")
         end
 
         results = begin
@@ -170,6 +171,11 @@ module H2code
 
     abstract class WebSearchProviderService
       abstract def get_web_search_provider : WebSearchProvider?
+
+      # Reason the last get_web_search_provider call returned nil because of
+      # a failure (as opposed to "not configured"). Consumed by the CLI to
+      # surface the problem in the TUI message log instead of only stderr.
+      property last_error : String? = nil
     end
 
     # Конфигурируемый провайдер поиска через Moonshot API.
@@ -312,6 +318,16 @@ module H2code
             provider.auth_token || raise Exception.new("Moonshot auth token became unavailable")
           },
         )
+      rescue ex
+        # This runs as a capability probe at CLI startup, before the main
+        # begin/rescue of CLI.run: a failed OAuth refresh here means "web
+        # search unavailable this session", not a crash. Record the reason
+        # (the CLI surfaces it in the TUI message log) and keep it visible
+        # on stderr; if the credentials are truly dead the same failure
+        # surfaces loudly on the first real LLM request.
+        @last_error = ex.message.to_s
+        STDERR.puts "Warning: web search unavailable: #{ex.message}".colorize.yellow
+        nil
       end
     end
 
@@ -324,6 +340,10 @@ module H2code
 
       def get_web_search_provider : WebSearchProvider?
         @config_service.get_web_search_provider || @provider_service.get_web_search_provider
+      end
+
+      def last_error : String?
+        @provider_service.last_error
       end
     end
   end

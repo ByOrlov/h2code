@@ -230,6 +230,12 @@ module H2code
         return run_sync(["resync"] + argv[1..])
       end
 
+      # `h2code token [TOKEN|--clear]` — plain token setup: stores the
+      # provider token in h2code's own config.json, no OAuth device flow.
+      if argv.size > 0 && argv[0] == "token"
+        return run_token(argv[1..])
+      end
+
       prompt = nil
       tui_prompt = nil
       work_dir = Dir.current
@@ -305,8 +311,7 @@ module H2code
 
       home = HomePort.home
 
-      oauth_path = File.join(home, ".kimi-code", "credentials", "kimi-code.json")
-      oauth = LLM::OAuthCredentials.load(oauth_path)
+      oauth = LLM::OAuthCredentials.load(oauth_credentials_path)
 
       # First-run gate: if no provider is configured yet, either run the
       # interactive setup wizard (TTY) or fail with a clear message (non-TTY).
@@ -327,7 +332,22 @@ module H2code
         end
       end
 
-      provider = build_provider(config, oauth)
+      # Provider construction can still fail when the config LOOKS complete
+      # but the credentials are unusable. Interactive startup must reach a
+      # screen, not an error exit: open the setup wizard (plain token entry,
+      # no device flow) and retry once. Aborting the wizard exits cleanly;
+      # headless/hi paths re-raise to the top-level handler.
+      provider = begin
+        build_provider(config, oauth)
+      rescue ex : ProviderConfigError
+        if STDIN.tty? && prompt.nil? && !hi_mode
+          exit(0) unless run_setup_wizard(config)
+          oauth = LLM::OAuthCredentials.load(oauth_credentials_path)
+          build_provider(config, oauth)
+        else
+          raise ex
+        end
+      end
       web_search_service = build_web_search_service(config, provider)
       Tools::WebSearch.service = web_search_service
 
@@ -354,7 +374,17 @@ module H2code
       tools.register(Tools::Agent.new)
       tools.register(Tools::AskUserQuestion.new)
       tools.register(Tools::FetchURL.new)
-      tools.register(Tools::WebSearch.new) if web_search_service.get_web_search_provider
+      # Capability probe: registering the WebSearch tool triggers the
+      # provider-derived search backend, which refreshes the OAuth token.
+      # A failure there disables web search for the session — it must not
+      # crash startup; remember the reason and show it in the TUI message
+      # log (run_interactive) / on stderr (headless).
+      web_search_warning : String? = nil
+      if web_search_service.get_web_search_provider
+        tools.register(Tools::WebSearch.new)
+      elsif werr = web_search_service.last_error
+        web_search_warning = "Web search is unavailable this session: #{werr}"
+      end
       # Z.AI Vision tools: native port of the official Vision MCP server,
       # loaded on demand for Z.AI providers (pay-as-you-go and Coding Plan)
       # with a configured key — the GLM coding-plan endpoint is text-only, so
@@ -582,7 +612,7 @@ module H2code
         elsif prompt
           run_headless(prompt, agent, system_prompt, store, config, task_service, mcp_manager)
         else
-          run_interactive(agent, system_prompt, store, config, permission, oauth, home, work_dir, tui_prompt, agent_runner, swarm_runner, task_service, mcp_manager, plugin_manager)
+          run_interactive(agent, system_prompt, store, config, permission, oauth, home, work_dir, tui_prompt, agent_runner, swarm_runner, task_service, mcp_manager, plugin_manager, web_search_warning)
         end
       rescue ex : Loop::UserCancellationError
         # Expected user-initiated interruption; not a crash.
@@ -593,13 +623,11 @@ module H2code
       end
     end
 
-    # Startup entry: build the configured provider, exiting the process with a
-    # clear message if config is incomplete.
+    # Build the configured provider. Raises ProviderConfigError on incomplete
+    # config — the interactive startup path turns that into the setup wizard
+    # (instead of dying), headless paths let it reach the top-level handler.
     private def self.build_provider(config, oauth) : LLM::Provider
       build_named_provider(config.provider_name, config, oauth)
-    rescue ex : ProviderConfigError
-      STDERR.puts H2code.t("errors.generic", message: ex.message.to_s)
-      exit(1)
     end
 
     # Build a provider by name from the current config. Raises
@@ -958,6 +986,99 @@ module H2code
     # Продакшн-релей по умолчанию — общий с TUI `/sync`, живёт в
     # Remote::Sync::DEFAULT_RELAY_URL.
 
+    # Plain-token setup (no OAuth device flow): `h2code token <TOKEN>`
+    # stores the token as the Moonshot API key in h2code's own config.json
+    # (`provider.moonshot.api_key`), `h2code token` shows the effective
+    # token and where it comes from, `h2code token --clear` removes it.
+    # The MOONSHOT_API_KEY env var still wins over the config file
+    # (Config.load applies it), so it is reported when set.
+    private def self.run_token(rest_argv : Array(String)) : Nil
+      config_path = Config::Config.default_config_path
+
+      if rest_argv.empty?
+        config = Config::Config.load
+        puts "provider: #{config.provider_name || "moonshot (default)"}"
+        if k = ENV["MOONSHOT_API_KEY"]?
+          puts "token:    #{mask_token(k)}  (MOONSHOT_API_KEY env — overrides #{config_path})"
+        elsif !(k = config.api_key.to_s).empty?
+          puts "token:    #{mask_token(k)}  (#{config_path})"
+        elsif (oauth = LLM::OAuthCredentials.load(oauth_credentials_path)) && oauth.usable?
+          puts "token:    OAuth credentials (kimi-code login): #{oauth_credentials_path}"
+        else
+          puts "token:    not set"
+        end
+        puts "set with:    h2code token <TOKEN>"
+        puts "remove with: h2code token --clear"
+        return
+      end
+
+      if rest_argv[0] == "--clear"
+        upsert_moonshot_token(config_path, nil)
+        puts "Token removed from #{config_path}"
+        if ENV["MOONSHOT_API_KEY"]?
+          puts "Note: MOONSHOT_API_KEY is still set — it overrides the config file."
+        end
+        return
+      end
+
+      token = rest_argv[0].strip
+      if token.empty?
+        STDERR.puts "Usage: h2code token <TOKEN> | h2code token --clear"
+        exit(1)
+      end
+      existing_default = File.exists?(config_path) ? JSON.parse(File.read(config_path)).dig?("provider", "default").try(&.as_s?) : nil
+      upsert_moonshot_token(config_path, token)
+      puts "Token saved to #{config_path} (provider: moonshot)"
+      if (d = existing_default) && d != "moonshot"
+        puts "Note: default provider is \"#{d}\" — set H2CODE_PROVIDER=moonshot or change provider.default to use the token."
+      end
+      if ENV["MOONSHOT_API_KEY"]?
+        puts "Note: MOONSHOT_API_KEY is set — it overrides the config file."
+      end
+    end
+
+    # Surgically set/remove `provider.moonshot.api_key` in the config file.
+    # Deliberately NOT a Config.load→save round-trip: load() folds env vars
+    # (ZAI_API_KEY, GITHUB_TOKEN, …) into the object and save() would then
+    # persist them to disk — a side effect `h2code token` must not have.
+    # Raw-JSON editing also preserves fields the Config serializer may not
+    # know about. The provider default is set to "moonshot" when absent so
+    # the stored token actually takes effect.
+    private def self.upsert_moonshot_token(config_path : String, token : String?) : Nil
+      root = if File.exists?(config_path)
+               (JSON.parse(File.read(config_path)).as_h? || {} of String => JSON::Any)
+             else
+               {} of String => JSON::Any
+             end
+
+      provider = root["provider"]?.try(&.as_h?) || {} of String => JSON::Any
+      moonshot = provider["moonshot"]?.try(&.as_h?) || {} of String => JSON::Any
+      if token
+        moonshot["api_key"] = JSON::Any.new(token)
+        provider["default"] = JSON::Any.new("moonshot") unless provider["default"]?
+      else
+        moonshot.delete("api_key")
+      end
+      provider["moonshot"] = JSON::Any.new(moonshot)
+      root["provider"] = JSON::Any.new(provider)
+
+      dir = File.dirname(config_path)
+      Dir.mkdir_p(dir) unless Dir.exists?(dir)
+      File.write(config_path, root.to_pretty_json)
+    end
+
+    # Where the entry point looks for OAuth credentials written by the
+    # Moonshot kimi-code CLI. Kept as a fallback import source only; the
+    # plain-token setup lives in h2code's own config.json.
+    private def self.oauth_credentials_path : String
+      File.join(HomePort.home, ".kimi-code", "credentials", "kimi-code.json")
+    end
+
+    private def self.mask_token(token : String) : String
+      return token if token.size <= 8
+      "#{token[0, 5]}…#{token[-3..]} (#{token.size} chars)"
+    end
+
     private def self.run_sync(rest_argv : Array(String)) : Nil
       config = Config::Config.load
       config.ensure_h2code_home
@@ -1056,8 +1177,7 @@ module H2code
       end
 
       home = HomePort.home
-      oauth_path = File.join(home, ".kimi-code", "credentials", "kimi-code.json")
-      oauth = LLM::OAuthCredentials.load(oauth_path)
+      oauth = LLM::OAuthCredentials.load(oauth_credentials_path)
 
       server = Acp::Server.new(config, home, oauth)
       server.run
@@ -1072,6 +1192,8 @@ module H2code
     private def self.run_setup_wizard(config) : Bool
       app = TUI::App.new
       app.work_dir = Dir.current
+      # The wizard reads stored keys from the config (keep-or-reconfigure).
+      app.app_config = config
       app.start_setup
       app.on_setup_complete = ->(wizard : Setup::Wizard) do
         wizard.apply_to(config)
@@ -1120,7 +1242,8 @@ module H2code
                                      swarm_runner : Loop::SubagentSwarmRunner? = nil,
                                      task_service : Tools::InMemoryTaskService? = nil,
                                      mcp_manager : Mcp::Manager = Mcp::Manager.new,
-                                     plugin_manager : Plugin::Manager = Plugin::Manager.new(home))
+                                     plugin_manager : Plugin::Manager = Plugin::Manager.new(home),
+                                     web_search_warning : String? = nil)
       dispatcher = Notify::Dispatcher.from_config(config.notifications)
       # Age-based sandbox GC: drop fully merged, clean sandboxes untouched
       # for two weeks. Unmerged work is never collected. Best-effort — a
@@ -1167,6 +1290,10 @@ module H2code
         app.add_message("system",
           H2code.t("ui.sandbox_gone", folder: sf, dir: work_dir))
       end
+      # Startup capability probe failure (e.g. web-search OAuth refresh):
+      # shown as a system line in the message log, not just a stderr line
+      # that scrolls away before the TUI takes over the screen.
+      app.add_message("system", web_search_warning) if web_search_warning
 
       # Wire subagent lifecycle events from the runners into the TUI so the
       # swarm progress panel animates live. Each event is routed to
@@ -1692,8 +1819,7 @@ module H2code
       login_cb = Proc(Nil).new do
         spawn do
           begin
-            cred_path = File.join(home, ".kimi-code", "credentials", "kimi-code.json")
-            creds = Auth::OAuth.login(credentials_path: cred_path) do |auth|
+            creds = Auth::OAuth.login(credentials_path: oauth_credentials_path) do |auth|
               app.on_event(Loop::Event.info(H2code.t("info.open_auth_url", url: auth.verification_uri_complete)))
               app.on_event(Loop::Event.info(H2code.t("info.user_code", code: auth.user_code)))
             end
@@ -1707,7 +1833,7 @@ module H2code
               temperature: config.temperature,
             )
             agent.swap_provider!(provider)
-            app.on_event(Loop::Event.info(H2code.t("info.login_success", path: cred_path)))
+            app.on_event(Loop::Event.info(H2code.t("info.login_success", path: oauth_credentials_path)))
           rescue ex : Auth::OAuth::OAuthError
             app.on_event(Loop::Event.error(H2code.t("errors.login_failed", message: ex.message.to_s)))
           rescue ex
@@ -2272,6 +2398,9 @@ module H2code
               sync resync [relay-url]  New pairing code + QR (e.g. for a new relay)
               sync status              Show sync status
           h2code resync [relay-url]                Shortcut for `h2code sync resync`
+          h2code token [TOKEN|--clear]             Plain token setup (no OAuth device
+                                                   flow): store/show/remove the
+                                                   Moonshot token in h2code's config
           h2code acp                                ACP server for IDE integration
 
         Environment:
@@ -2502,4 +2631,17 @@ module H2code
   end
 end
 
-H2code::CLI.run(ARGV) unless ARGV.includes?("--no-cli-run")
+unless ARGV.includes?("--no-cli-run")
+  begin
+    H2code::CLI.run(ARGV)
+  rescue ex : H2code::Loop::UserCancellationError
+    # Expected user-initiated interruption; not a crash.
+    exit(130)
+  rescue ex
+    # Last-resort boundary: inner handlers have already saved a crash
+    # report and re-raised; turn anything still escaping into a clean
+    # one-line error instead of a raw Crystal backtrace dump.
+    STDERR.puts "h2code: #{ex.message}".colorize.red
+    exit(1)
+  end
+end

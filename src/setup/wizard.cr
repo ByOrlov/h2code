@@ -17,6 +17,7 @@ module H2code
     class Wizard
       enum Step
         Welcome
+        ExistingKey
         Credentials
         Endpoint
         Model
@@ -29,6 +30,15 @@ module H2code
       property api_key : String = ""
       property endpoint : String? = nil
       property model : String? = nil
+      # Key the selected provider already has in the config (set by the
+      # driver from Config#api_key_for before select_provider). Non-empty →
+      # the wizard shows the keep-or-reconfigure step instead of forcing key
+      # entry.
+      property existing_api_key : String = ""
+      # True when the user chose to keep the stored key (skip): apply_to then
+      # only switches the default provider and leaves the stored credentials,
+      # endpoint and model untouched.
+      property? keep_existing : Bool = false
       # Whether the user asked for YOLO to be the default permission mode.
       # Collected on the Yolo step right after model selection: the step
       # offers trust-by-default (yes) or per-action confirmations (no). An
@@ -55,6 +65,8 @@ module H2code
         case step
         when Step::Welcome
           H2code.t("setup.pick_provider")
+        when Step::ExistingKey
+          H2code.t("setup.existing_key", k: existing_key_mask)
         when Step::Credentials
           if hint = current_choice.try(&.key_hint).presence
             H2code.t("setup.enter_api_key_hint", hint: hint)
@@ -80,6 +92,13 @@ module H2code
         current_choice.try(&.default_model) || ""
       end
 
+      # Masked form of the stored key for display (first char + tail).
+      def existing_key_mask : String
+        k = existing_api_key
+        return k if k.size <= 5
+        "#{k[0]}•••#{k[-3..]}"
+      end
+
       # Called when the user submits a provider name (from the selector list).
       def select_provider(name : String) : Nil
         self.provider_name = name
@@ -90,6 +109,11 @@ module H2code
           self.endpoint = choice.default_endpoint
           self.model = choice.default_model
           self.step = Step::Endpoint
+        elsif !existing_api_key.empty?
+          # The provider already has a key in the config: offer keep-vs-
+          # reconfigure instead of forcing key entry.
+          self.keep_existing = false
+          self.step = Step::ExistingKey
         else
           self.step = Step::Credentials
         end
@@ -99,6 +123,17 @@ module H2code
       # An empty submission keeps the default for endpoint/model.
       def submit_text(text : String) : Nil
         case step
+        when Step::ExistingKey
+          if text.strip.empty?
+            # Skip: keep the stored key — and, since nothing else is
+            # collected, the stored endpoint/model too.
+            self.keep_existing = true
+            self.api_key = existing_api_key
+            self.step = Step::Done
+          else
+            self.api_key = text
+            self.step = Step::Endpoint
+          end
         when Step::Credentials
           self.api_key = text
           self.step = Step::Endpoint
@@ -121,6 +156,10 @@ module H2code
       # step being left so re-entering it starts clean.
       def back : Nil
         case step
+        when Step::ExistingKey
+          self.keep_existing = false
+          self.provider_name = nil
+          self.step = Step::Welcome
         when Step::Credentials
           self.api_key = ""
           self.provider_name = nil
@@ -173,6 +212,9 @@ module H2code
       # Write the collected values into a Config and persist it.
       def apply_to(config : Config::Config) : Nil
         config.provider_name = provider_name
+        # Skip: only the default provider changes — the stored key, endpoint
+        # and model for this provider are kept as they were.
+        return if keep_existing?
         config.permission_mode = "yolo" if yolo?
         case provider_name
         when "moonshot"

@@ -54,6 +54,8 @@ zh:
     enter_endpoint: "Endpoint [%{value}] — 按 Enter 使用默认值"
     enter_model: "模型 [%{value}] — 按 Enter 使用默认值"
     enable_yolo: "默认开启信任，无需逐条确认 agent 的操作并加快工作速度？[Y/n]"
+    existing_key: "该提供商已有密钥（%{k}）。按 Enter 保留，或输入新密钥重新配置。"
+    existing_key_note: "该提供商已配置。按 Enter 保留已存密钥（%{k}）并完成，或输入新密钥重新配置。"
     yolo_note: "信任模式会自动批准 agent 的所有操作，无需确认提示，让工作更快。拒绝规则仍然生效。之后可用 /yolo on|off 切换。"
   providers:
     moonshot: "Moonshot (Kimi)"

@@ -1031,13 +1031,40 @@ module H2code
         end
       end
 
+      # The provider's stored API key ("" when none). Used by the setup wizard
+      # to decide between forced reconfiguration (no key yet) and the
+      # keep-or-reconfigure step (a key is already stored). Keyless providers
+      # (ollama, lmstudio, strata) have no key by definition.
+      def api_key_for(name : String?) : String
+        case name
+        when "moonshot"               then api_key.to_s
+        when "zai", "zai-coding-plan" then zai_api_key
+        when "deepseek"               then deepseek_api_key
+        when "groq"                   then groq_api_key
+        when "openrouter"             then openrouter_api_key
+        when "xai"                    then xai_api_key
+        when "cerebras"               then cerebras_api_key
+        when "fireworks"              then fireworks_api_key
+        when "together"               then together_api_key
+        else                               ""
+        end
+      end
+
       # OAuth token presence — loaded from ~/.kimi-code/credentials by the
       # entry point and stored on the provider, not the config. The config
       # only knows whether an api_key is set, so this is a best-effort check.
+      # A half-written login leaves BOTH tokens empty — such a file must not
+      # count as "configured", or the first-run wizard is skipped and
+      # provider construction dies with "No Moonshot credentials found".
       private def oauth_credentials_present? : Bool
-        home = HomePort.home
-        path = File.join(home, ".kimi-code", "credentials", "kimi-code.json")
-        File.exists?(path)
+        path = File.join(HomePort.home, ".kimi-code", "credentials", "kimi-code.json")
+        return false unless File.exists?(path)
+        data = JSON.parse(File.read(path))
+        access = data["access_token"]?.try(&.as_s?) || ""
+        refresh = data["refresh_token"]?.try(&.as_s?) || ""
+        !access.empty? || !refresh.empty?
+      rescue
+        false
       end
 
       # Provider-specific MCP servers generated from the active provider's

@@ -357,6 +357,21 @@ describe H2code::LLM::MoonshotProvider do
     provider = H2code::LLM::MoonshotProvider.new(model: "h2code-for-coding")
     provider.is_a?(H2code::LLM::OpenAIChatProvider).should be_true
   end
+
+  it "ignores an unusable OAuth file (empty tokens) and falls back to the api key" do
+    dead = H2code::LLM::OAuthCredentials.new(access_token: "", refresh_token: "")
+    provider = H2code::LLM::MoonshotProvider.new(
+      model: "kimi-for-coding", oauth: dead, api_key: "sk-from-config")
+    provider.token.should eq("sk-from-config")
+  end
+
+  it "keeps a usable OAuth credential over the api key" do
+    creds = H2code::LLM::OAuthCredentials.new(
+      access_token: "at-live-token", refresh_token: "rt-live", expires_at: Time.utc.to_unix + 3600)
+    provider = H2code::LLM::MoonshotProvider.new(
+      model: "kimi-for-coding", oauth: creds, api_key: "sk-from-config")
+    provider.token.should eq("at-live-token")
+  end
 end
 
 describe H2code::LLM::ZaiProvider do

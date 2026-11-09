@@ -118,6 +118,50 @@ describe H2code::Setup::Wizard do
     end
   end
 
+  describe "state machine — keyed provider with a stored key" do
+    it "offers keep-or-reconfigure instead of forcing key entry" do
+      wizard = H2code::Setup::Wizard.new
+      wizard.existing_api_key = "sk-stored-key-123456"
+      wizard.select_provider("moonshot")
+      wizard.step.should eq(H2code::Setup::Wizard::Step::ExistingKey)
+    end
+
+    it "empty submit keeps the stored key and finishes" do
+      wizard = H2code::Setup::Wizard.new
+      wizard.existing_api_key = "sk-stored-key-123456"
+      wizard.select_provider("moonshot")
+      wizard.submit_text("")
+      wizard.keep_existing?.should be_true
+      wizard.api_key.should eq("sk-stored-key-123456")
+      wizard.done?.should be_true
+    end
+
+    it "typed key reconfigures and continues to endpoint" do
+      wizard = H2code::Setup::Wizard.new
+      wizard.existing_api_key = "sk-stored-key-123456"
+      wizard.select_provider("moonshot")
+      wizard.submit_text("sk-new-key-999")
+      wizard.keep_existing?.should be_false
+      wizard.api_key.should eq("sk-new-key-999")
+      wizard.step.should eq(H2code::Setup::Wizard::Step::Endpoint)
+    end
+
+    it "without a stored key the wizard always asks for one" do
+      wizard = H2code::Setup::Wizard.new
+      wizard.select_provider("moonshot")
+      wizard.step.should eq(H2code::Setup::Wizard::Step::Credentials)
+    end
+
+    it "back from the keep-or-reconfigure step returns to the provider picker" do
+      wizard = H2code::Setup::Wizard.new
+      wizard.existing_api_key = "sk-stored-key-123456"
+      wizard.select_provider("moonshot")
+      wizard.back
+      wizard.step.should eq(H2code::Setup::Wizard::Step::Welcome)
+      wizard.provider_name.should be_nil
+    end
+  end
+
   describe "#placeholder" do
     it "shows a provider-picker hint at welcome" do
       wizard = H2code::Setup::Wizard.new
@@ -215,6 +259,23 @@ describe H2code::Setup::Wizard do
       config.api_key.should eq("sk-test")
       config.endpoint.should eq("https://api.kimi.com/coding/v1")
       config.model.should eq("kimi-for-coding")
+    end
+
+    it "skip (keep existing) only switches the default provider" do
+      wizard = H2code::Setup::Wizard.new
+      wizard.existing_api_key = "sk-stored"
+      wizard.select_provider("moonshot")
+      wizard.submit_text("") # keep the stored key
+
+      config = H2code::Config::Config.new
+      config.api_key = "sk-stored"
+      config.endpoint = "https://custom.example/v1"
+      config.model = "custom-model"
+      wizard.apply_to(config)
+      config.provider_name.should eq("moonshot")
+      config.api_key.should eq("sk-stored")
+      config.endpoint.should eq("https://custom.example/v1")
+      config.model.should eq("custom-model")
     end
 
     it "writes lmstudio config fields" do

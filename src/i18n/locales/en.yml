@@ -54,6 +54,8 @@ en:
     enter_endpoint: "Endpoint [%{value}] — press Enter to use default"
     enter_model: "Model [%{value}] — press Enter to use default"
     enable_yolo: "Enable trust by default so agent actions are auto-approved and work is faster? [Y/n]"
+    existing_key: "Provider already has a key (%{k}). Press Enter to keep it, or type a new key to reconfigure."
+    existing_key_note: "This provider is already configured. Press Enter to keep the stored key (%{k}) and finish, or type a new key to reconfigure."
     yolo_note: "Trust mode auto-approves every agent action without confirmation prompts, so the agent works faster. Deny rules still apply. You can toggle it later with /yolo on|off."
   providers:
     moonshot: "Moonshot (Kimi)"

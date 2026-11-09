@@ -54,6 +54,8 @@ es:
     enter_endpoint: "Endpoint [%{value}] — Enter para usar el valor por defecto"
     enter_model: "Modelo [%{value}] — Enter para usar el valor por defecto"
     enable_yolo: "¿Activar la confianza por defecto para no confirmar cada acción del agente y trabajar más rápido? [Y/n]"
+    existing_key: "El proveedor ya tiene una clave (%{k}). Pulsa Enter para conservarla, o escribe una nueva para reconfigurar."
+    existing_key_note: "Este proveedor ya está configurado. Pulsa Enter para conservar la clave guardada (%{k}) y terminar, o escribe una nueva clave para reconfigurar."
     yolo_note: "El modo de confianza auto-aprueba todas las acciones del agente sin pedir confirmación, por lo que el agente trabaja más rápido. Las reglas de denegación siguen aplicando. Puedes cambiarlo más tarde con /yolo on|off."
   providers:
     moonshot: "Moonshot (Kimi)"
