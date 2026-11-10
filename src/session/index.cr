@@ -279,6 +279,13 @@ module H2code
       # raising SearchCancelled — e.g. when the user typed on and the query
       # this scan was started for is already outdated.
       #
+      # Scope: only the conversation proper is searched — user prompts /
+      # steers, assistant text (excluding `thinking`), and compaction
+      # summaries. Tool arguments/results and thinking blocks are noise:
+      # they dwarf the real conversation (file dumps, command output,
+      # scratch reasoning), so a query would match almost any session that
+      # ran enough tools.
+      #
       # Cost model: JSON parsing a wire line is far more expensive than a
       # raw substring search, so each line goes through a cheap prefilter
       # first — one downcase + `includes?` on the raw line — and only
@@ -309,10 +316,6 @@ module H2code
                   when "turn.prompt", "turn.steer"
                     [data["prompt"]?.try(&.to_s)]
                   when "assistant.text"
-                    [data["content"]?.try(&.to_s), data["thinking"]?.try(&.to_s)]
-                  when "tool.call"
-                    [data["tool_name"]?.try(&.to_s), data["arguments"]?.try(&.to_s)]
-                  when "tool.result"
                     [data["content"]?.try(&.to_s)]
                   when "context.apply_compaction"
                     [data["summary"]?.try(&.to_s)]

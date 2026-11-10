@@ -40,6 +40,7 @@ module H2code
         CommandInfo.new("/model", "Switch model", description_key: "model"),
         CommandInfo.new("/retry", "Show or set provider retry count", "[<n>]", "retry"),
         CommandInfo.new("/provider", "Switch LLM provider", description_key: "provider"),
+        CommandInfo.new("/setup", "Re-run the provider setup wizard (rewrite stored config)", description_key: "setup"),
         CommandInfo.new("/status", "Show session status", description_key: "status"),
         CommandInfo.new("/undo", "Undo last turn", description_key: "undo"),
         CommandInfo.new("/yolo", "Toggle persistent YOLO auto-approve mode", "on|off", "yolo"),

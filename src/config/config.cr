@@ -1008,8 +1008,8 @@ module H2code
         provider_configured?(provider_name)
       end
 
-      # Same check for an arbitrary provider name — used to decide whether a
-      # runtime /provider switch needs to launch the setup wizard.
+      # Same check for an arbitrary provider name — used by the runtime
+      # /provider selector to list only configured providers.
       def provider_configured?(name : String?) : Bool
         case name
         when "moonshot"        then !api_key.to_s.empty? || oauth_credentials_present?

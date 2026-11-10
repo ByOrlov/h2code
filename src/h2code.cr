@@ -1722,8 +1722,7 @@ module H2code
       end
 
       # Whether the named provider already has credentials configured. The TUI
-      # uses this to decide whether /provider can switch directly or must run
-      # the setup wizard first.
+      # uses this to list only already-configured providers in /provider.
       app.on_provider_configured = ->(name : String) : Bool do
         config.provider_configured?(name)
       end

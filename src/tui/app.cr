@@ -210,8 +210,8 @@ module H2code
       # the wizard completes.
       @on_fetch_models_for : (Setup::Scratch -> Array(String))?
       # Returns true when the named provider has credentials configured and
-      # needs no further setup. Used by /provider to decide whether to launch
-      # the setup wizard for the selected provider.
+      # needs no further setup. Used by /provider to list only
+      # already-configured providers in the switch selector.
       @on_provider_configured : (String -> Bool)?
       @on_resume_session : (String -> Nil)?
       # `/fork` into an isolated worktree: the host creates the worktree +
@@ -231,14 +231,18 @@ module H2code
       @on_rename : (String -> Nil)?
       @on_debug : (-> Nil)?
 
-      # Setup wizard state (first-run provider configuration). When
-      # `@setup_mode` is true the editor input is intercepted: the provider
-      # selector drives the first step, subsequent submits feed the wizard,
-      # and completion invokes `on_setup_complete` with the Result.
+      # Setup wizard state (first-run provider configuration): the fill-level
+      # accumulated so far — which requirements are closed, never which step
+      # is current (that is planned from the data). `@setup_history` holds
+      # the states before each submit for Esc-back. When `@setup_mode` is
+      # true the editor input is intercepted: the provider selector drives
+      # the first step, subsequent submits feed the planner, and completion
+      # invokes `on_setup_complete` with the Result.
       @setup_mode : Bool = false
-      @wizard : Setup::Wiz? = nil
+      @wizard : Setup::State? = nil
+      @setup_history = [] of Setup::State
       property? setup_mode : Bool = false
-      property wizard : Setup::Wiz? = nil
+      property wizard : Setup::State? = nil
       property on_setup_complete : (Setup::Result -> Nil)? = nil
 
       # GitHub token wizard (`/github token`). While true the editor input
@@ -350,8 +354,8 @@ module H2code
       # wizard's collected credentials) — see the ivar comment above.
       property on_fetch_models_for : (Setup::Scratch -> Array(String))?
       # Returns true when the named provider has credentials configured and
-      # needs no further setup. Used by /provider to decide whether to launch
-      # the setup wizard for the selected provider.
+      # needs no further setup. Used by /provider to list only
+      # already-configured providers in the switch selector.
       property on_provider_configured : (String -> Bool)?
       property on_resume_session : (String -> Nil)?
       property on_fork : (-> Bool)?
@@ -632,7 +636,7 @@ module H2code
           check_cancel_watchdog!(now)
 
           if (@agent_busy || @swarm_active || @ci_active || @bg_tasks_active ||
-              @model_fetch_active || voice_active?) && elapsed >= 80
+             @model_fetch_active || voice_active?) && elapsed >= 80
             @spin_phase += 1
             @dirty = true
           end

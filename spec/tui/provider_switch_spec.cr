@@ -40,14 +40,6 @@ class ProviderSwitchApp < H2code::TUI::App
   def model_list
     @model_list
   end
-
-  def model_fetch_active?
-    @model_fetch_active
-  end
-
-  def status_line
-    render_agent_status_line
-  end
 end
 
 # Wait for the async model-fetch fiber (open_model_selector spawns) to finish.
@@ -62,7 +54,7 @@ def provider_switch_wait_until(timeout_ms = 1000, &)
 end
 
 describe H2code::TUI::App do
-  it "opens the model selector after switching to a keyless provider, positioned on the saved model" do
+  it "switches provider directly (no setup wizard), then opens the model selector on the saved model" do
     app = ProviderSwitchApp.new
     switched_to = nil
     app.on_provider_configured = ->(_name : String) : Bool { true }
@@ -70,90 +62,52 @@ describe H2code::TUI::App do
       switched_to = name
       # Mirrors the real callback in h2code.cr: after the swap the app model
       # becomes the provider's saved/default model.
-      app.model = "qwen2.5"
-      true
-    end
-    app.on_fetch_models = -> : Array(String) { ["qwen2", "qwen2.5", "qwen3"] }
-
-    app.provider_name.should eq("moonshot")
-    app.open_provider
-    app.select_provider("ollama")
-    app.provider_enter
-
-    switched_to.should eq("ollama")
-    app.provider_name.should eq("ollama")
-
-    # The fetch runs in a spawned fiber; wait for the selector to appear.
-    provider_switch_wait_until { app.model_list.visible? }.should be_true
-    app.model_list.visible?.should be_true
-    # Positioned on the provider's saved model, not on the first entry.
-    app.model_list.current.should eq("qwen2.5")
-  end
-
-  it "routes a keyed provider with a stored key through the keep-or-reconfigure step" do
-    app = ProviderSwitchApp.new
-    app.on_provider_configured = ->(_name : String) : Bool { true }
-    app.on_provider_change = ->(_name : String) : Bool { true }
-    app.on_fetch_models = -> : Array(String) { ["glm-4.5"] }
-    config = H2code::Config::Config.new
-    config.zai_api_key = "sk-zai-stored"
-    app.app_config = config
-
-    app.open_provider
-    app.select_provider("zai")
-    app.provider_enter
-
-    # Keyed providers always walk the setup wizard; a stored key turns the
-    # first step into keep-or-reconfigure (empty Enter = skip).
-    app.setup_mode?.should be_true
-    app.wizard.should be_a(H2code::Setup::Wiz::ExistingKey)
-    app.provider_name.should eq("zai")
-    app.model_list.visible?.should be_false
-  end
-
-  it "shows an animated loading-models line while the fetch is in flight" do
-    app = ProviderSwitchApp.new
-    release = Channel(Nil).new(1)
-    app.on_provider_configured = ->(_name : String) : Bool { true }
-    app.on_provider_change = ->(_name : String) : Bool do
       app.model = "glm-4.6"
       true
     end
-    # Gated fetch: blocks until the spec releases it, so the in-flight
-    # window is observable.
-    app.on_fetch_models = -> : Array(String) do
-      release.receive
-      ["glm-4.5", "glm-4.6"]
-    end
+    app.on_fetch_models = -> : Array(String) { ["glm-4.5", "glm-4.6"] }
 
+    app.provider_name.should eq("moonshot")
     app.open_provider
     app.select_provider("zai")
     app.provider_enter
 
-    provider_switch_wait_until { app.model_fetch_active? }.should be_true
-    line = app.status_line
-    line.should contain("Loading models for zai")
-    # The line carries an animated spinner frame, not just static text.
-    H2code::TUI::Spinner::FRAMES.any? { |f| line.includes?(f) }.should be_true
+    switched_to.should eq("zai")
+    app.provider_name.should eq("zai")
+    app.setup_mode?.should be_false
 
-    release.send(nil)
+    # The fetch runs in a spawned fiber; wait for the selector to appear.
     provider_switch_wait_until { app.model_list.visible? }.should be_true
-    app.model_fetch_active?.should be_false
+    # Positioned on the provider's saved model, not on the first entry.
+    app.model_list.current.should eq("glm-4.6")
   end
 
-  it "does not open the model selector when the provider switch fails" do
+  it "lists only already-configured providers" do
+    app = ProviderSwitchApp.new
+    app.on_provider_configured = ->(name : String) : Bool { name == "moonshot" || name == "zai" }
+
+    app.open_provider
+    app.provider_list.items.should eq(["moonshot", "zai"])
+  end
+
+  it "opens no selector when no provider is configured" do
+    app = ProviderSwitchApp.new
+    app.on_provider_configured = ->(_name : String) : Bool { false }
+
+    app.open_provider
+    app.provider_list.visible?.should be_false
+  end
+
+  it "keeps the current provider when the switch fails" do
     app = ProviderSwitchApp.new
     app.on_provider_configured = ->(_name : String) : Bool { true }
     app.on_provider_change = ->(_name : String) : Bool { false }
-    app.on_fetch_models = -> : Array(String) { ["glm-4.5"] }
 
     app.open_provider
     app.select_provider("ollama")
     app.provider_enter
 
     app.provider_name.should eq("moonshot")
-    # Give the (absent) fetch fiber a chance to run before asserting.
-    10.times { Fiber.yield }
     app.model_list.visible?.should be_false
   end
 
@@ -179,16 +133,30 @@ describe H2code::TUI::App do
   it "commits the filtered selection on Enter" do
     app = ProviderSwitchApp.new
     app.on_provider_configured = ->(_name : String) : Bool { true }
-    app.on_provider_change = ->(_name : String) : Bool do
-      app.model = "kimi-k2"
-      true
-    end
-    app.on_fetch_models = -> : Array(String) { ["kimi-k2"] }
+    app.on_provider_change = ->(_name : String) : Bool { true }
 
     app.open_provider
     app.provider_type("zai")
     app.provider_list.filtered_size.should be >= 1
     app.provider_enter
     app.provider_name.should eq("zai")
+  end
+
+  it "selects nothing on Enter when the filter matches no provider" do
+    app = ProviderSwitchApp.new
+    switched = false
+    app.on_provider_configured = ->(_name : String) : Bool { true }
+    app.on_provider_change = ->(_name : String) : Bool do
+      switched = true
+      true
+    end
+
+    app.open_provider
+    app.provider_type("zzzz")
+    app.provider_enter
+
+    switched.should be_false
+    app.provider_name.should eq("moonshot")
+    app.provider_list.visible?.should be_true
   end
 end

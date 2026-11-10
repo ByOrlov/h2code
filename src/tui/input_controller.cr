@@ -55,11 +55,10 @@ module H2code
           end
           case key.key
           when .enter?
-            # Each state knows whether an empty Enter is a meaningful submit
-            # (endpoint/model keep the default, yolo counts it as "yes",
-            # existing-key counts it as "keep"); credentials requires text.
-            accepts_empty = (w = @wizard) ? w.accepts_empty_submit? : false
-            if accepts_empty || !@editor.empty?
+            # The current step decides whether an empty Enter is a
+            # meaningful submit (endpoint/model keep the default, yolo
+            # counts it as "yes", key only in keep-or-reconfigure mode).
+            if setup_accepts_empty_submit? || !@editor.empty?
               text = @editor.empty? ? "" : @editor.submit!
               submit_setup_text(text)
             end
@@ -642,6 +641,11 @@ module H2code
           cmd_retry(args)
         when "/provider"
           open_provider_selector
+        when "/setup"
+          # Explicit reconfiguration (analog of the first-run flow): walk the
+          # wizard from provider selection, rewriting whatever is already
+          # stored. Esc only leaves setup mode — the session stays untouched.
+          start_setup(first_run: false)
         when "/export-md"
           cmd_export_md(args)
         when "/add-dir"
@@ -992,8 +996,18 @@ module H2code
         @dirty = true
       end
 
+      # Open the provider selector. /provider switches between
+      # already-configured backends: only providers with stored credentials
+      # are listed (add a new one via /setup), and picking one switches
+      # directly — no setup wizard, no reconfiguration. The follow-up model
+      # selector only picks among the new provider's models.
       private def open_provider_selector : Nil
-        items = LLM::Provider.providers.map(&.name)
+        items = LLM::Provider.providers.select { |p| provider_configured?(p.name) }.map(&.name)
+        if items.empty?
+          emit_to_log(Message.new("system", H2code.t("ui.no_configured_providers")))
+          @dirty = true
+          return
+        end
         @provider_list.show(H2code.t("ui.select_provider"), items)
         @provider_list.selected = items.index(@provider_name) || 0
         # Discard a queued Enter that was batched with the /provider submit,
@@ -1008,18 +1022,14 @@ module H2code
           @provider_list.handle_input(key)
           @dirty = true
         when .enter?
+          # A filter that matches nothing selects nothing — never silently
+          # fall back to the current provider.
+          return if @provider_list.filtered_size == 0
           name = @provider_list.current || @provider_name
           @provider_list.hide
           @dirty = true
           if name == @provider_name
             emit_to_log(Message.new("system", H2code.t("ui.provider_already", name: name)))
-          elsif needs_setup?(name) || keyed_provider?(name)
-            # No stored key yet → the wizard forces key entry (reconfiguration).
-            # A keyed provider with a stored key → the wizard opens on the
-            # keep-or-reconfigure step, so switching can be skipped through
-            # with one Enter. Keyless configured providers (ollama/lmstudio)
-            # switch directly below.
-            start_setup_for_provider(name)
           elsif cb = @on_provider_change
             if cb.call(name)
               @provider_name = name
@@ -1043,52 +1053,13 @@ module H2code
         end
       end
 
-      # Does the named provider need the setup wizard? True when a configured
-      # check is wired up and it reports the provider as not yet configured.
-      private def needs_setup?(name : String) : Bool
+      # Does the named provider already have credentials configured? True when
+      # no check is wired up (specs), so the selector lists every provider.
+      private def provider_configured?(name : String) : Bool
         if cb = @on_provider_configured
-          !cb.call(name)
+          cb.call(name)
         else
-          false
-        end
-      end
-
-      # Does the named provider authenticate with an API/OAuth key (as opposed
-      # to keyless local backends)? Keyed providers always walk the setup
-      # wizard on selection — the keep-or-reconfigure step makes it a one-Enter
-      # skip when a key is already stored.
-      private def keyed_provider?(name : String) : Bool
-        choice = Setup.choices.find { |c| c.name == name }
-        !!choice.try(&.needs_key?)
-      end
-
-      # Launch the setup wizard at runtime for an already-chosen provider. The
-      # welcome message and provider selector are skipped: we already know the
-      # provider, so the wizard drops straight into the ExistingKey step (key
-      # already stored → keep or reconfigure) or the Credentials step.
-      private def start_setup_for_provider(name : String) : Nil
-        existing = @app_config.try(&.api_key_for(name)) || ""
-        state = Setup::Wiz::Welcome.new.select_provider(name, existing)
-        @wizard = state
-        @setup_mode = true
-        @setup_first_run = false
-        @provider_name = name
-        @status = "Setup: #{state.status}"
-        @editor.clear
-        emit_to_log(Message.new("user", provider_label(name)))
-        if state.is_a?(Setup::Wiz::Endpoint)
-          # Keyless provider: jump straight to endpoint, but still show a
-          # transcript entry so the user knows why no key was asked.
-          emit_to_log(Message.new("system", H2code.t("ui.provider_no_key", name: name)))
-        end
-        advance_setup_step
-      end
-
-      private def provider_label(name : String) : String
-        if choice = Setup.choices.find { |c| c.name == name }
-          choice.label
-        else
-          name
+          true
         end
       end
 

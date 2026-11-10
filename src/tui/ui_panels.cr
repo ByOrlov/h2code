@@ -135,8 +135,8 @@ module H2code
         if @editor.empty?
           # No content: park the cursor on the single placeholder row.
           prompt = "#{pc}#{ANSI.bold}>#{r} "
-          placeholder_text = if @setup_mode && (w = @wizard) && !w.is_a?(H2code::Setup::Wiz::Done)
-                               w.placeholder
+          placeholder_text = if @setup_mode && (w = @wizard)
+                               H2code::Setup.placeholder(w)
                              elsif @github_token_mode
                                H2code.t("ui.github_token_placeholder")
                              elsif @gitlab_token_mode

@@ -53,7 +53,7 @@ module H2code
       # lmstudio) override with a longer first-token budget in their
       # constructors because loading a model into RAM can legitimately take
       # minutes.
-      property stream_stall_timeout : Time::Span = 60.seconds
+      property stream_stall_timeout : Time::Span = 180.seconds
 
       # Transport used for all outbound HTTP. Defaults to the real proxy-aware
       # client; tests inject a fake to simulate network drops and aborts.

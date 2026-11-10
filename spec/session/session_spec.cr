@@ -20,7 +20,7 @@ describe H2code::Session::Index do
   end
 
   describe "#contains_substring?" do
-    it "matches substrings in prompts, assistant text, and tool results, case-insensitively" do
+    it "matches substrings in prompts and assistant text, case-insensitively" do
       home = temp_home
       begin
         dir = File.join(home, ".h2code", "sessions", "sess0001")
@@ -35,9 +35,29 @@ describe H2code::Session::Index do
         wire = File.join(dir, "wire.jsonl")
         idx.contains_substring?(wire, "login").should be_true
         idx.contains_substring?(wire, "looking").should be_true
-        idx.contains_substring?(wire, "stdout").should be_true
+        idx.contains_substring?(wire, "stdout").should be_false
         idx.contains_substring?(wire, "nothere").should be_false
         idx.contains_substring?(wire, "").should be_false
+      ensure
+        FileUtils.rm_rf(home)
+      end
+    end
+
+    it "skips tool arguments/results and assistant thinking blocks" do
+      home = temp_home
+      begin
+        dir = File.join(home, ".h2code", "sessions", "sess0005")
+        Dir.mkdir_p(dir)
+        File.write(File.join(dir, "wire.jsonl"), [
+          %({"type":"tool.call","data":{"tool_name":"bash","arguments":{"command":"grep LOGIN-SECRET log"}}}),
+          %({"type":"tool.result","data":{"tool_call_id":"t1","content":"LOGIN-SECRET found"}}),
+          %({"type":"assistant.text","data":{"content":"done","thinking":"LOGIN-SECRET reasoning"}}),
+        ].join("\n"))
+
+        idx = H2code::Session::Index.new(home)
+        wire = File.join(dir, "wire.jsonl")
+        idx.contains_substring?(wire, "login-secret").should be_false
+        idx.contains_substring?(wire, "done").should be_true
       ensure
         FileUtils.rm_rf(home)
       end

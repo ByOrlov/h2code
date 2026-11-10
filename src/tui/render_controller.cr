@@ -687,6 +687,17 @@ module H2code
         # and the user must see that the provider API call is in flight.
         return render_model_fetch_line if @model_fetch_active
         bar = MessageRenderer::STREAMING_BAR
+
+        # Setup mode is a guided flow, not an agent lifecycle phase: show the
+        # goal view instead — provider being configured plus every
+        # requirement with its state. A stale Error/Waiting status from
+        # before the wizard would otherwise render the step as "✗ Setup: …".
+        if @setup_mode && (state = @wizard)
+          line = render_setup_progress(state)
+          return "" if line.empty?
+          return ANSI.color(@theme.colors.info, nil) + bar + " " + line + ANSI.reset
+        end
+
         String.build do |s|
           case @agent_status
           when .busy?
@@ -743,6 +754,35 @@ module H2code
           s << ANSI.color(@theme.colors.muted, nil)
           s << @status
           s << ANSI.reset
+        end
+      end
+
+      # Goal view for the setup wizard: the provider being configured,
+      # then every requirement of the flow with its state, colour-coded —
+      # closed (green, ✓), current (bold, ▶), pending (dim) — separated by
+      # dim pipes. Derived from the fill-level via Setup.progress_steps, so
+      # it always matches what the planner asks next.
+      private def render_setup_progress(state : Setup::State) : String
+        steps = Setup.progress_steps(state)
+        c = @theme.colors
+        String.build do |s|
+          if p = state.provider
+            s << ANSI.color(c.accent, nil) << ANSI.bold
+            s << p.choice.label
+            s << ANSI.reset << ":"
+          end
+          steps.each_with_index do |st, i|
+            s << ' ' if p || i > 0
+            s << ANSI.color(c.dim, nil) << "│" << ANSI.reset << ' ' if i > 0
+            case st.kind
+            when :closed
+              s << ANSI.color(c.success, nil) << st.name << " ✓" << ANSI.reset
+            when :current
+              s << ANSI.color(c.info, nil) << ANSI.bold << "▶ " << st.name << ANSI.reset
+            else
+              s << ANSI.color(c.dim, nil) << st.name << ANSI.reset
+            end
+          end
         end
       end
     end

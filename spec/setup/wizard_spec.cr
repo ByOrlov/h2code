@@ -2,47 +2,46 @@ require "../spec_helper"
 require "../../src/setup/wizard"
 require "../../src/config/config"
 
-# Forward-walks any text-accepting state one step. Returns the base type so
-# callers can hold mixed states in one variable.
-private def submit_any(state : H2code::Setup::Wiz, text : String) : H2code::Setup::Wiz
-  case s = state
-  when H2code::Setup::Wiz::Credentials
-    s.submit_text(text)
-  when H2code::Setup::Wiz::ExistingKey
-    s.submit_text(text)
-  when H2code::Setup::Wiz::Endpoint
-    s.submit_text(text)
-  when H2code::Setup::Wiz::Model
-    s.submit_text(text)
-  when H2code::Setup::Wiz::Yolo
-    s.submit_text(text)
-  else
-    raise "not a text-submitting state: #{s.class}"
-  end
+def choice_for(name : String) : H2code::Setup::ProviderChoice
+  H2code::Setup.choices.find! { |c| c.name == name }
 end
 
-# Drives a provider selection to completion using defaults (empty submits),
+# Select a provider into a fresh state (the Provider step).
+def select_provider(name : String, stored : String = "") : H2code::Setup::State
+  H2code::Setup::State.new.with(H2code::Setup.select_provider(choice_for(name), stored))
+end
+
+# Run one planner step: submit text for the head of `missing`.
+def submit_step(state : H2code::Setup::State, text : String) : H2code::Setup::State
+  head = H2code::Setup.missing(state).first?
+  raise "goal already complete" unless head
+  filled = case head
+           when H2code::Setup::Requirement::Key
+             H2code::Setup.submit_key(state, text)
+           when H2code::Setup::Requirement::Endpoint
+             H2code::Setup.submit_endpoint(state, text)
+           when H2code::Setup::Requirement::Model
+             H2code::Setup.submit_model(state, text)
+           when H2code::Setup::Requirement::Yolo
+             H2code::Setup.submit_yolo(text)
+           else
+             raise "provider step does not take text"
+           end
+  state.with(filled)
+end
+
+# Drive a provider selection to completion using defaults (empty submits),
 # declining yolo. Asserts the flow terminates.
-private def complete(provider : String, key : String = "sk-test",
-                     stored : String = "", yolo : String = "n") : H2code::Setup::Result
-  state : H2code::Setup::Wiz = H2code::Setup::Wiz::Welcome.new.select_provider(provider, stored)
+def complete(provider : String, key : String = "sk-test",
+             stored : String = "", yolo : String = "n") : H2code::Setup::Result
+  state = select_provider(provider, stored)
   10.times do
-    case s = state
-    when H2code::Setup::Wiz::Done
-      return s.result
-    when H2code::Setup::Wiz::Credentials
-      state = s.submit_text(key)
-    when H2code::Setup::Wiz::ExistingKey
-      state = s.submit_text("")
-    when H2code::Setup::Wiz::Endpoint, H2code::Setup::Wiz::Model
-      state = s.submit_text("")
-    when H2code::Setup::Wiz::Yolo
-      state = s.submit_text(yolo)
-    else
-      raise "unreachable state: #{s.class}"
-    end
+    break if H2code::Setup.missing(state).empty?
+    head = H2code::Setup.missing(state).first
+    text = head.key? ? (stored.empty? ? key : "") : (head.yolo? ? yolo : "")
+    state = submit_step(state, text)
   end
-  raise "wizard did not finish in 10 steps for #{provider}"
+  state.result?.not_nil!
 end
 
 describe H2code::Setup do
@@ -56,20 +55,16 @@ describe H2code::Setup do
     end
 
     it "marks local providers as not needing a key" do
-      ollama = H2code::Setup.choices.find! { |c| c.name == "ollama" }
-      ollama.needs_key?.should be_false
-      lmstudio = H2code::Setup.choices.find! { |c| c.name == "lmstudio" }
-      lmstudio.needs_key?.should be_false
+      H2code::Setup.choices.find!(&.name.==("ollama")).needs_key?.should be_false
+      H2code::Setup.choices.find!(&.name.==("lmstudio")).needs_key?.should be_false
     end
 
     it "marks cloud providers as needing a key" do
-      moonshot = H2code::Setup.choices.find! { |c| c.name == "moonshot" }
-      moonshot.needs_key?.should be_true
+      H2code::Setup.choices.find!(&.name.==("moonshot")).needs_key?.should be_true
     end
 
     it "excludes hidden providers (mock) from the wizard" do
-      names = H2code::Setup.choices.map(&.name)
-      names.should_not contain("mock")
+      H2code::Setup.choices.map(&.name).should_not contain("mock")
     end
 
     it "includes all seven new OpenAI-compatible cloud providers" do
@@ -80,182 +75,183 @@ describe H2code::Setup do
     end
   end
 
-  describe "state machine — keyless provider (ollama)" do
-    it "skips credentials and fast-forwards to endpoint" do
-      state = H2code::Setup::Wiz::Welcome.new.select_provider("ollama")
-      state.should be_a(H2code::Setup::Wiz::Endpoint)
-      state.provider_name.should eq("ollama")
+  describe "mosaic — requirements map 1:1 onto closing types" do
+    # The compile-time macro in wizard.cr fails the build on a mismatch;
+    # this is its runtime mirror, so a violation shows up as a readable
+    # spec failure too. (TypeNode#constants exists only in macro land, so
+    # the lists are interpolated as literals here.)
+    it "Requirement constants and Filled constants agree" do
+      {{ H2code::Setup::Requirement.constants.map(&.stringify).sort }}.should eq({{ H2code::Setup::Filled.constants.map(&.stringify).sort }})
     end
 
-    it "accepts default endpoint with empty submit" do
-      state = H2code::Setup::Wiz::Welcome.new.select_provider("ollama").as(H2code::Setup::Wiz::Endpoint)
-      next_state = state.submit_text("")
-      next_state.should be_a(H2code::Setup::Wiz::Model)
-      next_state.endpoint.should eq("http://localhost:11434/v1")
+    it "each Filled type closes the requirement named after it" do
+      {H2code::Setup::Filled::Provider.new(choice_for("zai")),
+       H2code::Setup::Filled::Key.new("k"),
+       H2code::Setup::Filled::Endpoint.new("e"),
+       H2code::Setup::Filled::Model.new("m"),
+       H2code::Setup::Filled::Yolo.new(false)}.each do |filled|
+        filled.requirement.to_s.should eq(filled.class.name.split("::").last)
+      end
     end
 
-    it "accepts default model with empty submit and moves to the yolo step" do
-      state = H2code::Setup::Wiz::Welcome.new.select_provider("ollama").as(H2code::Setup::Wiz::Endpoint)
-      model = state.submit_text("")
-      yolo = model.submit_text("")
-      yolo.should be_a(H2code::Setup::Wiz::Yolo)
-      yolo.model.should eq("llama3.2")
+    it "submit functions return the closing type of their requirement" do
+      state = select_provider("zai")
+      H2code::Setup.submit_key(state, "sk").should be_a(H2code::Setup::Filled::Key)
+      H2code::Setup.submit_endpoint(state, "e").should be_a(H2code::Setup::Filled::Endpoint)
+      H2code::Setup.submit_model(state, "m").should be_a(H2code::Setup::Filled::Model)
+      H2code::Setup.submit_yolo("y").should be_a(H2code::Setup::Filled::Yolo)
+    end
+  end
+
+  describe "fill-level — keyless provider (ollama)" do
+    it "never lists Key as missing, even with a stored key" do
+      state = select_provider("ollama", "sk-stored")
+      H2code::Setup.missing(state).should eq([
+        H2code::Setup::Requirement::Endpoint,
+        H2code::Setup::Requirement::Model,
+        H2code::Setup::Requirement::Yolo,
+      ])
+    end
+
+    it "accepts default endpoint and model with empty submits" do
+      state = select_provider("ollama")
+      state = submit_step(state, "") # endpoint default
+      state.endpoint.not_nil!.value.should eq("http://localhost:11434/v1")
+      state = submit_step(state, "") # model default
+      state.model.not_nil!.value.should eq("llama3.2")
     end
 
     it "honours overridden endpoint and model" do
-      result = complete("ollama", yolo: "n")
-      result.endpoint.should eq("http://localhost:11434/v1")
-      result.model.should eq("llama3.2")
+      state = select_provider("ollama")
+      state = submit_step(state, "http://gpu:11434/v1")
+      state = submit_step(state, "qwen2.5")
+      state.endpoint.not_nil!.value.should eq("http://gpu:11434/v1")
+      state.model.not_nil!.value.should eq("qwen2.5")
+    end
+  end
+
+  describe "fill-level — keyed provider (moonshot)" do
+    it "lists Key first in missing" do
+      H2code::Setup.missing(select_provider("moonshot")).should eq([
+        H2code::Setup::Requirement::Key,
+        H2code::Setup::Requirement::Endpoint,
+        H2code::Setup::Requirement::Model,
+        H2code::Setup::Requirement::Yolo,
+      ])
+    end
+
+    it "rejects an empty key without a stored one" do
+      expect_raises(ArgumentError) { H2code::Setup.submit_key(select_provider("moonshot"), "") }
     end
 
     it "parses the yolo answer (empty Enter always means yes)" do
-      result = complete("ollama", yolo: "")
-      result.yolo?.should be_true
-
-      result2 = complete("ollama", yolo: "y")
-      result2.yolo?.should be_true
-
-      result3 = complete("ollama", yolo: "n")
-      result3.yolo?.should be_false
-    end
-
-    it "back from endpoint returns to welcome (keyless regression)" do
-      state = H2code::Setup::Wiz::Welcome.new.select_provider("ollama")
-      state.back.should be_a(H2code::Setup::Wiz::Welcome)
+      H2code::Setup.submit_yolo("").value?.should be_true
+      H2code::Setup.submit_yolo("y").value?.should be_true
+      H2code::Setup.submit_yolo("n").value?.should be_false
+      H2code::Setup.submit_yolo("нет").value?.should be_false
     end
   end
 
-  describe "state machine — keyed provider (moonshot)" do
-    it "goes through credentials → endpoint → model" do
-      state = H2code::Setup::Wiz::Welcome.new.select_provider("moonshot")
-      state.should be_a(H2code::Setup::Wiz::Credentials)
+  describe "fill-level — keyed provider with a stored key" do
+    it "empty submit keeps the stored key and completes the goal" do
+      state = select_provider("moonshot", "sk-stored-key-123456")
+      H2code::Setup.submit_key(state, "").kept?.should be_true
 
-      creds = state.as(H2code::Setup::Wiz::Credentials)
-      endpoint = creds.submit_text("sk-test-123")
-      endpoint.should be_a(H2code::Setup::Wiz::Endpoint)
-      endpoint.api_key.should eq("sk-test-123")
-
-      model = endpoint.submit_text("")
-      model.should be_a(H2code::Setup::Wiz::Model)
-      model.endpoint.should eq("https://api.kimi.com/coding/v1")
-
-      yolo = model.submit_text("")
-      yolo.should be_a(H2code::Setup::Wiz::Yolo)
-      yolo.model.should eq("kimi-for-coding")
-
-      done = yolo.submit_text("n")
-      done.should be_a(H2code::Setup::Wiz::Done)
-    end
-
-    it "rejects an empty key" do
-      state = H2code::Setup::Wiz::Welcome.new.select_provider("moonshot")
-      creds = state.as(H2code::Setup::Wiz::Credentials)
-      expect_raises(ArgumentError) { creds.submit_text("") }
-    end
-  end
-
-  describe "state machine — keyed provider with a stored key" do
-    it "offers keep-or-reconfigure instead of forcing key entry" do
-      state = H2code::Setup::Wiz::Welcome.new.select_provider("moonshot", "sk-stored-key-123456")
-      state.should be_a(H2code::Setup::Wiz::ExistingKey)
-    end
-
-    it "empty submit keeps the stored key and finishes" do
-      state = H2code::Setup::Wiz::Welcome.new.select_provider("moonshot", "sk-stored-key-123456")
-      done = state.as(H2code::Setup::Wiz::ExistingKey).submit_text("")
-      done.should be_a(H2code::Setup::Wiz::Done)
-      result = done.as(H2code::Setup::Wiz::Done).result
+      state = submit_step(state, "") # keep
+      H2code::Setup.missing(state).should be_empty
+      result = state.result?.not_nil!
       result.keep_existing?.should be_true
       result.api_key.should eq("sk-stored-key-123456")
     end
 
-    it "typed key reconfigures and continues to endpoint" do
-      state = H2code::Setup::Wiz::Welcome.new.select_provider("moonshot", "sk-stored-key-123456")
-      endpoint = state.as(H2code::Setup::Wiz::ExistingKey).submit_text("sk-new-key-999")
-      endpoint.should be_a(H2code::Setup::Wiz::Endpoint)
-      endpoint.as(H2code::Setup::Wiz::Endpoint).api_key.should eq("sk-new-key-999")
-    end
-
-    it "without a stored key the wizard always asks for one" do
-      state = H2code::Setup::Wiz::Welcome.new.select_provider("moonshot")
-      state.should be_a(H2code::Setup::Wiz::Credentials)
-    end
-
-    it "back from the keep-or-reconfigure step returns to the provider picker" do
-      state = H2code::Setup::Wiz::Welcome.new.select_provider("moonshot", "sk-stored-key-123456")
-      state.back.should be_a(H2code::Setup::Wiz::Welcome)
-    end
-
-    it "rejects an unknown provider" do
-      expect_raises(ArgumentError) do
-        H2code::Setup::Wiz::Welcome.new.select_provider("does-not-exist")
-      end
+    it "typed key reconfigures and keeps walking the requirements" do
+      state = select_provider("moonshot", "sk-stored-key-123456")
+      state = submit_step(state, "sk-new-key-999")
+      state.key.not_nil!.value.should eq("sk-new-key-999")
+      state.key.not_nil!.kept?.should be_false
+      H2code::Setup.missing(state).first?.should eq(H2code::Setup::Requirement::Endpoint)
     end
   end
 
-  describe "#placeholder" do
-    it "shows a provider-picker hint at welcome" do
-      H2code::Setup::Wiz::Welcome.new.placeholder.should contain("provider")
+  describe "result? is nil until the goal is complete" do
+    it "cannot produce a Result mid-flow" do
+      select_provider("zai").result?.should be_nil
+      select_provider("zai").with(H2code::Setup::Filled::Key.new("sk")).result?.should be_nil
     end
 
-    it "shows the API key prompt at credentials" do
-      state = H2code::Setup::Wiz::Welcome.new.select_provider("moonshot")
-      state.placeholder.should contain("API key")
-    end
-
-    it "includes the default endpoint in the endpoint placeholder" do
-      state = H2code::Setup::Wiz::Welcome.new.select_provider("ollama")
-      state.placeholder.should contain("http://localhost:11434/v1")
-    end
-
-    it "includes the default model in the model placeholder" do
-      state = H2code::Setup::Wiz::Welcome.new.select_provider("ollama").as(H2code::Setup::Wiz::Endpoint)
-      state.submit_text("").placeholder.should contain("llama3.2")
+    it "produces a Result once nothing is missing" do
+      complete("zai").provider_name.should eq("zai")
     end
   end
 
-  describe "#back" do
-    it "steps credentials back to welcome" do
-      state = H2code::Setup::Wiz::Welcome.new.select_provider("moonshot")
-      state.back.should be_a(H2code::Setup::Wiz::Welcome)
+  describe "placeholder" do
+    it "shows a provider-picker hint before selection" do
+      H2code::Setup.placeholder(H2code::Setup::State.new).should contain("provider")
     end
 
-    it "steps endpoint back to credentials for a keyed provider" do
-      state = H2code::Setup::Wiz::Welcome.new.select_provider("moonshot")
-      endpoint = state.as(H2code::Setup::Wiz::Credentials).submit_text("sk-test")
-      endpoint.back.should be_a(H2code::Setup::Wiz::Credentials)
+    it "shows the API key prompt at the key step" do
+      H2code::Setup.placeholder(select_provider("moonshot")).should contain("API key")
     end
 
-    it "steps model back to endpoint" do
-      state = H2code::Setup::Wiz::Welcome.new.select_provider("moonshot")
-      model = state.as(H2code::Setup::Wiz::Credentials).submit_text("sk-test").submit_text("")
-      model.back.should be_a(H2code::Setup::Wiz::Endpoint)
+    it "shows keep-or-reconfigure with a stored key" do
+      H2code::Setup.placeholder(select_provider("moonshot", "sk-stored-key-123456"))
+        .should contain("•")
     end
 
-    it "steps yolo back to model" do
-      state = H2code::Setup::Wiz::Welcome.new.select_provider("moonshot")
-      yolo = state.as(H2code::Setup::Wiz::Credentials).submit_text("sk-test").submit_text("").submit_text("")
-      yolo.back.should be_a(H2code::Setup::Wiz::Model)
-    end
-
-    it "is a no-op on welcome" do
-      welcome = H2code::Setup::Wiz::Welcome.new
-      welcome.back.should be(welcome)
+    it "includes the defaults in endpoint/model placeholders" do
+      H2code::Setup.placeholder(select_provider("ollama")).should contain("http://localhost:11434/v1")
+      state = submit_step(select_provider("ollama"), "")
+      H2code::Setup.placeholder(state).should contain("llama3.2")
     end
   end
 
-  describe "#apply_to" do
+  describe "progress_steps — the goal view" do
+    it "marks the current step and the closed ones" do
+      state = select_provider("moonshot")
+      H2code::Setup.progress_steps(state).map(&.name).should eq(["key", "endpoint", "model", "yolo"])
+      H2code::Setup.progress_steps(state).map(&.kind)
+        .should eq([:current, :pending, :pending, :pending])
+
+      state = submit_step(state, "sk-test")
+      H2code::Setup.progress_steps(state).map(&.kind)
+        .should eq([:closed, :current, :pending, :pending])
+
+      state = submit_step(state, "")
+      state = submit_step(state, "")
+      H2code::Setup.progress_steps(state).map(&.kind)
+        .should eq([:closed, :closed, :closed, :current])
+    end
+
+    it "never lists the key for keyless providers" do
+      H2code::Setup.progress_steps(select_provider("ollama")).map(&.name)
+        .should eq(["endpoint", "model", "yolo"])
+    end
+
+    it "shows just the provider requirement before selection" do
+      H2code::Setup.progress_steps(H2code::Setup::State.new)
+        .map(&.name).should eq(["provider"])
+    end
+  end
+
+  describe "step_name" do
+    it "matches the legacy status-line rendering" do
+      H2code::Setup.step_name(H2code::Setup::State.new).should eq("welcome")
+      H2code::Setup.step_name(select_provider("moonshot")).should eq("credentials")
+      H2code::Setup.step_name(select_provider("moonshot", "sk-stored")).should eq("existing_key")
+      H2code::Setup.step_name(select_provider("ollama")).should eq("endpoint")
+      H2code::Setup.step_name(complete_state("moonshot")).should eq("done")
+    end
+  end
+
+  describe "apply_to" do
     it "writes ollama config fields" do
-      state = H2code::Setup::Wiz::Welcome.new.select_provider("ollama")
-      yolo = state.as(H2code::Setup::Wiz::Endpoint).submit_text("http://gpu:11434/v1").submit_text("qwen2.5")
-      done = yolo.submit_text("n")
-      result = done.as(H2code::Setup::Wiz::Done).result
+      result = complete("ollama")
 
       config = H2code::Config::Config.new
       result.apply_to(config)
       config.provider_name.should eq("ollama")
-      config.ollama_endpoint.should eq("http://gpu:11434/v1")
-      config.ollama_model.should eq("qwen2.5")
+      config.ollama_endpoint.should eq("http://localhost:11434/v1")
+      config.ollama_model.should eq("llama3.2")
     end
 
     it "writes moonshot config fields" do
@@ -309,59 +305,59 @@ describe H2code::Setup do
     end
   end
 
-  # The FSM "compiler": for every registered provider and both key
-  # situations, the flow must reach Done with a valid Result, and every
-  # intermediate state must walk back to Welcome. New providers appear in
-  # this matrix automatically via the registry.
+  # The goal projection proved as properties over every registered provider:
+  # planning is derived from the fill-level data, every submit closes exactly
+  # the head requirement, and the goal is complete exactly when missing is
+  # empty. New providers join this matrix automatically via the registry.
   describe "walk — every provider, every entry situation" do
     H2code::Setup.choices.each do |choice|
-      it "completes #{choice.name} with no stored key" do
-        result = complete(choice.name)
+      it "completes #{choice.name} with defaults, each submit closing the head" do
+        state = select_provider(choice.name)
+        10.times do
+          break if H2code::Setup.missing(state).empty?
+          was = H2code::Setup.missing(state)
+          head = was.first
+          text = head.key? ? "sk-walk" : (head.yolo? ? "n" : "")
+          state = submit_step(state, text)
+          # A submit closes exactly the head requirement — no more, no less.
+          H2code::Setup.missing(state).should eq(was.skip(1))
+          state.result?.nil?.should eq(!H2code::Setup.missing(state).empty?)
+        end
+        H2code::Setup.missing(state).should be_empty
+        result = state.result?.not_nil!
         result.provider_name.should eq(choice.name)
         result.endpoint.should eq(choice.default_endpoint)
         result.model.should eq(choice.default_model)
       end
 
-      it "never asks for a key on keyless #{choice.name} (even with a stored key)" do
+      it "offers keep-or-reconfigure for keyed #{choice.name} with a stored key" do
+        next unless choice.needs_key?
+        state = select_provider(choice.name, "sk-stored")
+        H2code::Setup.missing(state).first?.should eq(H2code::Setup::Requirement::Key)
+        # Keep short-circuits the whole goal — the stored config satisfies it.
+        state = submit_step(state, "")
+        H2code::Setup.missing(state).should be_empty
+        state.result?.not_nil!.keep_existing?.should be_true
+      end
+
+      it "never plans the Key step for keyless #{choice.name}" do
         next if choice.needs_key?
-        state : H2code::Setup::Wiz = H2code::Setup::Wiz::Welcome.new.select_provider(choice.name, "sk-stored")
-        state.should be_a(H2code::Setup::Wiz::Endpoint)
-        # And the whole flow must not pass through Credentials/ExistingKey.
-        8.times do
-          break if state.is_a?(H2code::Setup::Wiz::Done)
-          state.should_not be_a(H2code::Setup::Wiz::Credentials)
-          state.should_not be_a(H2code::Setup::Wiz::ExistingKey)
-          state = submit_any(state, "")
-        end
-        state.should be_a(H2code::Setup::Wiz::Done)
-      end
-
-      if choice.needs_key?
-        it "offers keep-or-reconfigure for #{choice.name} with a stored key" do
-          state = H2code::Setup::Wiz::Welcome.new.select_provider(choice.name, "sk-stored")
-          state.should be_a(H2code::Setup::Wiz::ExistingKey)
-          done = state.as(H2code::Setup::Wiz::ExistingKey).submit_text("")
-          done.should be_a(H2code::Setup::Wiz::Done)
-        end
-      end
-
-      it "back-walks #{choice.name} to welcome from every state" do
-        seen = [] of H2code::Setup::Wiz
-        state : H2code::Setup::Wiz = H2code::Setup::Wiz::Welcome.new.select_provider(choice.name)
-        8.times do
-          break if state.is_a?(H2code::Setup::Wiz::Done)
-          seen << state
-          # Credentials rejects an empty key — feed the walk a dummy one.
-          text = state.is_a?(H2code::Setup::Wiz::Credentials) ? "sk-walk" : ""
-          state = submit_any(state, text)
-        end
-        seen.each do |s|
-          back = s.back
-          until back.is_a?(H2code::Setup::Wiz::Welcome)
-            back = back.back
-          end
-        end
+        H2code::Setup.missing(select_provider(choice.name, "sk-stored"))
+          .should_not contain(H2code::Setup::Requirement::Key)
       end
     end
   end
+end
+
+# Drive a provider selection to a completed state (declining yolo) and
+# return the state, not the Result — for step_name and similar checks.
+def complete_state(provider : String) : H2code::Setup::State
+  state = select_provider(provider)
+  10.times do
+    break if H2code::Setup.missing(state).empty?
+    head = H2code::Setup.missing(state).first
+    text = head.key? ? "sk-walk" : (head.yolo? ? "n" : "")
+    state = submit_step(state, text)
+  end
+  state
 end
