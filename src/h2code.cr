@@ -1866,6 +1866,16 @@ module H2code
         config.save
         nil
       end
+      # `/refresh`: rotate the prompt-cache key bound to the session. The
+      # backend caches the prompt prefix keyed by it; when a chat is stalled
+      # on one provider node, a fresh key makes the next request build the
+      # context under a new cache entry (reaching a different node). The
+      # session id itself is untouched — only the wire-level affinity drops.
+      app.on_refresh_cache = -> : String do
+        new_key = Random::Secure.hex(12)
+        agent.provider.prompt_cache_key = new_key
+        new_key
+      end
       # `/set agent.max_steps <n>` reaches the running agent immediately
       # (config persistence is already handled by the /set command).
       app.on_set_max_steps = ->(n : Int32) { agent.max_steps = n; nil }

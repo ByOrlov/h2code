@@ -39,6 +39,7 @@ module H2code
         CommandInfo.new("/compact", "Summarize context to free space", description_key: "compact"),
         CommandInfo.new("/model", "Switch model", description_key: "model"),
         CommandInfo.new("/retry", "Show or set provider retry count", "[<n>]", "retry"),
+        CommandInfo.new("/refresh", "Reset the provider prompt-cache key (unstick a stalled chat)", description_key: "refresh"),
         CommandInfo.new("/provider", "Switch LLM provider", description_key: "provider"),
         CommandInfo.new("/setup", "Re-run the provider setup wizard (rewrite stored config)", description_key: "setup"),
         CommandInfo.new("/status", "Show session status", description_key: "status"),

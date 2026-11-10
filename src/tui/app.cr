@@ -218,6 +218,11 @@ module H2code
       # branch, forks the session, retargets the path-bound tools and
       # reports the outcome itself. Returns true on success.
       @on_fork : (-> Bool)? = nil
+      # `/refresh`: the host rotates the provider's prompt-cache key so the
+      # backend starts a fresh cache entry — used when the chat is stuck on
+      # one provider node and the context needs to reach a different node.
+      # Returns the new key (shown to the user).
+      @on_refresh_cache : (-> String)? = nil
       # `/merge` completion: the host retargets the path-bound tools and the
       # session cwd back to the original repository directory.
       @on_worktree_exit : (String -> Nil)? = nil
@@ -359,6 +364,7 @@ module H2code
       property on_provider_configured : (String -> Bool)?
       property on_resume_session : (String -> Nil)?
       property on_fork : (-> Bool)?
+      property on_refresh_cache : (-> String)?
       property on_worktree_exit : (String -> Nil)?
       property on_fork_go : (String -> Nil)?
       property pending_merge : Worktree::PendingMerge?

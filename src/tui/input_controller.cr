@@ -639,6 +639,8 @@ module H2code
           open_model_selector
         when "/retry"
           cmd_retry(args)
+        when "/refresh"
+          cmd_refresh
         when "/provider"
           open_provider_selector
         when "/setup"

@@ -99,5 +99,10 @@ describe H2code::TUI::CommandRegistry do
         c.usage.should eq("[week|month|6months|year]")
       end
     end
+
+    it "includes the /refresh cache-reset command" do
+      cmd = H2code::TUI::CommandRegistry.find("/refresh")
+      cmd.should_not be_nil
+    end
   end
 end

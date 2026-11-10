@@ -664,6 +664,18 @@ module H2code
         end
       end
 
+      # `/refresh` — rotate the provider prompt-cache key: the next request
+      # is sent under a fresh cache id, so the backend builds the context on
+      # a new node instead of the stalled one. History is untouched.
+      private def cmd_refresh : Nil
+        if cb = @on_refresh_cache
+          new_key = cb.call
+          emit_to_log(Message.new("system", H2code.t("ui.refresh_cache_reset", {key: new_key[0...8]})))
+        else
+          emit_to_log(Message.new("error", H2code.t("ui.refresh_not_wired")))
+        end
+      end
+
       private def cmd_todos(args : String) : Nil
         todos = current_todos
         if todos.nil? || todos.empty?
