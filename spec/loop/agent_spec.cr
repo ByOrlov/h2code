@@ -23,6 +23,40 @@ private class NetworkDropProvider < H2code::LLM::Provider
   end
 end
 
+# Provider that raises StreamTimeoutError ("provider stalled") on the first
+# chat call and then delegates to an inner mock — records the prompt-cache
+# key it saw on each request so specs can assert the key was rotated before
+# the automatic retry.
+private class StallOnceProvider < H2code::LLM::Provider
+  property prompt_cache_key : String? = nil
+  getter seen_keys = [] of String?
+  @calls = 0
+
+  def initialize(@inner : H2code::LLM::MockProvider)
+  end
+
+  def name : String
+    "stall-once"
+  end
+
+  def model_name : String
+    "test"
+  end
+
+  def fetch_models : Array(String)
+    [] of String
+  end
+
+  def chat(messages : Array(H2code::LLM::Message), tools : Array(H2code::LLM::ToolDefinition)?,
+           system_prompt : String? = nil, aborted? : -> Bool = -> { false },
+           &block : H2code::LLM::MessagePart ->) : H2code::LLM::StepResult
+    seen_keys << prompt_cache_key
+    @calls += 1
+    raise H2code::LLM::StreamTimeoutError.new(60) if @calls == 1
+    @inner.chat(messages, tools, system_prompt, aborted?) { |p| block.call(p) }
+  end
+end
+
 # Integration coverage for the agent loop, driven end-to-end by the offline
 # MockProvider. No network, no API key: the mock replays a fixed multi-step
 # script (parallel tool calls → write → finish) so run_turn, the parallel
@@ -339,6 +373,38 @@ describe H2code::Loop::Agent do
     retry_infos = events.select(&.type.info?).map(&.text)
     retry_infos.size.should eq(3)
     retry_infos.all? { |t| t.includes?("Retrying") }.should be_true
+  end
+
+  it "auto-refreshes the prompt-cache key and retries when the provider stalls" do
+    provider = StallOnceProvider.new(
+      H2code::LLM::MockProvider.new([
+        H2code::LLM::MockStep.new(
+          parts: [H2code::LLM::TextPart.new("recovered")] of H2code::LLM::MessagePart,
+          stop_reason: "end_turn",
+          text: "recovered",
+        ),
+      ]))
+    memory = H2code::Context::Memory.new
+    tools = H2code::Tools::Registry.new
+    permission = H2code::Permission::Manager.new(H2code::Permission::Mode::Yolo)
+    agent = H2code::Loop::Agent.new(provider, memory, tools, permission)
+
+    events = [] of H2code::Loop::Event
+    result = agent.run_turn("hi", nil) { |e| events << e }
+
+    # The stalled request was retried and the turn completed.
+    result.stop_reason.should eq("end_turn")
+
+    # The retry ran under a rotated prompt-cache key (the automatic
+    # equivalent of /refresh): a fresh non-nil key, different from the one
+    # the stalled request used.
+    provider.seen_keys.size.should eq(2)
+    provider.seen_keys[1].should_not be_nil
+    provider.seen_keys[1].should_not eq(provider.seen_keys[0])
+
+    # The user saw a message about the rotation.
+    events.select(&.type.info?).map(&.text)
+      .any? { |t| t.includes?("rotated") }.should be_true
   end
 
   # End-to-end plan-mode flow: enter → blocked Write → exit. Verifies the

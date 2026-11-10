@@ -1,5 +1,6 @@
 require "./tool_batch"
 require "./retry"
+require "random/secure"
 require "../tools/swarm_mode"
 require "../exception_handler"
 
@@ -77,6 +78,17 @@ module H2code
                      @context : Context::Memory,
                      @tools : Tools::Registry,
                      @permission : Permission::Manager)
+      end
+
+      # Rotate the provider's prompt-cache key: the next request is sent
+      # under a fresh cache id, so the backend builds the context on a new
+      # node instead of the stalled one. History is untouched. Powers the
+      # manual `/refresh` command and the automatic recovery when the
+      # provider stalls mid-stream (LLM::StreamTimeoutError).
+      def rotate_prompt_cache_key! : String
+        new_key = Random::Secure.hex(12)
+        @provider.prompt_cache_key = new_key
+        new_key
       end
 
       def run_turn(prompt : String, system_prompt : String? = nil,
@@ -432,6 +444,16 @@ module H2code
             # fail fast — backing off cannot fix them.
             unless retry_policy.retryable?(ex)
               raise ex
+            end
+
+            # Provider stalled: retrying under the same prompt-cache key
+            # would likely re-land on the same stalled backend node, so
+            # rotate the key first — the automatic equivalent of /refresh —
+            # then fall through to the normal backoff/retry below.
+            if ex.is_a?(LLM::StreamTimeoutError)
+              new_key = rotate_prompt_cache_key!
+              on_event.call(Event.info(
+                "Provider stalled — prompt-cache key rotated to #{new_key[0...8]}; retrying."))
             end
 
             retry_count += 1
