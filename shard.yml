@@ -23,6 +23,10 @@ binaries:
     main: src/h2code.cr
     # prebuild is per-OS (carat selects by the host OS): unix hosts run the
     # bash script, Windows runs the native .bat — no bash required there.
+    # prebuild is per-OS (carat selects by the host OS): unix hosts run the
+    # bash script, Windows runs the native .bat — no bash required there.
+    # To build without the audio backend at all (no bridge, no link): add
+    # `-Dwithout_miniaudio` to flags and drop prebuild/link_flags.
     prebuild:
       windows: scripts\build_miniaudio.bat
       "*": bash scripts/build_miniaudio.sh

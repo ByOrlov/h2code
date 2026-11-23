@@ -112,6 +112,10 @@ cd H2Code
 shards install
 rake build            # → ./h2code (debug, for development)
 
+# No-audio build: compiles out the notification sounds and the miniaudio
+# link entirely (no C bridge build, no audio link flags needed)
+crystal build src/h2code.cr -Dwithout_miniaudio -o h2code
+
 # Cross-platform release pipeline — deps → build → pack in one config
 # (crosspack.yml, gem crosspack):
 gem install crosspack
