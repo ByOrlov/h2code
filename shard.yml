@@ -18,20 +18,22 @@ targets:
 
 # carat (OrelSokolov/carat.cr) delivery contract — shards ignores this key,
 # so `shards install` / `shards build` keep working untouched.
-# Note: on Windows the link_flags below follow the MinGW layout of
-# scripts/build_miniaudio.sh (the libminiaudio_bridge.a archive); the script
-# itself auto-picks MSVC when cl.exe is available, in which case the MSVC
-# link step needs the .obj form instead.
 binaries:
   h2code:
     main: src/h2code.cr
-    prebuild: bash scripts/build_miniaudio.sh
+    # prebuild is per-OS (carat selects by the host OS): unix hosts run the
+    # bash script, Windows runs the native .bat — no bash required there.
+    prebuild:
+      windows: scripts\build_miniaudio.bat
+      "*": bash scripts/build_miniaudio.sh
     link_flags:
       # Кавычки обязательны: в YAML flow-списке запятая разделяет элементы,
       # так что пара "-framework CoreAudio" без кавычек распадётся на два флага.
       darwin: ["-Lvendor/miniaudio", "-lminiaudio_bridge", "-framework CoreAudio", "-framework AudioToolbox", "-framework CoreFoundation"]
       linux: [-Lvendor/miniaudio, -lminiaudio_bridge, -ldl, -lpthread, -lm]
-      windows: [vendor/miniaudio/libminiaudio_bridge.a, winmm.lib, ole32.lib, ksuser.lib]
+      # MSVC layout: scripts/build_miniaudio.bat produces the .obj (vswhere
+      # + vcvars64); carat resolves the relative path against the shard root.
+      windows: [vendor\miniaudio\miniaudio_bridge.obj, winmm.lib, ole32.lib, ksuser.lib]
   hless:
     main: bin/hless.cr
   h2code-tg-bot:
