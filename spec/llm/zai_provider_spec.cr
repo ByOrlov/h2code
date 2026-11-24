@@ -29,6 +29,46 @@ describe H2code::LLM::ZaiProvider do
     end
   end
 
+  describe "#build_request reasoning_effort clamping" do
+    it "clamps unsupported efforts on forced-thinking models (GLM-5.3+)" do
+      {"glm-5.3", "glm-5.3-flash", "glm-5.4"}.each do |model|
+        provider = H2code::LLM::ZaiProvider.new(model: model, api_key: "k")
+        provider.thinking_effort = "medium"
+        provider.build_request([] of H2code::LLM::Message, nil).reasoning_effort.should eq("high")
+        provider.thinking_effort = "xhigh"
+        provider.build_request([] of H2code::LLM::Message, nil).reasoning_effort.should eq("max")
+        provider.thinking_effort = "minimal"
+        provider.build_request([] of H2code::LLM::Message, nil).reasoning_effort.should eq("low")
+      end
+    end
+
+    it "passes valid efforts through on forced-thinking models" do
+      provider = H2code::LLM::ZaiProvider.new(model: "glm-5.3-flash", api_key: "k")
+      {"low", "high", "max"}.each do |effort|
+        provider.thinking_effort = effort
+        provider.build_request([] of H2code::LLM::Message, nil).reasoning_effort.should eq(effort)
+      end
+    end
+
+    it "maps off to low on forced-thinking models (reasoning cannot be disabled)" do
+      {"glm-5.3", "glm-5.3-flash"}.each do |model|
+        provider = H2code::LLM::ZaiProvider.new(model: model, api_key: "k")
+        provider.thinking_effort = "off"
+        provider.build_request([] of H2code::LLM::Message, nil).reasoning_effort.should eq("low")
+        provider.thinking_effort = "on"
+        provider.build_request([] of H2code::LLM::Message, nil).reasoning_effort.should be_nil
+      end
+    end
+
+    it "leaves older GLM models' efforts untouched" do
+      provider = H2code::LLM::ZaiProvider.new(model: "glm-5.2", api_key: "k")
+      provider.thinking_effort = "medium"
+      provider.build_request([] of H2code::LLM::Message, nil).reasoning_effort.should eq("medium")
+      provider.thinking_effort = "off"
+      provider.build_request([] of H2code::LLM::Message, nil).reasoning_effort.should be_nil
+    end
+  end
+
   describe "Provider.resolve_context_window" do
     it "replaces the global default with the model's real window" do
       provider = H2code::LLM::ZaiProvider.new(model: "glm-5.2", api_key: "k")
