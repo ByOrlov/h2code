@@ -262,6 +262,26 @@ try {
             Write-Info "Installed tips to $TipsDir"
         }
 
+        # Local-binary mode: the build directory also holds the runtime DLLs
+        # the just-built exe links against (crystal needs gc, iconv-2, pcre2,
+        # yaml, zlib, libcrypto/libssl next to it). They match this exact
+        # toolchain -- unlike the pinned release bundle, which was built with
+        # whatever Crystal produced that release and may name libraries
+        # differently (libcrypto-3 vs -4, zlib1 vs libz). Copy everything
+        # *.dll so DLL resolution never depends on the caller's PATH;
+        # Ensure-WindowsDeps below then sees a working binary and skips the
+        # bundle download.
+        if ($LocalBinary) {
+            $BuildDir = Split-Path $Src -Parent
+            $Dlls = Get-ChildItem -Path $BuildDir -Filter '*.dll' -ErrorAction SilentlyContinue
+            if ($Dlls) {
+                Copy-Item -Path $Dlls.FullName -Destination $InstallDir -Force
+                Write-Info ("Copied {0} runtime DLLs from the build dir to $InstallDir" -f $Dlls.Count)
+            } else {
+                Write-Info "No DLLs next to the local build -- falling back to Ensure-WindowsDeps."
+            }
+        }
+
         # --- Runtime dependencies -------------------------------------------------
         # h2code.exe links dynamically against OpenSSL (libcrypto/libssl),
         # libyaml, pcre2, zlib, libiconv and the Boehm GC. These DLLs are not
