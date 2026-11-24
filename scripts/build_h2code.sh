@@ -30,16 +30,27 @@ else
 fi
 
 mkdir -p "$(dirname "$OUTPUT")"
-LINK_FLAGS="$(./scripts/build_miniaudio.sh "$TARGET")"
+# Fall back to a no-audio build when the bridge can't be built on this
+# system (no cc / no bash) — same policy as the Rakefile's
+# -Dwithout_miniaudio fallback. Release packaging (crosspack deps verified
+# hosts) still builds the full-audio binary; a silent no-audio release is
+# only possible when the toolchain was already incomplete.
+AUDIO_FLAGS=""
+if ! LINK_FLAGS="$(./scripts/build_miniaudio.sh "$TARGET")"; then
+  echo "warning: miniaudio bridge build failed — building without audio (-Dwithout_miniaudio)" >&2
+  LINK_FLAGS=""
+  AUDIO_FLAGS="-Dwithout_miniaudio"
+fi
 
 export H2CODE_VERSION="${CROSSBUILD_VERSION:-${H2CODE_VERSION:-$(git describe --tags --abbrev=0 2>/dev/null || echo 0.0.0-dev)}}"
 
 TARGET_ARGS=""
 if [ -n "$TARGET" ]; then TARGET_ARGS="--target $TARGET"; fi
 
-# LINK_FLAGS is a deliberately unquoted flag list.
+# LINK_FLAGS is a deliberately unquoted flag list; AUDIO_FLAGS is empty or
+# -Dwithout_miniaudio; --link-flags is passed only when LINK_FLAGS is set.
 # shellcheck disable=SC2086
-crystal build src/h2code.cr -o "$OUTPUT" --release --no-debug --warnings none $TARGET_ARGS --link-flags "$LINK_FLAGS"
+crystal build src/h2code.cr -o "$OUTPUT" --release --no-debug --warnings none $AUDIO_FLAGS $TARGET_ARGS ${LINK_FLAGS:+--link-flags "$LINK_FLAGS"}
 
 # hless — same directory as the h2code output (Windows appends .exe itself).
 HLESS_OUTPUT="$(dirname "$OUTPUT")/hless"
