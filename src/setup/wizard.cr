@@ -423,6 +423,9 @@ module H2code
       when "strata"
         config.strata_endpoint = endpoint if endpoint
         config.strata_model = model if model
+      when "maya"
+        config.maya_endpoint = endpoint if endpoint
+        config.maya_model = model if model
       else
         if applier = CLOUD_APPLIERS[name]?
           applier.call(config, api_key, endpoint, model)

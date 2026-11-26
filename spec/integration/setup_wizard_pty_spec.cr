@@ -16,7 +16,7 @@ require "../support/pty_session"
   # isolation: an ambient ZAI_API_KEY makes the wizard skip the credentials
   # step entirely, for example. Scrub them, and pass the result wholesale
   # (clear_env) so only what we list here reaches the child.
-  PROVIDER_ENV_PREFIXES = %w[MOONSHOT ZAI ZHIPU OLLAMA LMSTUDIO STRATA
+  PROVIDER_ENV_PREFIXES = %w[MOONSHOT ZAI ZHIPU OLLAMA LMSTUDIO STRATA MAYA
     DEEPSEEK GROQ OPENROUTER XAI CEREBRAS
     FIREWORKS TOGETHER]
 

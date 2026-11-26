@@ -63,6 +63,7 @@ hi:
     ollama: "स्थानीय — Ollama"
     lmstudio: "स्थानीय — LM Studio"
     strata: "स्थानीय — Strata"
+    maya: "स्थानीय — Maya"
     zai: "Z.AI / Zhipu (GLM)"
     zai_hint: "कुंजी प्राप्त करें: https://z.ai"
   commands:

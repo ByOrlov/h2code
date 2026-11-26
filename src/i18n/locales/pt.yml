@@ -63,6 +63,7 @@ pt:
     ollama: "Local — Ollama"
     lmstudio: "Local — LM Studio"
     strata: "Local — Strata"
+    maya: "Local — Maya"
     zai: "Z.AI / Zhipu (GLM)"
     zai_hint: "Obtenha uma chave em https://z.ai"
   commands:

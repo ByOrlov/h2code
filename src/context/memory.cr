@@ -92,13 +92,14 @@ module H2code
         update_token_count
       end
 
-      # Local (summarizer-less) compaction: replace the history with the
-      # already-stripped dialogue. No summary message is inserted — the
-      # regular system prompt keeps being sent unchanged and the model
-      # continues over the stripped conversation.
-      def apply_simple_compaction(kept_messages : Array(ContextMessage)) : Nil
+      # Local (summarizer-less) compaction: start a fresh chat over the
+      # compacted history. The whole prior dialogue is folded into a single
+      # user message (the compact dump plus a continuation prompt) and the
+      # history restarts from it — the regular system prompt keeps being
+      # sent unchanged.
+      def apply_new_chat(first_message_text : String) : Nil
         @history.clear
-        @history.concat(kept_messages)
+        @history << ContextMessage.new(LLM::Message.user(first_message_text))
         update_token_count
       end
 

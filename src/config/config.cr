@@ -107,6 +107,11 @@ module H2code
       property strata_endpoint : String? = nil
       property strata_model : String? = nil
       property strata_api_key : String = ""
+      # Maya (local GPU server, same engine as Strata): optional — only set
+      # when Maya runs with `--api-key`.
+      property maya_endpoint : String? = nil
+      property maya_model : String? = nil
+      property maya_api_key : String = ""
       property deepseek_api_key : String = ""
       property deepseek_endpoint : String = "https://api.deepseek.com/v1"
       property deepseek_model : String = "deepseek-chat"
@@ -376,6 +381,15 @@ module H2code
         if model = ENV["STRATA_MODEL"]?
           config.strata_model = model
         end
+        if key = ENV["MAYA_API_KEY"]?
+          config.maya_api_key = key
+        end
+        if ep = ENV["MAYA_ENDPOINT"]?
+          config.maya_endpoint = ep
+        end
+        if model = ENV["MAYA_MODEL"]?
+          config.maya_model = model
+        end
         if key = ENV["DEEPSEEK_API_KEY"]?
           config.deepseek_api_key = key
         end
@@ -557,6 +571,11 @@ module H2code
             config.strata_api_key = strata["api_key"]?.try(&.as_s?) || ""
             config.strata_endpoint = strata["endpoint"]?.try(&.as_s?)
             config.strata_model = strata["model"]?.try(&.as_s?)
+          end
+          if maya = provider["maya"]?.try(&.as_h?)
+            config.maya_api_key = maya["api_key"]?.try(&.as_s?) || ""
+            config.maya_endpoint = maya["endpoint"]?.try(&.as_s?)
+            config.maya_model = maya["model"]?.try(&.as_s?)
           end
           if deepseek = provider["deepseek"]?.try(&.as_h?)
             config.deepseek_api_key = deepseek["api_key"]?.try(&.as_s?) || ""
@@ -798,6 +817,21 @@ module H2code
                     end
                   end
                 end
+                if @maya_endpoint || @maya_model || !@maya_api_key.empty?
+                  json.field("maya") do
+                    json.object do
+                      unless @maya_api_key.empty?
+                        json.field("api_key", @maya_api_key)
+                      end
+                      if ep = @maya_endpoint
+                        json.field("endpoint", ep)
+                      end
+                      if m = @maya_model
+                        json.field("model", m)
+                      end
+                    end
+                  end
+                end
                 json.field("deepseek") do
                   json.object do
                     json.field("api_key", @deepseek_api_key)
@@ -975,6 +1009,7 @@ module H2code
         @api_key = @api_key.try(&.strip)
         @zai_api_key = @zai_api_key.strip
         @strata_api_key = @strata_api_key.strip
+        @maya_api_key = @maya_api_key.strip
         @deepseek_api_key = @deepseek_api_key.strip
         @groq_api_key = @groq_api_key.strip
         @openrouter_api_key = @openrouter_api_key.strip
@@ -1018,6 +1053,7 @@ module H2code
         when "ollama"          then true
         when "lmstudio"        then true
         when "strata"          then true
+        when "maya"            then true
         when "deepseek"        then !deepseek_api_key.empty?
         when "groq"            then !groq_api_key.empty?
         when "openrouter"      then !openrouter_api_key.empty?
@@ -1034,7 +1070,7 @@ module H2code
       # The provider's stored API key ("" when none). Used by the setup wizard
       # to decide between forced reconfiguration (no key yet) and the
       # keep-or-reconfigure step (a key is already stored). Keyless providers
-      # (ollama, lmstudio, strata) have no key by definition.
+      # (ollama, lmstudio, strata, maya) have no key by definition.
       def api_key_for(name : String?) : String
         case name
         when "moonshot"               then api_key.to_s

@@ -692,9 +692,11 @@ module H2code
         # Summarizer compaction is reserved for the original Kimi/Moonshot
         # backend: other providers (e.g. GLM) reject the extra compaction
         # chat request as an unsupported feature. Everywhere else compact
-        # locally — strip to user inputs + direct answers, clamp if needed,
+        # locally — the history is folded into the first message of a fresh
+        # chat (user inputs + direct answers, then the continuation prompt),
         # no provider round-trip. The regular system prompt keeps being
         # sent unchanged.
+        local_compaction = false
         result = if @provider.is_a?(LLM::MoonshotProvider)
                    compactor = Context::Compaction.new(@provider, @context)
                    compactor.compact do |_|
@@ -702,6 +704,7 @@ module H2code
                      # the final result events carry the outcome.
                    end
                  else
+                   local_compaction = true
                    Context::Compaction.compact_simple(@context)
                  end
 
@@ -709,6 +712,7 @@ module H2code
         in Context::CompactionStatus::Cancelled
           on_event.call(Event.compaction_cancelled)
         in Context::CompactionStatus::Completed
+          on_event.call(Event.info("STARTING NEW CHAT")) if local_compaction
           on_event.call(Event.compaction_completed(result.tokens_before, result.tokens_after, result.summary))
           info = "Context compacted (#{result.messages_before} → #{result.messages_after} messages)"
           if result.dropped_count > 0

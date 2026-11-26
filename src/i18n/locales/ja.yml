@@ -63,6 +63,7 @@ ja:
     ollama: "ローカル — Ollama"
     lmstudio: "ローカル — LM Studio"
     strata: "ローカル — Strata"
+    maya: "ローカル — Maya"
     zai: "Z.AI / Zhipu (GLM)"
     zai_hint: "キーを取得: https://z.ai"
   commands:

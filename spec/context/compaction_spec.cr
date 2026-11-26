@@ -290,7 +290,7 @@ describe H2code::Context::Compaction do
   end
 
   describe ".compact_simple" do
-    it "keeps only user inputs and assistant answers, dropping thinking, tool calls and results" do
+    it "starts a new chat whose first message dumps the dialogue, dropping thinking, tool calls and results" do
       memory = H2code::Context::Memory.new
       memory.add_user("please run the tool")
       memory.add_assistant_parts([
@@ -306,19 +306,27 @@ describe H2code::Context::Compaction do
 
       result.completed?.should be_true
       result.messages_before.should eq(6)
-      result.messages_after.should eq(3)
-      memory.history.map(&.message.role).should eq(["user", "assistant", "assistant"])
-      memory.history.map(&.message.text).should eq(["please run the tool", "running it now", "final answer"])
-      # Thinking and tool activity are gone entirely.
-      memory.history.each do |cm|
-        cm.message.content.none?(H2code::LLM::ThinkContent).should be_true
-        cm.message.tool_calls.should be_nil
-        cm.message.tool_call_id.should be_nil
-      end
-      result.tokens_after.should be < result.tokens_before
+      # The whole dialogue is folded into a single user message.
+      result.messages_after.should eq(1)
+      memory.history.size.should eq(1)
+      dump = memory.history.first
+      dump.message.role.should eq("user")
+      text = dump.message.text
+      text.should contain("user: please run the tool")
+      text.should contain("assistant: running it now")
+      text.should contain("assistant: final answer")
+      # Thinking, tool activity and injections are gone entirely.
+      text.should_not contain("long reasoning")
+      text.should_not contain("only thinking")
+      text.should_not contain("tool output")
+      text.should_not contain("[step reminder]")
+      dump.message.content.none?(H2code::LLM::ThinkContent).should be_true
+      dump.message.tool_calls.should be_nil
+      # The continuation prompt closes the dump as the operative request.
+      text.should contain("Please continue")
     end
 
-    it "clamps to the most recent messages when the stripped dialogue still fills the window" do
+    it "clamps the dump to the most recent dialogue when it still fills the window" do
       memory = H2code::Context::Memory.new
       20.times do |i|
         memory.add_user("question number #{i} with plenty of padding text so it costs many tokens")
@@ -332,14 +340,14 @@ describe H2code::Context::Compaction do
 
       result.completed?.should be_true
       result.dropped_count.should be > 0
-      result.messages_after.should be < result.messages_before
+      result.messages_after.should eq(1)
       estimate = H2code::LLM::TokenCounter.estimate(memory.messages)
-      estimate.should be <= (400 * 0.5)
-      # The clamp keeps the tail: the newest exchange survives.
+      estimate.should be < 400
+      # The clamp keeps the tail: the newest exchange survives in the dump.
       memory.history.last.message.text.should contain("answer number 19")
     end
 
-    it "always keeps at least the latest message" do
+    it "always keeps at least the latest message in the dump" do
       memory = H2code::Context::Memory.new
       memory.add_user("#{"x" * 4000}")
       memory.add_user("tiny follow-up")
@@ -348,7 +356,28 @@ describe H2code::Context::Compaction do
       H2code::Context::Compaction.compact_simple(memory)
 
       memory.history.size.should eq(1)
-      memory.history.last.message.text.should eq("tiny follow-up")
+      memory.history.last.message.text.should contain("tiny follow-up")
+      memory.history.last.message.text.should contain("Please continue")
+    end
+
+    it "caps the dump at the absolute token limit even when the window is large" do
+      memory = H2code::Context::Memory.new
+      40.times do |i|
+        memory.add_user("#{"a" * 5000} request #{i}")
+        memory.add_assistant("#{"b" * 5000} answer #{i}")
+      end
+      # ~100k tokens of dialogue; 25% of a 262k window would allow 65k,
+      # but the absolute cap holds it at 50k.
+      memory.max_context_tokens = 262_144
+
+      result = H2code::Context::Compaction.compact_simple(memory)
+
+      result.completed?.should be_true
+      result.dropped_count.should be > 0
+      estimate = H2code::LLM::TokenCounter.estimate(memory.messages)
+      estimate.should be <= 50_000 + 200 # + note and continuation prompt
+      # The recent tail survives the cut.
+      memory.history.last.message.text.should contain("answer 39")
     end
   end
 

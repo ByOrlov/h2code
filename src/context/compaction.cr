@@ -54,12 +54,22 @@ module H2code
       # Backoff cap for transient-error retries, in seconds.
       MAX_RETRY_DELAY = 8
 
-      # Local (summarizer-less) compaction thresholds: when the stripped
-      # dialogue alone still fills at least this fraction of the context
-      # window, clamp to the most recent messages within
-      # `SIMPLE_CLAMP_BUDGET_RATIO` of the window.
-      SIMPLE_CLAMP_TRIGGER_RATIO = 0.7
-      SIMPLE_CLAMP_BUDGET_RATIO  = 0.5
+      # Local (summarizer-less) compaction: hard cap on the compacted
+      # history. The dump never exceeds `SIMPLE_CLAMP_BUDGET_RATIO` of the
+      # context window, nor `SIMPLE_CLAMP_BUDGET_MAX_TOKENS` in absolute
+      # terms — whichever is smaller (e.g. of a 262k window:
+      # min(65k, 50k) = 50k). The rest of the window stays as buffer for
+      # the system prompt, tool schemas, new turns and the answer. Whatever
+      # exceeds the cap is cut off from the start, bluntly by tokens,
+      # keeping the recent tail.
+      SIMPLE_CLAMP_BUDGET_RATIO      = 0.25
+      SIMPLE_CLAMP_BUDGET_MAX_TOKENS = 50_000
+
+      # The local compaction folds the prior dialogue into the first message
+      # of a fresh chat: this note opens it, the dialogue lines follow, and
+      # the continuation prompt closes it as the request the model acts on.
+      NEW_CHAT_NOTE = "[The context window was full — starting a new chat. Below is the compacted previous conversation: your requests and the assistant's direct answers, in order. Thinking blocks, tool calls and tool results were dropped.]"
+      CONTINUATION_PROMPT = "Please continue."
 
       # The summarizer instruction, adapted from the TS
       # `compaction-instruction.md`: a first-person handoff note, because the
@@ -188,48 +198,100 @@ module H2code
       # summarizer request (everything except the original Kimi/Moonshot
       # backend — e.g. GLM rejects the extra compaction chat as an
       # unsupported feature). No provider round-trip, no summarization: the
-      # history is rebuilt keeping only user inputs and the assistant's
-      # direct answers — thinking blocks, tool calls and tool results are
-      # dropped. When the stripped dialogue alone still fills too much of
-      # the window, the most recent messages within a token budget are kept
-      # (clamping). The regular system prompt keeps being sent unchanged,
-      # so the conversation continues over the stripped dialogue exactly as
-      # before.
+      # history is rebuilt as a fresh chat whose first message carries the
+      # dialogue dump — only user inputs and the assistant's direct answers,
+      # thinking blocks, tool calls and tool results are dropped — closed by
+      # the default continuation prompt. The dump is hard-capped at
+      # `SIMPLE_CLAMP_BUDGET_RATIO` of the window, and at
+      # `SIMPLE_CLAMP_BUDGET_MAX_TOKENS` in absolute terms: whatever
+      # exceeds the cap is cut off bluntly from the start, so the
+      # compacted history can never occupy more than a fraction of the
+      # available context. The regular system
+      # prompt keeps being sent unchanged, so the conversation continues
+      # over the dump exactly as before.
       def self.compact_simple(context : Context::Memory) : CompactionResult
         old_messages = context.history
         # Snapshot before rewriting: `history` returns the live array, which
-        # apply_simple_compaction clears in place.
+        # apply_new_chat clears in place.
         old_count = old_messages.size
         tokens_before = context.token_count
 
         stripped = strip_to_dialogue(old_messages)
         dropped = old_count - stripped.size
 
+        dump = dialogue_dump(stripped)
         max_ctx = context.max_context_tokens
-        if max_ctx > 0
-          estimate = LLM::TokenCounter.estimate(stripped.map(&.message))
-          if estimate >= (max_ctx * SIMPLE_CLAMP_TRIGGER_RATIO).to_i
-            budget = (max_ctx * SIMPLE_CLAMP_BUDGET_RATIO).to_i
-            clamped = take_recent_within_token_budget(stripped, budget)
-            # Never end up empty: at minimum the latest user input must
-            # survive so the running turn still has its request.
-            clamped = stripped.last(1) if clamped.empty? && !stripped.empty?
-            dropped += stripped.size - clamped.size
-            stripped = clamped
+        if max_ctx > 0 && !stripped.empty?
+          budget = Math.min((max_ctx * SIMPLE_CLAMP_BUDGET_RATIO).to_i, SIMPLE_CLAMP_BUDGET_MAX_TOKENS)
+          budget = 1 if budget < 1
+          if LLM::TokenCounter.estimate(stripped.map(&.message)) > budget
+            dump, head_dropped = cap_dump_to_token_budget(stripped, budget)
+            dropped += head_dropped
           end
         end
 
-        context.apply_simple_compaction(stripped)
+        context.apply_new_chat(dump)
 
         CompactionResult.new(
           status: CompactionStatus::Completed,
-          summary: "Kept only user requests and assistant answers; removed thinking blocks, tool calls and tool results.",
+          summary: "Started a new chat over the compacted history: kept only user requests and assistant answers; removed thinking blocks, tool calls and tool results.",
           tokens_before: tokens_before,
           tokens_after: context.token_count,
           messages_before: old_count,
-          messages_after: stripped.size,
+          messages_after: 1,
           dropped_count: dropped,
         )
+      end
+
+      # One dump line per dialogue message.
+      private def self.dialogue_lines(messages : Array(ContextMessage)) : Array(String)
+        messages.map do |cm|
+          role = cm.message.role == "user" ? "user" : "assistant"
+          "#{role}: #{cm.message.text.strip}"
+        end
+      end
+
+      # Fold the stripped dialogue into the single first message of the new
+      # chat: the marker note, the dialogue lines in order, then the
+      # continuation prompt the model is expected to act on.
+      def self.dialogue_dump(messages : Array(ContextMessage)) : String
+        body = messages.empty? ? "(no conversation content survived compaction)" : dialogue_lines(messages).join("\n\n")
+        "#{NEW_CHAT_NOTE}\n\n#{body}\n\n#{CONTINUATION_PROMPT}"
+      end
+
+      # The hard cap from `compact_simple`: when the dialogue body exceeds
+      # `token_budget` local-estimate tokens, the oldest part is sliced off
+      # at a token boundary — mid-word, mid-message, no per-message
+      # ceremony — keeping the recent tail as the buffer. The note and the
+      # continuation prompt are re-attached after the cut. Also returns how
+      # many dialogue messages were cut away entirely.
+      def self.cap_dump_to_token_budget(messages : Array(ContextMessage),
+                                        token_budget : Int32) : {String, Int32}
+        lines = dialogue_lines(messages)
+        body = lines.join("\n\n")
+        max_chars = token_budget * LLM::TokenCounter::CHARS_PER_TOKEN
+        cut = body.size > max_chars ? body.size - max_chars : 0
+        # Never cut into the final message: the latest user request must
+        # survive whole, even when it alone exceeds the cap.
+        if cut > 0 && (max_cut = body.size - lines.last.size) > 0
+          cut = Math.min(cut, max_cut)
+        end
+        cut = 0 if cut < 0
+        body = body[cut..] if cut > 0
+
+        # Messages that end entirely before the cut point are gone; a
+        # message sliced mid-way is not counted — its surviving tail is
+        # still in the dump.
+        dropped = 0
+        if cut > 0
+          offset = 0
+          lines.each do |line|
+            offset += line.size + 2 # + the "\n\n" separator
+            dropped += 1 if offset <= cut
+          end
+        end
+
+        {"#{NEW_CHAT_NOTE}\n\n#{body}\n\n#{CONTINUATION_PROMPT}", dropped}
       end
 
       # Keep only the dialogue skeleton of a message list: user messages

@@ -63,6 +63,7 @@ zh:
     ollama: "本地 — Ollama"
     lmstudio: "本地 — LM Studio"
     strata: "本地 — Strata"
+    maya: "本地 — Maya"
     zai: "Z.AI / Zhipu (GLM)"
     zai_hint: "在 https://z.ai 获取密钥"
   commands:

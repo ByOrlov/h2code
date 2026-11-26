@@ -63,6 +63,7 @@ be:
     ollama: "Лакальна — Ollama"
     lmstudio: "Лакальна — LM Studio"
     strata: "Лакальна — Strata"
+    maya: "Лакальна — Maya"
     zai: "Z.AI / Zhipu (GLM)"
     zai_hint: "Атрымаць ключ: https://z.ai"
   commands:

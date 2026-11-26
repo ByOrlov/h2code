@@ -32,6 +32,7 @@ require "./llm/zai_provider"
 require "./llm/ollama_provider"
 require "./llm/lmstudio_provider"
 require "./llm/strata_provider"
+require "./llm/maya_provider"
 require "./llm/deepseek_provider"
 require "./llm/groq_provider"
 require "./llm/openrouter_provider"
@@ -919,6 +920,8 @@ module H2code
             config.lmstudio_model = model
           when "strata"
             config.strata_model = model
+          when "maya"
+            config.maya_model = model
           end
           new_provider = build_named_provider(config.provider_name, config, oauth)
           configure_provider(new_provider, config, store.meta_id?)
@@ -1700,6 +1703,8 @@ module H2code
             config.lmstudio_model = model
           when "strata"
             config.strata_model = model
+          when "maya"
+            config.maya_model = model
           end
           provider = build_named_provider(config.provider_name, config, oauth)
           configure_provider(provider, config, store.meta_id?)
