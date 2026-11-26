@@ -1,7 +1,25 @@
 module H2code
   module Notify
+    # Build without the audio backend: `crystal build -Dwithout_miniaudio`
+    # compiles out the C bindings and the miniaudio link — the Player API
+    # stays intact for the callers, every play is a silent no-op. Without
+    # the flag the bridge (vendor/miniaudio/miniaudio_bridge.c) is linked
+    # statically into the binary — see Rakefile.
+    {% if flag?(:without_miniaudio) %}
+    class Player
+      property? enabled : Bool = true
+      property volume : Int32 = 70 # 0–100
+
+      def initialize(@done_path : String = "", @alert_path : String = "",
+                     @working_path : String = "",
+                     @enabled : Bool = true, @volume : Int32 = 70)
+      end
+
+      def play_for(event : String) : Nil
+      end
+    end
+    {% else %}
     # C bindings for the miniaudio bridge (vendor/miniaudio/miniaudio_bridge.c).
-    # Linked statically into the h2code binary — see Rakefile.
     lib MiniAudio
       fun ma_notify_init : Int32
       fun ma_notify_is_ready : Int32
@@ -82,5 +100,6 @@ module H2code
         end
       end
     end
+    {% end %}
   end
 end

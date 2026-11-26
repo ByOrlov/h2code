@@ -30,7 +30,8 @@ module H2code
         super(model, endpoint, api_key, temperature, max_tokens)
         # Z.AI / Zhipu (GLM) is OpenAI-compatible: it speaks the top-level
         # `reasoning_effort` string for reasoning control, not the Moonshot
-        # `thinking` object. `off`/`on` have no wire encoding here.
+        # `thinking` object. Unsupported efforts are clamped per model family
+        # in `build_request` — see `forced_thinking?`.
         @thinking_wire = ThinkingWire::ReasoningEffort
         @builtin_web_search = builtin_web_search
       end
@@ -67,7 +68,45 @@ module H2code
           current << JSON.parse(%({"type":"web_search","web_search":{"enable":true,"search_result":true}}))
           request.extra_tools = current
         end
+        # Forced-thinking models can't disable reasoning: "off" maps to "low"
+        # (the docs' recommended substitute), "on"/unset keep the server
+        # default, everything else is clamped to a valid level.
+        if forced_thinking?
+          effort = @thinking_effort.try(&.downcase)
+          request.reasoning_effort =
+            case effort
+            when "off", "none", "disabled" then "low"
+            when nil, "on"                 then nil
+            else                           clamp_forced_effort(effort.not_nil!)
+            end
+        end
         request
+      end
+
+      # GLM-5.3 and newer are forced-thinking models: the endpoint accepts
+      # `reasoning_effort` only as "low"/"high"/"max" and answers anything
+      # else (e.g. the config-default "medium") with HTTP 400 — "This model
+      # always engages in thinking and cannot be disabled; please use low,
+      # high, or max". Older GLM models accept the full OpenAI set and map
+      # aliases server-side (docs.z.ai openapi: medium→high, none/minimal→
+      # skip thinking, xhigh→max), so their efforts pass through untouched.
+      # Z.AI exposes no effort metadata over /models (ids only), so the
+      # split is derived from the model name the same way
+      # `default_context_tokens` is.
+      private def forced_thinking? : Bool
+        return false unless match = @model.downcase.match(/^glm-(\d+)(?:\.(\d+))?/)
+        major = match[1].to_i
+        minor = match[2]?.try(&.to_i) || 0
+        major > 5 || (major == 5 && minor >= 3)
+      end
+
+      private def clamp_forced_effort(effort : String) : String
+        case effort.downcase
+        when "low", "high", "max" then effort.downcase
+        when "xhigh"              then "max"
+        when "minimal"            then "low"
+        else                      "high"
+        end
       end
     end
 

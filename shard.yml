@@ -1,5 +1,5 @@
 name: h2code
-version: 0.1.0
+version: 2026.11.24
 
 authors:
   - Oleg Orlov <orelcokolov@gmail.com>
@@ -11,6 +11,33 @@ license: GPL-2.0-or-later
 targets:
   h2code:
     main: src/h2code.cr
+  hless:
+    main: bin/hless.cr
+  h2code-tg-bot:
+    main: src/tg_bot/main.cr
+
+# carat (OrelSokolov/carat.cr) delivery contract — shards ignores this key,
+# so `shards install` / `shards build` keep working untouched.
+binaries:
+  h2code:
+    main: src/h2code.cr
+    # prebuild is per-OS (carat selects by the host OS): unix hosts run the
+    # bash script, Windows runs the native .bat — no bash required there.
+    # prebuild is per-OS (carat selects by the host OS): unix hosts run the
+    # bash script, Windows runs the native .bat — no bash required there.
+    # To build without the audio backend at all (no bridge, no link): add
+    # `-Dwithout_miniaudio` to flags and drop prebuild/link_flags.
+    prebuild:
+      windows: scripts\build_miniaudio.bat
+      "*": bash scripts/build_miniaudio.sh
+    link_flags:
+      # Кавычки обязательны: в YAML flow-списке запятая разделяет элементы,
+      # так что пара "-framework CoreAudio" без кавычек распадётся на два флага.
+      darwin: ["-Lvendor/miniaudio", "-lminiaudio_bridge", "-framework CoreAudio", "-framework AudioToolbox", "-framework CoreFoundation"]
+      linux: [-Lvendor/miniaudio, -lminiaudio_bridge, -ldl, -lpthread, -lm]
+      # MSVC layout: scripts/build_miniaudio.bat produces the .obj (vswhere
+      # + vcvars64); carat resolves the relative path against the shard root.
+      windows: [vendor\miniaudio\miniaudio_bridge.obj, winmm.lib, ole32.lib, ksuser.lib]
   hless:
     main: bin/hless.cr
   h2code-tg-bot:
