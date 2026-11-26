@@ -139,14 +139,16 @@ jobs:
       - name: Install crosspack
         shell: bash
         run: |
-          # Keep in sync with Gemfile.lock. Plain gem install works where the
-          # runner user can write the gem dir (Windows, macOS); on Ubuntu it
-          # needs --user-install (/var/lib/gems is root-owned) — then expose
-          # the binstub dir via GITHUB_PATH for the later steps.
-          if ! gem install crosspack -v 0.6.2 --no-document 2>/dev/null; then
+          # Keep in sync with Gemfile.lock. RubyGems auto-falls back to a
+          # user install when the default gem dir is not writable (Ubuntu:
+          # /var/lib/gems is root-owned) and exits 0 — so the "install
+          # failed" fallback below never ran and the binstub dir
+          # (~/.gem/ruby/*/bin) never landed on PATH ("crosspack: command
+          # not found"). Always expose the user binstub dir via GITHUB_PATH
+          # for the later steps, whichever install path ran.
+          gem install crosspack -v 0.6.2 --no-document || \
             gem install crosspack -v 0.6.2 --no-document --user-install
-            echo "$(ruby -e 'puts Gem.user_dir')/bin" >> "$GITHUB_PATH"
-          fi
+          echo "$(ruby -e 'puts Gem.user_dir')/bin" >> "$GITHUB_PATH"
 
       - name: Cache x86_64 libraries (Intel macOS cross-build)
         if: matrix.target == 'darwin'

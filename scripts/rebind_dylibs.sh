@@ -29,6 +29,11 @@ otool -L "$BIN"
 for lib in libssl.3.dylib libcrypto.3.dylib; do
   abs=$(otool -L "$BIN" | grep -E "/.*/${lib}\b" | awk '{print $1}' | head -n1 || true)
   [ -n "$abs" ] || continue
+  # Unlink before copying: overwriting an already-copied (and ad-hoc
+  # re-signed) dylib in place intermittently fails with "Permission
+  # denied" on macOS runners — the second and third rebind step
+  # (hless, h2code-tg-bot) copy onto the sibling left by the first.
+  rm -f "$DIR/${lib}"
   cp "$abs" "$DIR/${lib}"
   # Rewrite the dylib's own id and its dependency on the sibling.
   install_name_tool -id "@rpath/${lib}" "$DIR/${lib}"
