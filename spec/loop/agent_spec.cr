@@ -57,6 +57,32 @@ private class StallOnceProvider < H2code::LLM::Provider
   end
 end
 
+# Provider that records the agent's `last_finish_reason` at chat time, so
+# specs can assert the per-turn reset of the finish tracker.
+private class FinishObservingProvider < H2code::LLM::Provider
+  property observe : (-> Nil)? = nil
+
+  def name : String
+    "finish-observing"
+  end
+
+  def model_name : String
+    "test"
+  end
+
+  def fetch_models : Array(String)
+    [] of String
+  end
+
+  def chat(messages : Array(H2code::LLM::Message), tools : Array(H2code::LLM::ToolDefinition)?,
+           system_prompt : String? = nil, aborted? : -> Bool = -> { false },
+           &block : H2code::LLM::MessagePart ->) : H2code::LLM::StepResult
+    @observe.try(&.call)
+    block.call(H2code::LLM::TextPart.new("ok"))
+    H2code::LLM::StepResult.new(stop_reason: "end_turn", text: "ok")
+  end
+end
+
 # Integration coverage for the agent loop, driven end-to-end by the offline
 # MockProvider. No network, no API key: the mock replays a fixed multi-step
 # script (parallel tool calls → write → finish) so run_turn, the parallel
@@ -123,6 +149,141 @@ describe H2code::Loop::Agent do
     result.steps.should eq(1)
     memory.messages.last.role.should eq("assistant")
     memory.messages.last.text.should eq("all done here")
+  end
+
+  it "ends the turn on an incomplete finish when nonstop mode is off" do
+    provider = H2code::LLM::MockProvider.new([
+      H2code::LLM::MockStep.new(
+        parts: [H2code::LLM::TextPart.new("partial answ")] of H2code::LLM::MessagePart,
+        stop_reason: "incomplete",
+        text: "partial answ",
+      ),
+    ])
+    memory = H2code::Context::Memory.new
+    tools = H2code::Tools::Registry.new
+    permission = H2code::Permission::Manager.new(H2code::Permission::Mode::Yolo)
+    agent = H2code::Loop::Agent.new(provider, memory, tools, permission)
+
+    result = agent.run_turn("hi", nil) { }
+
+    result.stop_reason.should eq("incomplete")
+    result.steps.should eq(1)
+    agent.last_finish_reason.should eq("incomplete")
+  end
+
+  it "nonstop mode nudges and continues after an incomplete finish" do
+    provider = H2code::LLM::MockProvider.new([
+      H2code::LLM::MockStep.new(
+        parts: [H2code::LLM::TextPart.new("partial answ")] of H2code::LLM::MessagePart,
+        stop_reason: "incomplete",
+        text: "partial answ",
+      ),
+      H2code::LLM::MockStep.new(
+        parts: [H2code::LLM::TextPart.new("all done")] of H2code::LLM::MessagePart,
+        stop_reason: "end_turn",
+        text: "all done",
+      ),
+    ])
+    memory = H2code::Context::Memory.new
+    tools = H2code::Tools::Registry.new
+    permission = H2code::Permission::Manager.new(H2code::Permission::Mode::Yolo)
+    agent = H2code::Loop::Agent.new(provider, memory, tools, permission)
+    agent.nonstop = true
+
+    events = [] of H2code::Loop::Event
+    result = agent.run_turn("hi", nil) { |e| events << e }
+
+    result.stop_reason.should eq("end_turn")
+    result.steps.should eq(2)
+
+    # The nudge fired into the chat exactly once, between the two steps.
+    nudges = events.select { |e| e.type.user_message? }
+                   .map(&.text)
+                   .select(&.==(H2code::Loop::Agent::NONSTOP_NUDGE))
+    nudges.size.should eq(1)
+
+    # And it landed in the context so the model actually sees it on the
+    # next request.
+    memory.messages.map(&.text).should contain(H2code::Loop::Agent::NONSTOP_NUDGE)
+
+    # The most recent step did deliver a genuine finish signal.
+    agent.last_finish_reason.should eq("end_turn")
+  end
+
+  it "nonstop mode nudges on an entirely empty response" do
+    provider = H2code::LLM::MockProvider.new([
+      H2code::LLM::MockStep.new(
+        parts: [] of H2code::LLM::MessagePart,
+        stop_reason: "end_turn",
+      ),
+      H2code::LLM::MockStep.new(
+        parts: [H2code::LLM::TextPart.new("recovered")] of H2code::LLM::MessagePart,
+        stop_reason: "end_turn",
+        text: "recovered",
+      ),
+    ])
+    memory = H2code::Context::Memory.new
+    tools = H2code::Tools::Registry.new
+    permission = H2code::Permission::Manager.new(H2code::Permission::Mode::Yolo)
+    agent = H2code::Loop::Agent.new(provider, memory, tools, permission)
+    agent.nonstop = true
+
+    result = agent.run_turn("hi", nil) { }
+
+    result.stop_reason.should eq("end_turn")
+    result.steps.should eq(2)
+    memory.messages.map(&.text).should contain(H2code::Loop::Agent::NONSTOP_NUDGE)
+  end
+
+  it "resets the finish tracker at the start of each turn" do
+    provider = FinishObservingProvider.new
+    observed = [] of String
+    agents = [] of H2code::Loop::Agent
+    provider.observe = -> do
+      if a = agents.first?
+        observed << a.last_finish_reason
+      end
+      nil
+    end
+
+    memory = H2code::Context::Memory.new
+    tools = H2code::Tools::Registry.new
+    permission = H2code::Permission::Manager.new(H2code::Permission::Mode::Yolo)
+    agent = H2code::Loop::Agent.new(provider, memory, tools, permission)
+    agents << agent
+
+    agent.run_turn("one", nil) { }
+    agent.last_finish_reason.should eq("end_turn")
+
+    agent.run_turn("two", nil) { }
+
+    # First observation: the initial "" (no step completed yet). Second: ""
+    # again even though the tracker held "end_turn" moments earlier — the
+    # new turn reset it before its first chat call, so a previous turn's
+    # stop never masquerades as the current one.
+    observed.should eq(["", ""])
+    agent.last_finish_reason.should eq("end_turn")
+  end
+
+  it "nonstop mode does not nudge a genuine end_turn with content" do
+    provider = H2code::LLM::MockProvider.new([
+      H2code::LLM::MockStep.new(
+        parts: [H2code::LLM::TextPart.new("all done here")] of H2code::LLM::MessagePart,
+        stop_reason: "end_turn",
+        text: "all done here",
+      ),
+    ])
+    memory = H2code::Context::Memory.new
+    tools = H2code::Tools::Registry.new
+    permission = H2code::Permission::Manager.new(H2code::Permission::Mode::Yolo)
+    agent = H2code::Loop::Agent.new(provider, memory, tools, permission)
+    agent.nonstop = true
+
+    result = agent.run_turn("hi", nil) { }
+
+    result.stop_reason.should eq("end_turn")
+    result.steps.should eq(1)
+    memory.messages.map(&.text).should_not contain(H2code::Loop::Agent::NONSTOP_NUDGE)
   end
 
   it "compacts locally without a summarizer chat on non-Moonshot providers" do

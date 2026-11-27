@@ -383,6 +383,17 @@ module H2code
       property on_set_max_retries : (Int32 -> Nil)?
       # Step cap per turn, changed live via `/set agent.max_steps <n>`.
       property on_set_max_steps : (Int32 -> Nil)?
+      # Nonstop mode (auto-continue on abnormal turn endings), shown and set
+      # via `/nonstop [on|off]`.
+      property on_get_nonstop : (-> Bool)?
+      property on_set_nonstop : (Bool -> Nil)?
+      # Stop reason of the agent's most recent completed step ("" before the
+      # first step of the current turn). Powers the "was the finish signal
+      # received" half of `/nonstop status`.
+      property on_get_nonstop_finish : (-> String)?
+      # Whether a turn is currently running — with an empty finish reason it
+      # renders as "in progress" instead of "no turn yet".
+      property on_get_nonstop_busy : (-> Bool)?
       # Plan-mode toggle: receives the next desired state, returns true if it
       # was applied (false → not wired up / not supported by this provider).
       property on_plan_mode : (Bool -> Bool)?

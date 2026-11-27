@@ -69,6 +69,26 @@ describe H2code::LLM::OpenAIChatProvider do
       result.stop_reason.should eq("end_turn")
     end
 
+    it "reports 'incomplete' when the stream ends without a finish_reason chunk" do
+      transport = H2code::MockHttpTransport.new
+      transport.mode = H2code::MockHttpTransport::Mode::NormalStream
+      # A stream that dies right after the content deltas — no terminal
+      # chunk carrying finish_reason.
+      transport.stream_lines = [
+        sse_text_chunk("partial"),
+        sse_usage_chunk,
+      ]
+
+      provider = TestProvider.new("m", "http://localhost", transport: transport)
+
+      parts = [] of H2code::LLM::MessagePart
+      result = provider.chat([H2code::LLM::Message.user("hi")], nil) { |p| parts << p }
+
+      result.text.should eq("partial")
+      result.stop_reason.should eq("incomplete")
+      parts.select(H2code::LLM::FinishPart).map(&.reason).should eq(["incomplete"])
+    end
+
     it "raises non-retryable ApiError when the stream carries a bare error event" do
       transport = H2code::MockHttpTransport.new
       transport.mode = H2code::MockHttpTransport::Mode::NormalStream

@@ -676,6 +676,52 @@ module H2code
         end
       end
 
+      # `/nonstop [on|off]` — toggle nonstop mode: when a step ends without
+      # tool calls but abnormally (the stream died without a terminal
+      # finish_reason chunk, the output was cut at `length`, or the response
+      # is entirely empty), the agent loop injects a "Continue please" nudge
+      # and keeps the turn going. A genuine end_turn still stops normally.
+      # Bare `/nonstop` turns it on; `/nonstop status` shows the state.
+      # The setting is persisted in config (`agent.nonstop`).
+      private def cmd_nonstop(args : String) : Nil
+        arg = args.strip.downcase
+        arg = "on" if arg.empty?
+        case arg
+        when "on", "off"
+          desired = arg == "on"
+          if cb = @on_set_nonstop
+            cb.call(desired)
+            emit_to_log(Message.new("system", H2code.t(desired ? "ui.nonstop_on" : "ui.nonstop_off")))
+          else
+            emit_to_log(Message.new("error", H2code.t("ui.nonstop_not_wired")))
+          end
+        when "status"
+          current = @on_get_nonstop.try(&.call) || false
+          state = current ? H2code.t("ui.plan_mode_on") : H2code.t("ui.plan_mode_off")
+          emit_to_log(Message.new("system",
+            H2code.t("ui.nonstop_status", state: state, finish: nonstop_finish_text)))
+        else
+          emit_to_log(Message.new("error", H2code.t("ui.nonstop_usage")))
+        end
+      end
+
+      # Human-readable "was the terminating symbol received" line for
+      # `/nonstop status`, from the agent's most recent step of the current
+      # turn: "incomplete" means the stream died without a finish signal,
+      # any other reason means one arrived. An empty reason means the first
+      # step is either still in flight ("in progress") or never ran.
+      private def nonstop_finish_text : String
+        reason = @on_get_nonstop_finish.try(&.call) || ""
+        return H2code.t("ui.nonstop_finish_pending") if reason.empty? && turn_in_flight?
+        return H2code.t("ui.nonstop_finish_none") if reason.empty?
+        return H2code.t("ui.nonstop_finish_missing") if reason == "incomplete"
+        H2code.t("ui.nonstop_finish_received", reason: reason)
+      end
+
+      private def turn_in_flight? : Bool
+        @on_get_nonstop_busy.try(&.call) || false
+      end
+
       private def cmd_todos(args : String) : Nil
         todos = current_todos
         if todos.nil? || todos.empty?

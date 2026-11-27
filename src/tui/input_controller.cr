@@ -641,6 +641,8 @@ module H2code
           cmd_retry(args)
         when "/refresh"
           cmd_refresh
+        when "/nonstop"
+          cmd_nonstop(args)
         when "/provider"
           open_provider_selector
         when "/setup"

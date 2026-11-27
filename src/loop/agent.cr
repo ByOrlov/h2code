@@ -31,6 +31,20 @@ module H2code
       # Retries for transient provider failures (network drops, 429, 5xx)
       # before the turn fails. Default 3; changed at runtime via `/retry`.
       property max_retries : Int32 = 3
+      # Nonstop mode: when a step ends without tool calls but the finish is
+      # abnormal (stream died without a terminal chunk, `length` cutoff, or
+      # an empty response), inject a "Continue please" nudge and keep the
+      # turn going instead of stopping. The model's genuine `end_turn` with
+      # content still ends the turn normally. Each nudge consumes a step,
+      # so `max_steps` bounds the loop. Toggled via `/nonstop`.
+      property? nonstop : Bool = false
+      # Stop reason of the most recently completed step of the CURRENT turn,
+      # surfaced by `/nonstop status`. "incomplete" means the stream ended
+      # without a terminal finish_reason chunk (no terminating symbol);
+      # anything else ("end_turn", "stop", "length", …) means the LLM did
+      # send one. Reset to "" at the start of each turn so a previous turn's
+      # stop never masquerades as the current one.
+      getter last_finish_reason : String = ""
       @busy : Bool = false
 
       def busy? : Bool
@@ -74,6 +88,11 @@ module H2code
         leaving the goal active. Do not ask the user for input unless a real blocker prevents progress.
       TEXT
 
+      # The nonstop-mode nudge: sent as a user message when the model ends a
+      # step abnormally (see `incomplete_finish?`). Deliberately minimal —
+      # its only job is to wake a glitched/stalled model, not to steer it.
+      NONSTOP_NUDGE = "Continue please"
+
       def initialize(@provider : LLM::Provider,
                      @context : Context::Memory,
                      @tools : Tools::Registry,
@@ -101,6 +120,11 @@ module H2code
         # Fresh overflow recovery for this turn — each projection/compaction
         # is tried at most once per turn.
         @overflow_recovery.reset
+        # Per-turn finish tracker: the previous turn's stop reason must not
+        # leak into this one — `/nonstop status` shows "in progress" until
+        # the first step of THIS turn completes, then this turn's own
+        # finish signal.
+        @last_finish_reason = ""
 
         total_usage = LLM::Usage.new
         steps = 0
@@ -161,6 +185,7 @@ module H2code
             inject_swarm_reminder
 
             step_result = execute_step(sys_prompt, on_event)
+            @last_finish_reason = step_result.stop_reason
 
             # The provider's usage object carries the authoritative context
             # fill; feed it back into memory so the percent/count reflect the
@@ -193,6 +218,19 @@ module H2code
                   next
                 end
               end
+
+              # Nonstop mode: the step ended without tool calls, but the
+              # finish looks like a glitch (stream died without a terminal
+              # chunk, output cut at the token limit, or an entirely empty
+              # response). Nudge the model to continue — the autonomous
+              # equivalent of the user typing "continue". Each nudge
+              # consumes a step, so max_steps bounds the loop.
+              if nonstop? && incomplete_finish?(step_result)
+                @context.add_user(NONSTOP_NUDGE)
+                on_event.call(Event.user_message(NONSTOP_NUDGE))
+                next
+              end
+
               return_value = TurnResult.new(step_result.stop_reason, steps, total_usage)
               break
             end
@@ -485,6 +523,16 @@ module H2code
           context: @context,
           hooks: @hooks,
         ).run(tool_calls, &on_event)
+      end
+
+      # True when a no-tool-call step ended abnormally: the stream died
+      # without a terminal finish_reason chunk ("incomplete"), the output
+      # was cut at the completion-token limit ("length"), or the model
+      # returned nothing at all. A genuine `end_turn` with content is the
+      # model's done signal and never triggers a nonstop nudge.
+      private def incomplete_finish?(step_result : StepResult) : Bool
+        return true if step_result.stop_reason.in?("incomplete", "length")
+        step_result.text.empty? && step_result.thinking.empty? && step_result.tool_calls.empty?
       end
 
       private def inject_step_reminders(steps : Int32) : Nil

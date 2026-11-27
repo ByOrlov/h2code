@@ -151,6 +151,10 @@ module H2code
       # Retries for transient provider failures (network drops, 429, 5xx)
       # before the turn fails. Set via `/retry <n>` or `/set agent.max_retries`.
       property max_retries : Int32 = 3
+      # Nonstop mode: auto-continue the turn when the model ends a step
+      # abnormally (no terminal finish chunk, `length` cutoff, or an empty
+      # response). Set via `/nonstop` or `/set agent.nonstop`.
+      property? nonstop : Bool = false
       property max_context_tokens : Int32 = 262144
       # Whether `max_context_tokens` was explicitly set by the user (config
       # file or `/set`) rather than left at the global default. When it was
@@ -224,6 +228,7 @@ module H2code
         SettingSpec.new("permission.sudo_mode", "enum", ["off", "request", "always"]),
         SettingSpec.new("agent.max_steps", "int"),
         SettingSpec.new("agent.max_retries", "int"),
+        SettingSpec.new("agent.nonstop", "bool"),
         SettingSpec.new("agent.max_context_tokens", "int"),
         SettingSpec.new("github.token", "string", secret: true),
         SettingSpec.new("gitlab.token", "string", secret: true),
@@ -301,6 +306,7 @@ module H2code
         when "permission.sudo_mode"     then @sudo_mode
         when "agent.max_steps"          then @max_steps.to_s
         when "agent.max_retries"        then @max_retries.to_s
+        when "agent.nonstop"            then @nonstop.to_s
         when "agent.max_context_tokens" then @max_context_tokens.to_s
         when "github.token"             then @github_token
         when "gitlab.token"             then @gitlab_token
@@ -321,6 +327,7 @@ module H2code
         when "permission.sudo_mode"  then @sudo_mode = value
         when "agent.max_steps"       then @max_steps = value.to_i
         when "agent.max_retries"     then @max_retries = value.to_i
+        when "agent.nonstop"         then @nonstop = value == "true"
         when "agent.max_context_tokens"
           @max_context_tokens = value.to_i
           @max_context_tokens_explicit = true
@@ -644,6 +651,7 @@ module H2code
         if agent = root["agent"]?.try(&.as_h?)
           config.max_steps = agent["max_steps"]?.try(&.as_i?) || 150
           config.max_retries = agent["max_retries"]?.try(&.as_i?) || 3
+          config.nonstop = agent["nonstop"]?.try(&.as_bool?) || false
           config.max_context_tokens = agent["max_context_tokens"]?.try(&.as_i?) || 262144
           config.max_context_tokens_explicit = !agent["max_context_tokens"]?.nil?
           config.temperature = agent["temperature"]?.try(&.as_f?)
@@ -927,6 +935,7 @@ module H2code
               json.object do
                 json.field("max_steps", @max_steps)
                 json.field("max_retries", @max_retries)
+                json.field("nonstop", @nonstop)
                 json.field("max_context_tokens", @max_context_tokens)
                 if temp = @temperature
                   json.field("temperature", temp)

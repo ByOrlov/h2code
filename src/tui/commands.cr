@@ -71,6 +71,7 @@ module H2code
         CommandInfo.new("/settings", "Show current configuration", description_key: "settings"),
         CommandInfo.new("/set", "Show or set a config value", "[<key> [<value>]]", "set"),
         CommandInfo.new("/unlim", "Set agent max steps to 9999", description_key: "unlim"),
+        CommandInfo.new("/nonstop", "Auto-continue the turn when the model ends it abnormally", "on|off", "nonstop"),
         CommandInfo.new("/init", "Analyze the codebase and generate AGENTS.md", description_key: "init"),
         CommandInfo.new("/export-debug-zip", "Export session debug bundle (.tar.gz)", description_key: "export_debug_zip"),
         CommandInfo.new("/experiments", "Show experimental feature flags", description_key: "experiments"),

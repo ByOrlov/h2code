@@ -274,7 +274,12 @@ module H2code
         accumulated_text = IO::Memory.new
         accumulated_thinking = IO::Memory.new
         tool_calls = Hash(Int32, {String, String, String}).new
-        finish_reason = "end_turn"
+        # nil until a terminal chunk arrives carrying `finish_reason`. A
+        # stream that dies without one resolves to "incomplete" below so the
+        # agent loop can tell an aborted stream apart from a genuine
+        # end-of-turn (OpenAI-compatible backends always send finish_reason
+        # on the last chunk).
+        finish_reason : String? = nil
         usage = Usage.new
 
         stream_response(request, aborted?) do |chunk|
@@ -339,12 +344,16 @@ module H2code
           end
         end
 
-        block.call(FinishPart.new(finish_reason))
+        # A captured-and-reassigned variable isn't nil-narrowed by `||` in
+        # Crystal, so resolve through an explicit check.
+        fr = finish_reason
+        fr = "incomplete" if fr.nil?
+        block.call(FinishPart.new(fr))
 
         final_tool_calls = tool_calls.values.sort_by! { |tc| tool_calls.key_for(tc) }
           .map { |id, name, args| ToolCall.new(id, ToolCallFunction.new(name, args)) }
 
-        stop_reason = finish_reason == "tool_calls" ? "tool_use" : finish_reason
+        stop_reason = fr == "tool_calls" ? "tool_use" : fr
 
         StepResult.new(
           stop_reason: stop_reason,

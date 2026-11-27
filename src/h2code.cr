@@ -560,6 +560,7 @@ module H2code
       agent.debug = config.debug?
       agent.max_retries = config.max_retries
       agent.max_steps = config.max_steps
+      agent.nonstop = config.nonstop?
       # Persist the per-model text-only mark when the agent intercepts the
       # "content.type is invalid, allowed values: ['text']" 400.
       agent.on_text_only_detected = ->(model_name : String) { config.mark_text_only_model!(model_name) }
@@ -1884,6 +1885,19 @@ module H2code
       # `/set agent.max_steps <n>` reaches the running agent immediately
       # (config persistence is already handled by the /set command).
       app.on_set_max_steps = ->(n : Int32) { agent.max_steps = n; nil }
+      # `/nonstop [on|off]`: auto-continue the turn when the model ends a
+      # step abnormally (no terminal finish chunk, `length` cutoff, or an
+      # empty response) instead of stopping. Persisted in `agent.nonstop`
+      # so the mode survives restarts.
+      app.on_get_nonstop = -> : Bool { agent.nonstop? }
+      app.on_get_nonstop_finish = -> : String { agent.last_finish_reason }
+      app.on_get_nonstop_busy = -> : Bool { agent.busy? }
+      app.on_set_nonstop = ->(on : Bool) do
+        agent.nonstop = on
+        config.nonstop = on
+        config.save
+        nil
+      end
 
       app.on_get_language = -> : String do
         config.language || H2code::I18n.resolve_locale
